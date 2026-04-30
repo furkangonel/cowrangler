@@ -14,7 +14,7 @@ process.on("uncaughtException", (err) => {
   process.exit(1);
 });
 
-// Artık standart dotenv yerine kendi özel loader'ımızı kullanıyoruz
+// Using our custom environment loader instead of standard dotenv
 import {
   initEnvironment,
   getConfig,
@@ -41,20 +41,51 @@ async function main() {
   const configuration = getConfig();
   setWorkspace(PROJECT_ROOT);
 
-  const llm = new LLM(configuration.model, configuration.temperature);
+  let llm: LLM;
+
+  // Smart Key and Model Check
+  try {
+    llm = new LLM(configuration.model, configuration.temperature);
+  } catch (e: any) {
+    if (e.message.startsWith("MISSING_KEY:")) {
+      const missingKey = e.message.split(":")[1];
+      console.log(chalk.red(`\n  🚨 ACCESS DENIED: Missing API Key!`));
+      console.log(
+        chalk.yellow(
+          `  The selected model (${configuration.model}) requires a valid ${missingKey}.`,
+        ),
+      );
+      console.log(
+        chalk.dim(
+          `  SOLUTION: Type '/key set ${missingKey} <your_key>' in the CLI to securely save it.\n`,
+        ),
+      );
+      process.exit(1);
+    }
+
+    if (e.message.startsWith("UNSUPPORTED_MODEL:")) {
+      console.log(chalk.red(`\n  🚨 ERROR: Unrecognized model format!`));
+      console.log(
+        chalk.yellow(
+          `  '${configuration.model}' does not match any supported provider prefixes.`,
+        ),
+      );
+      console.log(
+        chalk.dim(
+          `  Supported prefixes: openrouter/*, gpt-*, claude-*, gemini-*, groq/*\n`,
+        ),
+      );
+      process.exit(1);
+    }
+
+    throw e; // Throw if it is an unknown error
+  }
+
   const agent = new Agent(
     llm,
-    configuration.system_prompt || "You are Naut.",
+    configuration.system_prompt || "You are Co-Wrangler.",
     configuration.max_iterations,
   );
-
-  if (!process.env.OPENROUTER_API_KEY) {
-    console.log(
-      chalk.yellow(
-        `\n  ⚠ UYARI: OPENROUTER_API_KEY bulunamadı!\n  Sistemi kullanmaya başlamadan önce terminale '/key OPENROUTER_API_KEY anahtariniz' yazarak global sisteme kaydedin.\n`,
-      ),
-    );
-  }
 
   await runCLI(agent);
 }
