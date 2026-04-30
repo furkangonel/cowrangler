@@ -1,23 +1,83 @@
 import os from "os";
+import { execSync } from "child_process";
 import chalk from "chalk";
 import boxen from "boxen";
 import Table from "cli-table3";
 import { marked } from "marked";
 // @ts-ignore
 import { markedTerminal } from "marked-terminal";
+import { getConfig } from "../core/init.js";
 
 marked.use(markedTerminal() as unknown as any);
 
-export const Theme = {
-  // Claude Code tarzı şık bir mavi tonu (DodgerBlue/Sky)
-  main: chalk.hex("#FF4C00"),
-  accent: chalk.hex("#F8F2E5"),
-  dim: chalk.hex("#6B6B6B"),
-  success: chalk.hex("#A5C27C"),
-  fail: chalk.hex("#D62926"),
-  info: chalk.hex("#5CA4D4"),
+// 1. Koyu ve Açık Tema Paletleri
+const palettes = {
+  dark: {
+    main: chalk.hex("#FF4C00"),
+    accent: chalk.hex("#F8F2E5"),
+    dim: chalk.hex("#6B6B6B"),
+    success: chalk.hex("#A5C27C"),
+    fail: chalk.hex("#D62926"),
+    info: chalk.hex("#5CA4D4"),
+  },
+  light: {
+    main: chalk.hex("#FF4C00"),
+    accent: chalk.hex("#1A1A1A"),
+    dim: chalk.hex("#888888"),
+    success: chalk.hex("#3B701E"),
+    fail: chalk.hex("#B3201D"),
+    info: chalk.hex("#1C6B9E"),
+  },
 };
 
+// 2. İşletim Sisteminin Temasını Otomatik Algılayan Fonksiyon
+function detectSystemTheme(): "dark" | "light" {
+  try {
+    const platform = os.platform();
+
+    if (platform === "darwin") {
+      // macOS: Eğer sistem Dark moddaysa bu komut başarılı olur ve "Dark" döner.
+      // Light moddaysa komut hata fırlatır (catch bloğuna düşer).
+      execSync("defaults read -g AppleInterfaceStyle", { stdio: "ignore" });
+      return "dark";
+    }
+
+    if (platform === "win32") {
+      // Windows: Kayıt defterinden uygulamanın açık/koyu tema durumunu okuruz
+      const result = execSync(
+        'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize" /v AppsUseLightTheme',
+        { encoding: "utf-8", stdio: "pipe" },
+      );
+      return result.includes("0x0") ? "dark" : "light";
+    }
+
+    // Linux ve diğerleri için terminal arkaplan env değişkeni kontrolü (Fallback)
+    if (process.env.COLORFGBG && process.env.COLORFGBG.endsWith(";15")) {
+      return "light";
+    }
+
+    return "dark"; // Bilinmeyen bir ortamdaysa varsayılan olarak koyu kullan
+  } catch (error) {
+    // macOS'ta 'defaults' komutu hata fırlattıysa sistem kesinlikle Açık Temadadır.
+    return "light";
+  }
+}
+
+// 3. Tema Belirleme Mantığı (Config > Auto > Fallback)
+const config = getConfig();
+let currentThemeMode: "dark" | "light" = "dark";
+
+if (config.theme === "light" || config.theme === "dark") {
+  // Kullanıcı özellikle bir tema zorunlu kıldıysa onu kullan
+  currentThemeMode = config.theme;
+} else {
+  // Config dosyasında ayar yoksa (veya 'auto' yazıyorsa) sistemi otomatik kokla!
+  currentThemeMode = detectSystemTheme();
+}
+
+export const Theme = palettes[currentThemeMode];
+
+// --- UI OBMESI (Değişiklik yok) ---
 export const UI = {
   renderMarkdown: async (text: string): Promise<string> => {
     return marked.parse(text) as string;
@@ -36,7 +96,6 @@ export const UI = {
 
     const safeModelName = modelName || "unknown-engine";
 
-    // Görseldeki gibi dar ve sabit bir tablo yapısı
     const table = new Table({
       chars: {
         top: "",
@@ -56,17 +115,15 @@ export const UI = {
         middle: " │ ",
       },
       style: { "padding-left": 2, "padding-right": 2 },
-      // Sütunları daralttık: Toplam ~65 karakter genişlik (Claude tarzı)
       colWidths: [32, 33],
       wordWrap: true,
     });
 
-    // Mavi Ahtapot Logosu (Octo) - Claude Crab'in kardeşi
     const badge = `
   ${Theme.main("▄▄▄▄▄▄▄")}
   ${Theme.main("█ ███ █")}
   ${Theme.main("███████")}
-  ${Theme.main("█▄█     █▄█")}
+  ${Theme.main("█▄█    █▄█")}
 `;
 
     const left = [
@@ -105,7 +162,6 @@ export const UI = {
           borderColor: "#FF4C00",
           title: Theme.main(" Co-Wrangler v1.0.0 "),
           titleAlignment: "left",
-          // Terminal ne kadar geniş olursa olsun kutunun yayılmasını engeller
           width: 75,
         }) +
         "\n",
@@ -119,7 +175,7 @@ export const UI = {
         padding: 1,
         borderColor: "#FF4C00",
         titleAlignment: "left",
-        width: 75, // Alt kutuları da aynı genişlikte sabitledik
+        width: 75,
       }),
     );
   },
