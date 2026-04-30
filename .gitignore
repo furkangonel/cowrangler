@@ -1,0 +1,32 @@
+# ==========================================
+# Co-Wrangler - .gitignore
+# ==========================================
+
+# 1. Dependencies
+node_modules/
+package-lock.json
+npm-debug.log*
+
+# 2. Compilation Outputs
+dist/
+build/
+*.tsbuildinfo
+
+# 3. Secrets and Keys (CRITICAL)
+.env
+.env.*
+*.local
+credentials.env
+
+# 4. Operating System and Editor Files
+.DS_Store
+.idea/
+.vscode/
+
+# 5. local
+# (Her projenin kendi hafızası ve todo listesi yerelde kalmalı)
+.cowrangler/config.yaml
+.cowrangler/AGENT_TODO.md
+
+# 6. Logs
+*.log
