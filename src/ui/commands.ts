@@ -111,7 +111,7 @@ export class CommandRouter {
           console.log(
             `\n  ${Theme.success("✓ SOP ENFORCED:")} ${Theme.accent.bold(rawId)}\n  ${Theme.dim("Executing task with specialized skill context...")}\n`,
           );
-          const directive = `${remainder}\n\n[SİSTEM DİREKTİFİ: 'utilize_skill' aracıyla '${rawId}' dosyasını okuyarak göreve başla.]`;
+          const directive = `${remainder}\n\n[SYSTEM DIRECTIVE: Utilize the 'utilize_skill' tool to read '${rawId}' before starting the task.]`;
           await ctx.executeAgentDirective(directive);
         }
       },
@@ -122,7 +122,7 @@ export class CommandRouter {
       execute: (args: string[], ctx: CommandContext) => {
         const action = args[0];
 
-        // Global ayarı okuyalım (Kayıtlı modeller burada tutuluyor)
+        // Read global settings for registered models
         let globalConfig: any = {};
         if (fs.existsSync(DIRS.global.config)) {
           globalConfig =
@@ -130,7 +130,7 @@ export class CommandRouter {
         }
         if (!globalConfig.saved_models) globalConfig.saved_models = [];
 
-        // 1. MODEL LİSTELEME
+        // 1. LIST MODELS
         if (action === "list") {
           if (globalConfig.saved_models.length === 0) {
             return UI.warn(
@@ -143,7 +143,7 @@ export class CommandRouter {
           return UI.box(listText, "Registered AI Models");
         }
 
-        // 2. YENİ MODEL EKLEME
+        // 2. ADD NEW MODEL
         if (action === "add" && args[1]) {
           const newModel = args[1];
           if (globalConfig.saved_models.includes(newModel)) {
@@ -154,10 +154,10 @@ export class CommandRouter {
           return UI.success(`Model '${newModel}' added to registry.`);
         }
 
-        // 3. AKTİF MODELİ BELİRLEME
+        // 3. SET ACTIVE MODEL
         if (action === "set" && args[1]) {
           const targetModel = args[1];
-          const scope = args[2] === "global" ? "global" : "local"; // Varsayılan Local
+          const scope = args[2] === "global" ? "global" : "local"; // Default to local
 
           if (!globalConfig.saved_models.includes(targetModel)) {
             return UI.error(
@@ -194,7 +194,7 @@ export class CommandRouter {
       execute: (args: string[], ctx: CommandContext) => {
         const action = args[0];
 
-        // 1. KEY LİSTELEME (Güvenli)
+        // 1. LIST KEYS (Safely masked)
         if (action === "list") {
           if (!fs.existsSync(DIRS.global.credentials)) {
             return UI.warn(
@@ -213,7 +213,7 @@ export class CommandRouter {
           let listText = `${Theme.main("Global Vault (~/.cowrangler/credentials.env):")}\n`;
           keys.forEach((line) => {
             const [provider, key] = line.split("=");
-            // Güvenlik: Key'in ilk 6 ve son 4 karakterini göster, gerisini yıldızla
+            // Mask the key for security (show only first 6 and last 4)
             const maskedKey =
               key.length > 10
                 ? `${key.substring(0, 6)}••••••••••••${key.substring(key.length - 4)}`
@@ -224,7 +224,7 @@ export class CommandRouter {
           return UI.box(listText.trim(), "Credential Vault");
         }
 
-        // 2. KEY EKLEME/GÜNCELLEME
+        // 2. SET/UPDATE KEY
         if (action === "set") {
           if (args.length < 3)
             return UI.error("Usage: /key set <PROVIDER_NAME> <YOUR_KEY>");
@@ -232,10 +232,10 @@ export class CommandRouter {
           const provider = args[1].toUpperCase();
           const key = args[2];
 
-          // O anki oturumun belleğine kaydet
+          // Save to current session environment
           process.env[provider] = key;
 
-          // Dosyayı oku, varsa güncelle, yoksa ekle
+          // Update or append to the credentials file
           let envContent = fs.existsSync(DIRS.global.credentials)
             ? fs.readFileSync(DIRS.global.credentials, "utf-8")
             : "";
@@ -267,7 +267,7 @@ export class CommandRouter {
             return `  ${Theme.accent.bold(cmd.padEnd(20))} ${Theme.dim(`→ ${data.description}`)}`;
           })
           .join("\n");
-        UI.box(helpText, "Naut User Manual");
+        UI.box(helpText, "Co-Wrangler User Manual");
       },
     });
   }

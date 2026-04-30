@@ -10,7 +10,7 @@ import { getConfig } from "../core/init.js";
 
 marked.use(markedTerminal() as unknown as any);
 
-// 1. Koyu ve Açık Tema Paletleri
+// 1. Dark and Light Theme Palettes
 const palettes = {
   dark: {
     main: chalk.hex("#FF4C00"),
@@ -30,20 +30,19 @@ const palettes = {
   },
 };
 
-// 2. İşletim Sisteminin Temasını Otomatik Algılayan Fonksiyon
+// 2. Auto-detect Operating System Theme Function
 function detectSystemTheme(): "dark" | "light" {
   try {
     const platform = os.platform();
 
     if (platform === "darwin") {
-      // macOS: Eğer sistem Dark moddaysa bu komut başarılı olur ve "Dark" döner.
-      // Light moddaysa komut hata fırlatır (catch bloğuna düşer).
+      // macOS: Throws an error if system is in Light mode. Returns "Dark" otherwise.
       execSync("defaults read -g AppleInterfaceStyle", { stdio: "ignore" });
       return "dark";
     }
 
     if (platform === "win32") {
-      // Windows: Kayıt defterinden uygulamanın açık/koyu tema durumunu okuruz
+      // Windows: Query the registry for App theme preference
       const result = execSync(
         'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize" /v AppsUseLightTheme',
         { encoding: "utf-8", stdio: "pipe" },
@@ -51,33 +50,33 @@ function detectSystemTheme(): "dark" | "light" {
       return result.includes("0x0") ? "dark" : "light";
     }
 
-    // Linux ve diğerleri için terminal arkaplan env değişkeni kontrolü (Fallback)
+    // Fallback for Linux/other terminals based on background color variable
     if (process.env.COLORFGBG && process.env.COLORFGBG.endsWith(";15")) {
       return "light";
     }
 
-    return "dark"; // Bilinmeyen bir ortamdaysa varsayılan olarak koyu kullan
+    return "dark"; // Default to dark if environment is unknown
   } catch (error) {
-    // macOS'ta 'defaults' komutu hata fırlattıysa sistem kesinlikle Açık Temadadır.
+    // If 'defaults' throws on macOS, the system is explicitly in Light Mode
     return "light";
   }
 }
 
-// 3. Tema Belirleme Mantığı (Config > Auto > Fallback)
+// 3. Theme Resolution Logic (Config > Auto-detect > Fallback)
 const config = getConfig();
 let currentThemeMode: "dark" | "light" = "dark";
 
 if (config.theme === "light" || config.theme === "dark") {
-  // Kullanıcı özellikle bir tema zorunlu kıldıysa onu kullan
+  // Use explicit config preference if defined
   currentThemeMode = config.theme;
 } else {
-  // Config dosyasında ayar yoksa (veya 'auto' yazıyorsa) sistemi otomatik kokla!
+  // Otherwise, sniff the OS theme!
   currentThemeMode = detectSystemTheme();
 }
 
 export const Theme = palettes[currentThemeMode];
 
-// --- UI OBMESI (Değişiklik yok) ---
+// --- UI OBJECT ---
 export const UI = {
   renderMarkdown: async (text: string): Promise<string> => {
     return marked.parse(text) as string;
@@ -123,7 +122,7 @@ export const UI = {
   ${Theme.main("▄▄▄▄▄▄▄")}
   ${Theme.main("█ ███ █")}
   ${Theme.main("███████")}
-  ${Theme.main("█▄█    █▄█")}
+  ${Theme.main("█▄█     █▄█")}
 `;
 
     const left = [

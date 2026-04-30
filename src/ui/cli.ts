@@ -4,10 +4,10 @@ import { UI } from "./theme.js";
 import { InteractiveRepl } from "./repl.js";
 
 export async function runCLI(agent: Agent) {
-  // Ajanın modelini ve mevcut çalışma dizinini ekrana basar
+  // Print the dashboard with the active model and current working directory
   UI.printDashboard(agent.llm.model, process.cwd());
 
-  // Yeni, saf ve güçlü terminal döngümüzü başlatır
+  // Initialize and start our robust, interactive terminal loop
   const repl = new InteractiveRepl(agent);
   repl.start();
 }
