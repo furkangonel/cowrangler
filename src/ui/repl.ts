@@ -29,8 +29,28 @@ export class InteractiveRepl {
   }
 
   public async start() {
+    // 1. GÜVENLİK SİGORTALARI: Program kapanırsa veya çökerse terminali normal haline döndür
+    process.on("exit", () => {
+      if (process.stdin.isTTY) process.stdin.setRawMode(false);
+    });
+
+    process.on("uncaughtException", (err) => {
+      if (process.stdin.isTTY) process.stdin.setRawMode(false);
+      console.error("\n[Sistem Hatası]:", err.message);
+      process.exit(1);
+    });
+
+    process.on("unhandledRejection", (err) => {
+      if (process.stdin.isTTY) process.stdin.setRawMode(false);
+      console.error("\n[Beklenmeyen Hata]:", err);
+      process.exit(1);
+    });
+
     readline.emitKeypressEvents(process.stdin);
     if (process.stdin.isTTY) process.stdin.setRawMode(true);
+
+    // Klavyeyi aktif dinlemeye zorla (Kapanmayı engeller)
+    process.stdin.resume();
 
     this.render();
 
@@ -92,7 +112,14 @@ export class InteractiveRepl {
         this.menuVisible = false;
         this.lastMenuHeight = 0;
 
-        if (textToProcess) await this.handleInput(textToProcess);
+        if (textToProcess) {
+          await this.handleInput(textToProcess);
+        }
+
+        // 2. KRİTİK EKLEME: Ajan tool kullandıktan sonra terminal kontrolünü geri alıyoruz
+        if (process.stdin.isTTY) process.stdin.setRawMode(true);
+        process.stdin.resume();
+
         this.render();
         return;
       }
