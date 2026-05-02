@@ -1,7 +1,14 @@
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import yaml from "js-yaml";
 import { DIRS } from "./init.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Bundled skills live next to this file in src/bundled_skills/
+// After build they will be at dist/bundled_skills/
+const BUNDLED_SKILLS_DIR = path.resolve(__dirname, "../bundled_skills");
 
 export interface SkillDef {
   id: string;
@@ -14,14 +21,13 @@ export interface SkillDef {
 export class SkillManager {
   private _parseFrontmatter(content: string): { metadata: any; body: string } {
     if (!content.startsWith("---")) return { metadata: {}, body: content };
-
     const parts = content.split("---");
     if (parts.length >= 3) {
       try {
         const metadata = yaml.load(parts[1]) || {};
         const body = parts.slice(2).join("---").trim();
         return { metadata, body };
-      } catch (e) {
+      } catch {
         return { metadata: {}, body: content };
       }
     }
@@ -30,7 +36,7 @@ export class SkillManager {
 
   private loadSkillsFromDir(
     dirPath: string,
-    source: "global" | "local",
+    source: "bundled" | "global" | "local",
   ): Map<string, SkillDef> {
     const map = new Map<string, SkillDef>();
     if (!fs.existsSync(dirPath)) return map;
@@ -38,48 +44,69 @@ export class SkillManager {
     const items = fs.readdirSync(dirPath);
     for (const item of items) {
       const skillPath = path.join(dirPath, item);
-      if (fs.statSync(skillPath).isDirectory()) {
+      try {
+        if (!fs.statSync(skillPath).isDirectory()) continue;
         const skillFile = path.join(skillPath, "SKILL.md");
-        if (fs.existsSync(skillFile)) {
-          const content = fs.readFileSync(skillFile, "utf-8");
-          const { metadata, body } = this._parseFrontmatter(content);
-          if (metadata.name) {
-            map.set(item, {
-              id: item,
-              name: metadata.name,
-              description: metadata.description || "Açıklama bulunamadı.",
-              source,
-              content: body,
-            });
-          }
-        }
+        if (!fs.existsSync(skillFile)) continue;
+
+        const content = fs.readFileSync(skillFile, "utf-8");
+        const { metadata, body } = this._parseFrontmatter(content);
+
+        // Use folder name as fallback id if frontmatter name is missing
+        const id = item;
+        const name = metadata.name || id;
+        const description = metadata.description || "No description.";
+
+        map.set(id, { id, name, description, source, content: body });
+      } catch {
+        // Skip malformed skill directories silently
       }
     }
     return map;
   }
 
+  /**
+   * Returns all available skills, merged in priority order:
+   * bundled (lowest) → global → local (highest)
+   * Higher-priority skills override lower-priority ones with the same ID.
+   */
   public getAvailableSkills(): SkillDef[] {
     const merged = new Map<string, SkillDef>();
 
-    // 1. Önce Global yetenekleri yükle
+    // 1. Bundled skills (lowest priority — shipped with the package)
+    const bundledSkills = this.loadSkillsFromDir(BUNDLED_SKILLS_DIR, "bundled");
+    bundledSkills.forEach((val, key) => merged.set(key, val));
+
+    // 2. Global skills (~/.cowrangler/skills) — override bundled
     const globalSkills = this.loadSkillsFromDir(DIRS.global.skills, "global");
     globalSkills.forEach((val, key) => merged.set(key, val));
 
-    // 2. Local yetenekleri yükle (Aynı ID varsa Global'i ezer)
+    // 3. Local project skills (.cowrangler/skills) — highest priority
     const localSkills = this.loadSkillsFromDir(DIRS.local.skills, "local");
     localSkills.forEach((val, key) => merged.set(key, val));
 
-    return Array.from(merged.values());
+    return Array.from(merged.values()).sort((a, b) => a.id.localeCompare(b.id));
   }
 
   public readSkill(skillId: string): string {
     const skills = this.getAvailableSkills();
     const target = skills.find((s) => s.id === skillId);
 
-    if (target) {
-      return `---\nname: ${target.name}\ndescription: ${target.description}\n---\n\n${target.content}`;
-    }
+    if (!target) return `ERROR: Skill '${skillId}' not found. Use /skills to list available skills.`;
 
-    return `HATA: '${skillId}' yeteneği bulunamadı.`;
+    return [
+      `---`,
+      `id: ${target.id}`,
+      `name: ${target.name}`,
+      `description: ${target.description}`,
+      `source: ${target.source}`,
+      `---`,
+      ``,
+      target.content,
+    ].join("\n");
+  }
+
+  public listSkillIds(): string[] {
+    return this.getAvailableSkills().map((s) => s.id);
   }
 }

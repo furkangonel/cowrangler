@@ -23,9 +23,9 @@
 
 ---
 
-A highly autonomous, terminal-native AI engineering agent. Designed to wrangle complex codebases, manage local files, and execute Standard Operating Procedures (SOPs), it acts as your dedicated local co-pilot.
+Co-Wrangler is a terminal-native AI agent built for software engineers. It runs inside your project directory, understands your codebase context, and executes multi-step tasks autonomously — file edits, git operations, web requests, subagent delegation, and more — all from a single interactive session.
 
-Unlike standard web-based chat interfaces, Co-Wrangler lives directly in your terminal. It understands the context of your current working directory, dynamically loads project-specific architectural rules, and securely manages your API keys in a centralized vault.
+It is not a chat wrapper. It is an agentic loop with tools, memory, and a skill system designed to encode and enforce your team's standard operating procedures.
 
 <br>
 
@@ -43,94 +43,140 @@ Two directories. Total control over your AI environment.
 <tr>
 <td width="50%">
 
-### 🌍 Global Scope 
+### Global Scope
 `~/.cowrangler`
 
-- **Secure Vault:** `credentials.env` keeps API keys centralized. No `.env` copying across projects.
-- **Core Config:** `config.yaml` for your global default AI engine.
-- **Universal Rules:** `skills/` for system-wide SOPs.
+- **Credential vault:** `credentials.env` stores API keys once per machine, shared across all projects.
+- **Default config:** `config.yaml` sets your preferred model and temperature globally.
+- **Universal skills:** `skills/` for SOPs that apply to every project.
 
 </td>
 <td width="50%">
 
-### 📍 Local Scope
+### Local Scope
 `./.cowrangler`
 
-- **Project Memory:** `memory.md` loads tech stack & rules on boot.
-- **State Tracking:** `AGENT_TODO.md` manages pending tasks across sessions.
-- **Local Overrides:** `config.yaml` and `skills/` for this repo only.
+- **Project memory:** `memory.md` is injected into the system prompt on every boot — use it for architecture decisions, conventions, and context that should always be in scope.
+- **Task state:** `AGENT_TODO.md` persists open tasks across sessions.
+- **Local overrides:** `config.yaml` and `skills/` override global settings for this repo only.
 
 </td>
 </tr>
 </table>
 
+Priority for skills and config is always: local overrides global, global overrides bundled defaults.
+
 ## Install
 
-**1-Click Installation & Quick Start**
 ```bash
-# 1. Install Globally
-git clone [https://github.com/furkangonel/co-wrangler.git](https://github.com/furkangonel/co-wrangler.git)
+# Clone and install globally
+git clone https://github.com/furkangonel/co-wrangler.git
 cd co-wrangler
 npm run setup
 
-# 2. Set Your API Key (Only once per machine!)
+# Set your API key once
 cowrangler
-❯ /key set OPENROUTER_API_KEY sk-or-v1-your-key-here
+❯ /key set ANTHROPIC_API_KEY sk-ant-your-key-here
 
-# 3. Start Hacking
-cd ~/my-awesome-project
+# Navigate to any project and start
+cd ~/your-project
 cowrangler
 ```
+
+Supported providers: Anthropic (`claude-*`), OpenAI (`gpt-*`), Google (`gemini-*`), OpenRouter (`openrouter/*`), Groq (`groq/*`).
+
+## Tools
+
+Co-Wrangler ships with 25+ built-in tools organized into five categories.
+
+| Category | Tools |
+|---|---|
+| File system | `read_file`, `write_file`, `edit_file`, `list_files`, `glob_files`, `grep_files`, `copy_file`, `delete_file`, `file_info`, `append_to_file` |
+| Git | `git_status`, `git_diff`, `git_log`, `git_add`, `git_commit`, `git_branch`, `git_stash`, `git_checkout_file` |
+| Web | `fetch_webpage`, `web_search`, `http_request` |
+| System | `execute_bash`, `get_system_info`, `which_command`, `sleep`, `manage_todo` |
+| Agent | `spawn_subagent`, `utilize_skill`, `create_skill`, `list_skills` |
+
+## Subagents
+
+Long-running or specialized tasks can be delegated to a focused subagent via `spawn_subagent`. Each subagent type has a distinct system prompt and a restricted tool set appropriate to its role.
+
+Available types: `explorer`, `planner`, `verifier`, `code-reviewer`, `refactor`, `test-writer`, `documentation`, `security-audit`, `debugger`.
 
 ## Commands
 
-System directives to manage your AI environment on the fly.
-
-| Command | What it do |
+| Command | Description |
 |---|---|
-| `/help` | Displays the user manual and available commands. |
-| `/model add <name>` | Registers a new AI engine (e.g., `openrouter/anthropic/claude-3-5-sonnet`). |
-| `/model set <name> [scope]` | Switches the active model. Use `local` to override the global setting for the current project only. |
-| `/model list` | Lists all registered AI models in your environment. |
-| `/key set <PROVIDER> <KEY>`| Securely saves an API key to your global vault. |
-| `/key list` | Displays your saved API keys (safely masked for screen-sharing). |
-| `/tools` | Lists all available system tools (file read/write, web search, etc.). |
-| `/skills` | Lists all loaded Standard Operating Procedures (SOPs). |
-| `/skill <id> <task>` | Forces the agent to utilize a specific skill before executing the given task. |
-| `/reset` | Flushes the current conversation history while preserving core project memory. |
-| `/exit` | Safely terminates the session and exits the CLI. |
+| `/help` | List all commands with descriptions. |
+| `/status` | Show active model, context size, memory state, loaded tools and skills. |
+| `/model list` | List registered models. |
+| `/model set <name> [global\|local]` | Hot-swap the active model without restarting the session. |
+| `/model add <name>` | Register a new model name to the registry. |
+| `/key set <PROVIDER> <KEY>` | Save an API key to the global vault (live and persisted). |
+| `/key list` | Display saved keys, masked for safe screen sharing. |
+| `/key delete <PROVIDER>` | Remove a key from the vault. |
+| `/skills` | List all loaded skills by source (bundled, global, local). |
+| `/skill <id> [task]` | Stage a skill or execute a task with a specific SOP enforced. |
+| `/tools` | List all registered tools with descriptions. |
+| `/memory show` | Print the current project memory file. |
+| `/memory clear` | Reset project memory and refresh the system prompt. |
+| `/context` | Show the number of messages in the current context window. |
+| `/reset` | Clear conversation history and reload memory from disk. |
+| `/version` | Print the current version. |
+| `/exit` | Terminate the session. |
 
 ## Skills / SOPs
 
-You can extend Co-Wrangler's capabilities by adding Markdown files to the `skills/` directory (either global or local). 
+Skills are Markdown files that encode a Standard Operating Procedure. When the agent loads a skill before starting a task, it is instructed to follow the SOP step by step.
 
-Create a folder (e.g., `clean_code`) and inside it, a `SKILL.md` file with YAML frontmatter:
+Co-Wrangler ships with seven bundled skills: `code-review`, `git-workflow`, `debugging`, `testing`, `refactoring`, `api-design`, and `documentation`.
+
+To create a custom skill, create a folder in `.cowrangler/skills/` or `~/.cowrangler/skills/` and add a `SKILL.md` file:
+
 ```markdown
 ---
-name: Clean Code Standards
-description: General rules for writing clean, modular, and maintainable code.
+name: my-deploy-process
+description: Standard steps for deploying the backend to production.
 ---
 
-1. Functions must adhere to the Single Responsibility Principle.
-2. Avoid magic numbers; use clear, descriptive constants instead.
-3. Always comment complex business logic and edge cases.
-4. Variable names must be descriptive and written in English.
+1. Run the full test suite and confirm zero failures.
+2. Bump the version in package.json following semver.
+3. Build the Docker image and push to the registry.
+4. Apply the Kubernetes manifest and verify rollout status.
+5. Post a deployment notice to the #deployments channel.
 ```
 
-Then force the agent to use it during a task:
+Invoke it directly, or let the agent discover it automatically based on the task:
+
 ```bash
-❯ /skill clean_code Refactor the user authentication controller.
+❯ /skill my-deploy-process Deploy the auth service to production.
 ```
+
+Skills can also be created from inside the session:
+
+```bash
+❯ /skill — then describe what you want to formalize
+```
+
+Or via the `create_skill` tool during an agent task.
+
+## REPL Features
+
+- **Autocomplete:** Type `/` to open a command menu with descriptions. Navigate with arrow keys, apply with Tab, dismiss with Escape.
+- **File completions:** Type `@` followed by a path to browse files in the current directory. Subdirectory traversal is supported.
+- **History:** Up/Down arrows navigate session history. History is persisted across sessions in `.wrangler_history`.
+- **Shortcuts:** `Ctrl+A/E` (line start/end), `Ctrl+U/K` (delete to start/end), `Ctrl+W` (delete word), `Ctrl+L` (clear screen).
+- **Step-by-step progress:** Each tool call the agent makes is displayed as a committed line with the tool name, relevant argument, and elapsed time — similar to how Claude Code renders its execution trace.
 
 ## Contributing
 
-Contributions are highly welcome! Whether you want to add new core tools, fix bugs, or improve the UI:
+1. Fork the repository.
+2. Create a feature branch: `git checkout -b feature/your-feature`
+3. Commit your changes: `git commit -m 'feat: describe your change'`
+4. Push the branch: `git push origin feature/your-feature`
+5. Open a pull request.
 
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+Bug reports and skill contributions are equally welcome.
 
 ## License
 

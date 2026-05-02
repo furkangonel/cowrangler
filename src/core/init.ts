@@ -24,21 +24,36 @@ export const DIRS = {
   },
 };
 
+const DEFAULT_SYSTEM_PROMPT = `You are Co-Wrangler — a powerful, reliable AI agent running in the terminal.
+
+Your core responsibilities:
+1. Help users with coding, file management, research, and automation tasks
+2. Use your tools thoughtfully — read files before editing, check status before committing
+3. Always explain what you're about to do before doing it (especially destructive actions)
+4. For complex tasks, break them into steps and use manage_todo to track progress
+5. If a relevant skill (SOP) is available, load it with utilize_skill before starting
+6. Respond in the same language the user writes in
+
+Available capabilities: file operations, git, bash execution, web fetching, sub-agents, and more.
+Think step-by-step. Be precise. Be genuinely helpful.`;
+
 export function initEnvironment() {
-  // 1. GLOBAL YAPILANDIRMA
-  if (!fs.existsSync(DIRS.global.base))
-    fs.mkdirSync(DIRS.global.base, { recursive: true });
-  if (!fs.existsSync(DIRS.global.skills))
-    fs.mkdirSync(DIRS.global.skills, { recursive: true });
+  // ── Global ─────────────────────────────────────────────────────────────────
+  fs.mkdirSync(DIRS.global.base, { recursive: true });
+  fs.mkdirSync(DIRS.global.skills, { recursive: true });
 
   if (!fs.existsSync(DIRS.global.config)) {
     const defaultGlobal = {
       model: "openrouter/google/gemini-2.5-flash",
-      saved_models: ["openrouter/google/gemini-2.5-flash"],
-      system_prompt:
-        "Sen kullanıcıya yardım eden, dosyalarla çalışabilen bir asistansın. Kullanıcının dilinde cevap ver. Dosya okumak, yazmak veya listelemek için sana verilen araçları kullan. Araçları kullanırken önce ne yapacağını düşün, sonra çağır. Her adımda net ve kısa açıklamalar yap.",
+      saved_models: [
+        "openrouter/google/gemini-2.5-flash",
+        "claude-claude-sonnet-4-5",
+        "gpt-4o",
+      ],
+      system_prompt: DEFAULT_SYSTEM_PROMPT,
       temperature: 0.7,
-      max_iterations: 15,
+      max_iterations: 20,
+      theme: "auto",
     };
     fs.writeFileSync(DIRS.global.config, yaml.dump(defaultGlobal), "utf-8");
   }
@@ -46,63 +61,82 @@ export function initEnvironment() {
   if (!fs.existsSync(DIRS.global.credentials)) {
     fs.writeFileSync(
       DIRS.global.credentials,
-      "# CoWrangler GLOBAL API KEYS\n",
-      "utf-8",
+      [
+        "# Co-Wrangler Global API Keys",
+        "# Format: PROVIDER_KEY_NAME=your_key_here",
+        "# Set keys with: /key set <PROVIDER> <key>",
+        "#",
+        "# ANTHROPIC_API_KEY=sk-ant-...",
+        "# OPENAI_API_KEY=sk-...",
+        "# OPENROUTER_API_KEY=sk-or-...",
+        "# GOOGLE_GENERATIVE_AI_API_KEY=...",
+        "# GROQ_API_KEY=gsk_...",
+        "",
+      ].join("\n"),
+      "utf-8"
     );
   }
 
-  // 2. YEREL (PROJE) YAPILANDIRMASI
-  if (!fs.existsSync(DIRS.local.base))
-    fs.mkdirSync(DIRS.local.base, { recursive: true });
-  if (!fs.existsSync(DIRS.local.skills))
-    fs.mkdirSync(DIRS.local.skills, { recursive: true });
+  // ── Local (per-project) ────────────────────────────────────────────────────
+  fs.mkdirSync(DIRS.local.base, { recursive: true });
+  fs.mkdirSync(DIRS.local.skills, { recursive: true });
 
   if (!fs.existsSync(DIRS.local.memory)) {
     fs.writeFileSync(
       DIRS.local.memory,
-      "# Proje Hafızası (Context)\nAjanın bu proje hakkında bilmesi gereken temel mimari kararları, klasör yapılarını, kullanılan teknolojileri veya kısıtlamaları buraya yazın. Ajan her başlatıldığında ilk olarak bu dosyayı okur.\n",
-      "utf-8",
+      [
+        "# Project Memory",
+        "",
+        "Add project-specific context here. The agent reads this on every startup.",
+        "Include: tech stack, architecture decisions, conventions, known constraints.",
+        "",
+        "## Tech Stack",
+        "",
+        "## Architecture Notes",
+        "",
+        "## Conventions & Rules",
+        "",
+      ].join("\n"),
+      "utf-8"
     );
   }
 
   if (!fs.existsSync(DIRS.local.todo)) {
     fs.writeFileSync(
       DIRS.local.todo,
-      "# Aktif Görevler (State)\n- [ ] Yeni görevler veya ajanın kaldığı yerler buraya işlenir...\n",
-      "utf-8",
+      "# Active Agent Tasks\n- [ ] (agent will populate this)\n",
+      "utf-8"
     );
   }
 }
 
-// Merkezi credentials.env dosyasını ve ardından varsa projedeki .env dosyasını yükler
 export function loadEnvironmentVariables() {
   if (fs.existsSync(DIRS.global.credentials)) {
     dotenv.config({ path: DIRS.global.credentials });
   }
-  // Eğer proje içinde spesifik bir .env varsa globali ezer
-  dotenv.config({ path: path.join(PROJECT_ROOT, ".env") });
+  const localEnv = path.join(PROJECT_ROOT, ".env");
+  if (fs.existsSync(localEnv)) {
+    dotenv.config({ path: localEnv, override: true });
+  }
 }
 
 export function getConfig() {
   initEnvironment();
-
   let config: any = {};
 
-  // Global Config'i oku
   if (fs.existsSync(DIRS.global.config)) {
-    const globalCfg = yaml.load(
-      fs.readFileSync(DIRS.global.config, "utf-8"),
-    ) as any;
-    config = { ...config, ...globalCfg };
+    const raw = yaml.load(fs.readFileSync(DIRS.global.config, "utf-8")) as any;
+    if (raw) config = { ...config, ...raw };
   }
-
-  // Yerel Config varsa, Global'in üzerine yaz (Override)
   if (fs.existsSync(DIRS.local.config)) {
-    const localCfg = yaml.load(
-      fs.readFileSync(DIRS.local.config, "utf-8"),
-    ) as any;
-    config = { ...config, ...localCfg };
+    const raw = yaml.load(fs.readFileSync(DIRS.local.config, "utf-8")) as any;
+    if (raw) config = { ...config, ...raw };
   }
 
+  // Ensure defaults
+  config.model = config.model || "openrouter/google/gemini-2.5-flash";
+  config.system_prompt = config.system_prompt || DEFAULT_SYSTEM_PROMPT;
+  config.temperature = config.temperature ?? 0.7;
+  config.max_iterations = config.max_iterations ?? 20;
   return config;
 }

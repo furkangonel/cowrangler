@@ -4,29 +4,43 @@
 
 # 1. Dependencies
 node_modules/
-package-lock.json
-npm-debug.log*
 
-# 2. Compilation Outputs
+# 2. Compilation output
 dist/
 build/
 *.tsbuildinfo
 
-# 3. Secrets and Keys (CRITICAL)
+# 3. Secrets & API keys — never commit
 .env
 .env.*
 *.local
 credentials.env
+.npmrc
 
-# 4. Operating System and Editor Files
+# 4. Co-Wrangler runtime files
+# These are machine-local and session-specific.
+# .cowrangler/skills/ is intentionally NOT ignored — project skills
+# are worth tracking so the whole team benefits from them.
+.cowrangler/config.yaml
+.cowrangler/memory.md
+.cowrangler/AGENT_TODO.md
+.wrangler_history
+
+# 5. OS & editor artifacts
 .DS_Store
+Thumbs.db
 .idea/
 .vscode/
-
-# 5. local
-# (Her projenin kendi hafızası ve todo listesi yerelde kalmalı)
-.cowrangler/config.yaml
-.cowrangler/AGENT_TODO.md
+*.swp
+*.swo
+*~
 
 # 6. Logs
 *.log
+npm-debug.log*
+yarn-error.log*
+
+# 7. Other package manager lock files
+# package-lock.json is intentionally tracked (CLI app — reproducible installs matter).
+yarn.lock
+pnpm-lock.yaml

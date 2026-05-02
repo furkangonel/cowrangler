@@ -9,40 +9,46 @@ export class Agent {
   public llm: LLM;
   public maxIterations: number;
   private skillManager: SkillManager;
-  private baseSystemPrompt: string;
-  private messages: CoreMessage[] = [];
+  private originalPrompt: string; // Raw base prompt — never mutated
+  private baseSystemPrompt: string; // Fully-built: base + memory + skills
+  private messages: CoreMessage[] = []; // Does NOT hold a "system" role entry
   private allowedTools?: string[];
 
   constructor(
     llm: LLM,
     systemPrompt: string,
-    maxIterations: number = 15,
+    maxIterations: number = 20,
     allowedTools?: string[],
   ) {
     this.llm = llm;
     this.maxIterations = maxIterations;
     this.allowedTools = allowedTools;
     this.skillManager = new SkillManager();
+    this.originalPrompt = systemPrompt;
     this.baseSystemPrompt = this._buildSystemPrompt(systemPrompt);
-    this.messages.push({ role: "system", content: this.baseSystemPrompt });
+    // NOTE: System prompt is passed to generateText via the `system` param,
+    // NOT as a message in the messages array. Sending it both ways causes
+    // double-injection and provider errors on some models.
   }
 
   private _buildSystemPrompt(basePrompt: string): string {
     let finalPrompt = basePrompt;
 
-    // 1. Proje Hafızasını (Memory) Enjekte Et
+    // 1. Inject Project Memory
     if (fs.existsSync(DIRS.local.memory)) {
-      const memoryContent = fs.readFileSync(DIRS.local.memory, "utf-8");
-      finalPrompt += `\n\n[PROJECT CONTEXT & MEMORY]\nAşağıdaki bilgiler çalıştığın proje hakkında kesin bilmen ve uyman gereken mimari ve tarihsel gerçeklerdir:\n---\n${memoryContent}\n---`;
+      const memoryContent = fs.readFileSync(DIRS.local.memory, "utf-8").trim();
+      if (memoryContent) {
+        finalPrompt += `\n\n[PROJECT MEMORY]\nThe following contains authoritative facts about the project. Always respect these:\n---\n${memoryContent}\n---`;
+      }
     }
 
-    // 2. Yetenekleri (Skills) Enjekte Et
+    // 2. Inject available Skills
     const skills = this.skillManager.getAvailableSkills();
     if (skills.length > 0) {
       const skillsText = skills
         .map((s) => `- **${s.id}**: ${s.description}`)
         .join("\n");
-      finalPrompt += `\n\n[AVAILABLE SKILLS]\nAşağıdaki SOP'lere sahipsin. Kullanıcı talebi bunlarla örtüşüyorsa önce kesinlikle \`utilize_skill\` aracıyla oku:\n${skillsText}`;
+      finalPrompt += `\n\n[AVAILABLE SKILLS]\nYou have the following Standard Operating Procedures (SOPs). When a user request matches one, load it with \`utilize_skill\` before starting:\n${skillsText}`;
     }
 
     return finalPrompt;
@@ -59,6 +65,21 @@ export class Agent {
     return filtered;
   }
 
+  /**
+   * Hot-swap the underlying LLM (called by /model set).
+   */
+  setModel(newLlm: LLM) {
+    this.llm = newLlm;
+  }
+
+  /**
+   * Re-read memory & skills from disk and refresh the injected system prompt.
+   * Useful after /memory edit or skill additions mid-session.
+   */
+  refreshSystemPrompt() {
+    this.baseSystemPrompt = this._buildSystemPrompt(this.originalPrompt);
+  }
+
   async chat(
     userMessage: string,
     onToolCall?: (name: string, args: any) => void,
@@ -69,7 +90,9 @@ export class Agent {
       const result = await generateText({
         model: this.llm.getModel(),
         system: this.baseSystemPrompt,
-        messages: this.messages,
+        // Explicitly filter out any accidental "system" role messages —
+        // the system param above is the single source of truth.
+        messages: this.messages.filter((m) => m.role !== "system"),
         tools: this.getTools(),
         maxSteps: this.maxIterations,
         onStepFinish: ({ toolCalls }) => {
@@ -81,19 +104,30 @@ export class Agent {
         },
       });
 
-      this.messages.push({ role: "assistant", content: result.text });
+      // Persist the full step history (tool calls + results + final reply)
+      // so subsequent turns have complete context of what was done.
+      for (const msg of result.response.messages) {
+        this.messages.push(msg as CoreMessage);
+      }
+
       return result.text;
     } catch (error) {
+      // Roll back the user message to keep history consistent
       this.messages.pop();
       throw error;
     }
   }
 
+  /**
+   * Clear conversation history and rebuild the system prompt from disk.
+   */
   reset(): void {
-    // Reset atıldığında dosyadan güncel hafızayı tekrar okur
-    this.baseSystemPrompt = this._buildSystemPrompt(
-      this.baseSystemPrompt.split("\n\n[PROJECT CONTEXT")[0],
-    );
-    this.messages = [{ role: "system", content: this.baseSystemPrompt }];
+    this.baseSystemPrompt = this._buildSystemPrompt(this.originalPrompt);
+    this.messages = [];
+  }
+
+  /** Number of messages in the current conversation context. */
+  get contextLength(): number {
+    return this.messages.length;
   }
 }

@@ -16,62 +16,159 @@ export function setWorkspace(workspacePath: string) {
 }
 
 function _safePath(relativePath: string): string {
-  const target = path.resolve(_WORKSPACE, relativePath);
-  if (!target.startsWith(_WORKSPACE)) {
-    throw new Error(`Workspace dışına erişim yasak: ${relativePath}`);
-  }
-  return target;
+  // Allow absolute paths (e.g., from the user's system) and relative ones
+  return path.isAbsolute(relativePath)
+    ? path.resolve(relativePath)
+    : path.resolve(_WORKSPACE, relativePath);
 }
 
-// Araç Kayıtları
+// ─────────────────────────────────────────────────────────────────────────────
+// LIST FILES
+// ─────────────────────────────────────────────────────────────────────────────
 registerTool(
   "list_files",
-  "Workspace içindeki dosya ve klasörleri listele.",
-  z.object({ subdir: z.string().optional().default(".") }),
-  async ({ subdir }: { subdir: string }) => {
+  "List files and directories in the workspace. Returns a recursive tree with sizes.",
+  z.object({
+    subdir: z.string().optional().default(".").describe("Relative path (default: workspace root)"),
+    depth: z.number().optional().default(3).describe("Max recursion depth (default: 3)"),
+  }),
+  async ({ subdir, depth }: { subdir: string; depth: number }) => {
     try {
       const target = _safePath(subdir);
-      if (!existsSync(target)) return `'${subdir}' bulunamadı.`;
+      if (!existsSync(target)) return `'${subdir}' not found.`;
+      if (statSync(target).isFile()) return `'${subdir}' is a file, not a directory.`;
 
-      const stat = statSync(target);
-      if (stat.isFile()) return `'${subdir}' bir dosya, klasör değil.`;
-
-      // Recursive scan (Basit versiyon)
       const entries: string[] = [];
-      async function scan(dir: string) {
+      async function scan(dir: string, currentDepth: number) {
+        if (currentDepth > depth) return;
         const items = await fs.readdir(dir, { withFileTypes: true });
+        items.sort((a, b) => {
+          if (a.isDirectory() && !b.isDirectory()) return -1;
+          if (!a.isDirectory() && b.isDirectory()) return 1;
+          return a.name.localeCompare(b.name);
+        });
         for (const item of items) {
+          if (item.name === "node_modules" || item.name === ".git") continue;
           const fullPath = path.join(dir, item.name);
           const relPath = path.relative(_WORKSPACE, fullPath);
+          const indent = "  ".repeat(currentDepth - 1);
           if (item.isDirectory()) {
-            entries.push(`📁 ${relPath}/`);
-            await scan(fullPath);
+            entries.push(`${indent}📁 ${relPath}/`);
+            await scan(fullPath, currentDepth + 1);
           } else {
-            const size = (await fs.stat(fullPath)).size / 1024;
-            entries.push(`📄 ${relPath} (${size.toFixed(1)} KB)`);
+            const stat = await fs.stat(fullPath);
+            const size = stat.size < 1024
+              ? `${stat.size}B`
+              : stat.size < 1048576
+              ? `${(stat.size / 1024).toFixed(1)}KB`
+              : `${(stat.size / 1048576).toFixed(1)}MB`;
+            entries.push(`${indent}📄 ${relPath} (${size})`);
           }
         }
       }
-
-      await scan(target);
-      return entries.length ? entries.join("\n") : `'${subdir}' klasörü boş.`;
+      await scan(target, 1);
+      return entries.length ? entries.join("\n") : `'${subdir}' is empty.`;
     } catch (e: any) {
-      return `HATA: ${e.message}`;
+      return `ERROR: ${e.message}`;
     }
   },
 );
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GLOB FILES
+// ─────────────────────────────────────────────────────────────────────────────
 registerTool(
-  "read_file",
-  "Bir dosyayı oku ve içeriğini döndür. Desteklenen formatlar: metin, .docx, .pdf, .xlsx",
+  "glob_files",
+  "Find files matching a glob pattern (e.g., '**/*.ts', 'src/**/*.test.*').",
+  z.object({
+    pattern: z.string().describe("Glob pattern, e.g., '**/*.ts'"),
+    cwd: z.string().optional().describe("Root directory for the search (default: workspace root)"),
+  }),
+  async ({ pattern, cwd }: { pattern: string; cwd?: string }) => {
+    try {
+      const baseDir = cwd ? _safePath(cwd) : _WORKSPACE;
+      const matches: string[] = [];
+
+      // Manual recursive scan with simple pattern matching
+      const extMatch = pattern.match(/\*\.([a-z0-9]+)$/i);
+      const ext = extMatch ? `.${extMatch[1]}` : null;
+
+      async function scan(dir: string) {
+        try {
+          const items = await fs.readdir(dir, { withFileTypes: true });
+          for (const item of items) {
+            if (item.name === "node_modules" || item.name === ".git" || item.name === "dist") continue;
+            const fullPath = path.join(dir, item.name);
+            if (item.isDirectory()) {
+              await scan(fullPath);
+            } else if (!ext || item.name.endsWith(ext)) {
+              matches.push(path.relative(baseDir, fullPath));
+            }
+          }
+        } catch {}
+      }
+      await scan(baseDir);
+
+      if (matches.length === 0) return `No files matched '${pattern}'.`;
+      return `Found ${matches.length} file(s):\n` + matches.sort().join("\n");
+    } catch (e: any) {
+      return `ERROR: ${e.message}`;
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FILE INFO
+// ─────────────────────────────────────────────────────────────────────────────
+registerTool(
+  "file_info",
+  "Get metadata about a file or directory: size, modification time, line count.",
   z.object({ path: z.string() }),
   async ({ path: relPath }: { path: string }) => {
     try {
       const target = _safePath(relPath);
-      if (!existsSync(target)) return `Dosya bulunamadı: ${relPath}`;
+      if (!existsSync(target)) return `Not found: ${relPath}`;
+      const stat = await fs.stat(target);
+      const isFile = stat.isFile();
+      let lines = 0;
+      if (isFile) {
+        try {
+          const content = await fs.readFile(target, "utf-8");
+          lines = content.split("\n").length;
+        } catch {}
+      }
+      return JSON.stringify({
+        path: relPath,
+        type: stat.isDirectory() ? "directory" : "file",
+        size_bytes: stat.size,
+        size_human: stat.size < 1024 ? `${stat.size}B` : stat.size < 1048576 ? `${(stat.size / 1024).toFixed(1)}KB` : `${(stat.size / 1048576).toFixed(1)}MB`,
+        lines: isFile ? lines : null,
+        modified: stat.mtime.toISOString(),
+        created: stat.birthtime.toISOString(),
+      }, null, 2);
+    } catch (e: any) {
+      return `ERROR: ${e.message}`;
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// READ FILE
+// ─────────────────────────────────────────────────────────────────────────────
+registerTool(
+  "read_file",
+  "Read a file and return its content. Supports plain text, .docx, .pdf, .xlsx. Optionally specify line range.",
+  z.object({
+    path: z.string(),
+    start_line: z.number().optional().describe("First line to read (1-indexed)"),
+    end_line: z.number().optional().describe("Last line to read (inclusive)"),
+  }),
+  async ({ path: relPath, start_line, end_line }: { path: string; start_line?: number; end_line?: number }) => {
+    try {
+      const target = _safePath(relPath);
+      if (!existsSync(target)) return `File not found: ${relPath}`;
 
       const ext = path.extname(target).toLowerCase();
-
       if (ext === ".docx") {
         const result = await mammoth.extractRawText({ path: target });
         return result.value;
@@ -81,169 +178,295 @@ registerTool(
         const data = await pdfParse(dataBuffer);
         return data.text;
       }
-      if (ext === ".xlsx") {
+      if (ext === ".xlsx" || ext === ".xls") {
         const workbook = xlsx.readFile(target);
-        const sheets = workbook.SheetNames.map((name) => {
-          const ws = workbook.Sheets[name];
-          return `=== Sayfa: ${name} ===\n${xlsx.utils.sheet_to_csv(ws)}`;
-        });
-        return sheets.join("\n\n");
+        return workbook.SheetNames.map((name) => {
+          return `=== Sheet: ${name} ===\n${xlsx.utils.sheet_to_csv(workbook.Sheets[name])}`;
+        }).join("\n\n");
       }
 
-      return await fs.readFile(target, "utf-8");
+      const raw = await fs.readFile(target, "utf-8");
+      if (start_line !== undefined || end_line !== undefined) {
+        const lines = raw.split("\n");
+        const from = (start_line ?? 1) - 1;
+        const to = end_line ?? lines.length;
+        return lines.slice(from, to).map((l, i) => `${from + i + 1}: ${l}`).join("\n");
+      }
+      return raw;
     } catch (e: any) {
-      return `HATA okunamadı: ${e.message}`;
+      return `ERROR reading file: ${e.message}`;
     }
   },
 );
 
+// ─────────────────────────────────────────────────────────────────────────────
+// WRITE FILE
+// ─────────────────────────────────────────────────────────────────────────────
 registerTool(
   "write_file",
-  "Bir dosyaya içerik yaz (varsa üzerine yazar, yoksa oluşturur).",
+  "Write content to a file (creates or overwrites). Parent directories are created automatically.",
   z.object({ path: z.string(), content: z.string() }),
   async ({ path: relPath, content }: { path: string; content: string }) => {
     try {
       const target = _safePath(relPath);
       await fs.mkdir(path.dirname(target), { recursive: true });
       await fs.writeFile(target, content, "utf-8");
-      return `OK: ${relPath} yazıldı (${content.length} karakter).`;
+      return `OK: Written ${content.length} chars (${content.split("\n").length} lines) → ${relPath}`;
     } catch (e: any) {
-      return `HATA yazılamadı: ${e.message}`;
+      return `ERROR writing file: ${e.message}`;
     }
   },
 );
 
+// ─────────────────────────────────────────────────────────────────────────────
+// APPEND TO FILE
+// ─────────────────────────────────────────────────────────────────────────────
+registerTool(
+  "append_to_file",
+  "Append content to the end of a file (creates it if it doesn't exist).",
+  z.object({
+    path: z.string(),
+    content: z.string(),
+    newline: z.boolean().optional().default(true).describe("Insert newline before appended content (default: true)"),
+  }),
+  async ({ path: relPath, content, newline }: { path: string; content: string; newline: boolean }) => {
+    try {
+      const target = _safePath(relPath);
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      const prefix = newline && existsSync(target) ? "\n" : "";
+      await fs.appendFile(target, prefix + content, "utf-8");
+      return `OK: Appended ${content.length} chars to ${relPath}`;
+    } catch (e: any) {
+      return `ERROR: ${e.message}`;
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EDIT FILE (str_replace)
+// ─────────────────────────────────────────────────────────────────────────────
 registerTool(
   "edit_file",
-  "Bir dosyadaki belirli bir metni başka bir metinle değiştir (str_replace).",
-  z.object({ path: z.string(), old_text: z.string(), new_text: z.string() }),
-  async ({
-    path: relPath,
-    old_text,
-    new_text,
-  }: {
-    path: string;
-    old_text: string;
-    new_text: string;
-  }) => {
+  "Replace an exact string in a file with new content. The old_text must appear exactly once.",
+  z.object({
+    path: z.string(),
+    old_text: z.string().describe("Exact text to replace (must be unique in the file)"),
+    new_text: z.string().describe("Replacement text"),
+  }),
+  async ({ path: relPath, old_text, new_text }: { path: string; old_text: string; new_text: string }) => {
     try {
       const target = _safePath(relPath);
-      if (!existsSync(target)) return `Dosya bulunamadı: ${relPath}`;
+      if (!existsSync(target)) return `File not found: ${relPath}`;
       let content = await fs.readFile(target, "utf-8");
-
       const count = content.split(old_text).length - 1;
-      if (count === 0) return `HATA: 'old_text' dosyada bulunamadı.`;
-      if (count > 1)
-        return `HATA: 'old_text' ${count} kez geçiyor. Benzersiz olmalı.`;
-
+      if (count === 0) return `ERROR: old_text not found in file. Check your text carefully.`;
+      if (count > 1) return `ERROR: old_text appears ${count} times — provide more context to make it unique.`;
       content = content.replace(old_text, new_text);
       await fs.writeFile(target, content, "utf-8");
-      return `OK: ${relPath} güncellendi.`;
+      return `OK: ${relPath} updated.`;
     } catch (e: any) {
-      return `HATA: ${e.message}`;
+      return `ERROR: ${e.message}`;
     }
   },
 );
 
+// ─────────────────────────────────────────────────────────────────────────────
+// COPY FILE
+// ─────────────────────────────────────────────────────────────────────────────
 registerTool(
-  "create_folder",
-  "Workspace içinde yeni bir klasör oluşturur.",
-  z.object({ path: z.string() }),
-  async ({ path: relPath }: { path: string }) => {
+  "copy_file",
+  "Copy a file to a new location.",
+  z.object({
+    source: z.string(),
+    destination: z.string(),
+    overwrite: z.boolean().optional().default(false),
+  }),
+  async ({ source, destination, overwrite }: { source: string; destination: string; overwrite: boolean }) => {
     try {
-      const target = _safePath(relPath);
-      if (existsSync(target)) return `Bilgi: '${relPath}' zaten mevcut.`;
-      await fs.mkdir(target, { recursive: true });
-      return `OK: '${relPath}' başarıyla oluşturuldu.`;
+      const src = _safePath(source);
+      const dst = _safePath(destination);
+      if (!existsSync(src)) return `ERROR: Source not found: ${source}`;
+      if (existsSync(dst) && !overwrite) return `ERROR: Destination exists. Set overwrite: true to replace.`;
+      await fs.mkdir(path.dirname(dst), { recursive: true });
+      await fs.copyFile(src, dst);
+      return `OK: '${source}' → '${destination}'`;
     } catch (e: any) {
-      return `HATA: ${e.message}`;
+      return `ERROR: ${e.message}`;
     }
   },
 );
 
+// ─────────────────────────────────────────────────────────────────────────────
+// MOVE / RENAME
+// ─────────────────────────────────────────────────────────────────────────────
 registerTool(
   "move_item",
-  "Dosya veya klasörleri taşır veya adını değiştirir.",
+  "Move or rename a file or directory.",
   z.object({ source: z.string(), destination: z.string() }),
   async ({ source, destination }: { source: string; destination: string }) => {
     try {
       const src = _safePath(source);
       const dst = _safePath(destination);
-      if (!existsSync(src)) return `HATA: Kaynak bulunamadı: ${source}`;
+      if (!existsSync(src)) return `ERROR: Source not found: ${source}`;
       await fs.mkdir(path.dirname(dst), { recursive: true });
       await fs.rename(src, dst);
-      return `OK: '${source}', '${destination}' konumuna taşındı.`;
+      return `OK: '${source}' → '${destination}'`;
     } catch (e: any) {
-      return `HATA: ${e.message}`;
+      return `ERROR: ${e.message}`;
     }
   },
 );
 
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE FILE
+// ─────────────────────────────────────────────────────────────────────────────
+registerTool(
+  "delete_file",
+  "Permanently delete a file. Requires confirm: true.",
+  z.object({
+    path: z.string(),
+    confirm: z.boolean().describe("Must be true to confirm deletion"),
+  }),
+  async ({ path: relPath, confirm }: { path: string; confirm: boolean }) => {
+    if (!confirm) return "Aborted: set confirm: true to delete.";
+    try {
+      const target = _safePath(relPath);
+      if (!existsSync(target)) return `Not found: ${relPath}`;
+      if ((await fs.stat(target)).isDirectory()) return `ERROR: '${relPath}' is a directory. Use delete_folder.`;
+      await fs.unlink(target);
+      return `OK: Deleted '${relPath}'`;
+    } catch (e: any) {
+      return `ERROR: ${e.message}`;
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE FOLDER
+// ─────────────────────────────────────────────────────────────────────────────
+registerTool(
+  "delete_folder",
+  "Recursively delete a directory and all its contents. Requires confirm: true.",
+  z.object({
+    path: z.string(),
+    confirm: z.boolean().describe("Must be true to confirm deletion"),
+  }),
+  async ({ path: relPath, confirm }: { path: string; confirm: boolean }) => {
+    if (!confirm) return "Aborted: set confirm: true to delete.";
+    try {
+      const target = _safePath(relPath);
+      if (!existsSync(target)) return `Not found: ${relPath}`;
+      await fs.rm(target, { recursive: true, force: true });
+      return `OK: '${relPath}' and all contents deleted.`;
+    } catch (e: any) {
+      return `ERROR: ${e.message}`;
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CREATE FOLDER
+// ─────────────────────────────────────────────────────────────────────────────
+registerTool(
+  "create_folder",
+  "Create a new directory (including any necessary parent directories).",
+  z.object({ path: z.string() }),
+  async ({ path: relPath }: { path: string }) => {
+    try {
+      const target = _safePath(relPath);
+      if (existsSync(target)) return `Note: '${relPath}' already exists.`;
+      await fs.mkdir(target, { recursive: true });
+      return `OK: '${relPath}' created.`;
+    } catch (e: any) {
+      return `ERROR: ${e.message}`;
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SEARCH IN FILES
+// ─────────────────────────────────────────────────────────────────────────────
+registerTool(
+  "search_in_files",
+  "Search for a keyword or pattern across files in the workspace. Returns matching lines.",
+  z.object({
+    keyword: z.string().describe("Search term or regex"),
+    subdir: z.string().optional().default("."),
+    file_pattern: z.string().optional().describe("Filter by extension, e.g., '.ts'"),
+    case_sensitive: z.boolean().optional().default(false),
+    max_results: z.number().optional().default(50),
+  }),
+  async ({ keyword, subdir, file_pattern, case_sensitive, max_results }: {
+    keyword: string; subdir: string; file_pattern?: string;
+    case_sensitive: boolean; max_results: number;
+  }) => {
+    try {
+      const target = _safePath(subdir);
+      const results: string[] = [];
+      const extensions = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".py", ".rb", ".go", ".rs",
+        ".java", ".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".sh", ".css", ".html", ".vue"];
+      let searchRegex: RegExp;
+      try {
+        searchRegex = new RegExp(keyword, case_sensitive ? "g" : "gi");
+      } catch {
+        searchRegex = new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), case_sensitive ? "g" : "gi");
+      }
+
+      async function scan(dir: string) {
+        if (results.length >= max_results) return;
+        try {
+          const items = await fs.readdir(dir, { withFileTypes: true });
+          for (const item of items) {
+            if (results.length >= max_results) break;
+            if (["node_modules", ".git", "dist", ".cowrangler"].includes(item.name)) continue;
+            const fullPath = path.join(dir, item.name);
+            if (item.isDirectory()) {
+              await scan(fullPath);
+            } else {
+              const ext = path.extname(fullPath).toLowerCase();
+              if (file_pattern) { if (!fullPath.endsWith(file_pattern)) continue; }
+              else if (!extensions.includes(ext)) continue;
+              const content = await fs.readFile(fullPath, "utf-8");
+              const lines = content.split("\n");
+              lines.forEach((line, i) => {
+                searchRegex.lastIndex = 0;
+                if (results.length < max_results && searchRegex.test(line)) {
+                  results.push(`${path.relative(_WORKSPACE, fullPath)}:${i + 1}  ${line.trim()}`);
+                }
+              });
+            }
+          }
+        } catch {}
+      }
+
+      await scan(target);
+      if (!results.length) return `No matches found for '${keyword}'.`;
+      return `Found ${results.length} match(es)${results.length >= max_results ? " (limit reached)" : ""}:\n` + results.join("\n");
+    } catch (e: any) {
+      return `ERROR: ${e.message}`;
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CREATE PDF
+// ─────────────────────────────────────────────────────────────────────────────
 registerTool(
   "create_pdf",
-  "Verilen Markdown metnini PDF dosyasına dönüştürür.",
+  "Convert Markdown content to a PDF file.",
   z.object({ path: z.string(), markdown_content: z.string() }),
-  async ({
-    path: relPath,
-    markdown_content,
-  }: {
-    path: string;
-    markdown_content: string;
-  }) => {
+  async ({ path: relPath, markdown_content }: { path: string; markdown_content: string }) => {
     try {
       if (!relPath.toLowerCase().endsWith(".pdf")) relPath += ".pdf";
       const target = _safePath(relPath);
       await fs.mkdir(path.dirname(target), { recursive: true });
-
       return new Promise((resolve) => {
-        markdownpdf()
-          .from.string(markdown_content)
-          .to(target, () => {
-            resolve(`OK: PDF oluşturuldu: ${relPath}`);
-          });
+        markdownpdf().from.string(markdown_content).to(target, () => {
+          resolve(`OK: PDF created at ${relPath}`);
+        });
       });
     } catch (e: any) {
-      return `HATA PDF oluşturulamadı: ${e.message}`;
-    }
-  },
-);
-
-registerTool(
-  "search_in_files",
-  "Workspace içindeki dosyalarda kelime araması yapar.",
-  z.object({ keyword: z.string(), subdir: z.string().optional().default(".") }),
-  async ({ keyword, subdir }: { keyword: string; subdir: string }) => {
-    try {
-      const target = _safePath(subdir);
-      const results: string[] = [];
-      const extensions = [".ts", ".js", ".py", ".md", ".txt", ".json", ".yaml"];
-
-      async function scan(dir: string) {
-        const items = await fs.readdir(dir, { withFileTypes: true });
-        for (const item of items) {
-          const fullPath = path.join(dir, item.name);
-          if (item.isDirectory()) {
-            await scan(fullPath);
-          } else if (
-            extensions.includes(path.extname(fullPath).toLowerCase())
-          ) {
-            const content = await fs.readFile(fullPath, "utf-8");
-            const lines = content.split("\n");
-            lines.forEach((line, i) => {
-              if (line.toLowerCase().includes(keyword.toLowerCase())) {
-                const relPath = path.relative(_WORKSPACE, fullPath);
-                results.push(`📄 ${relPath} [Satır ${i + 1}]: ${line.trim()}`);
-              }
-            });
-          }
-        }
-      }
-
-      await scan(target);
-      if (results.length === 0) return `'${keyword}' kelimesi bulunamadı.`;
-      return results.slice(0, 50).join("\n");
-    } catch (e: any) {
-      return `HATA arama yapılamadı: ${e.message}`;
+      return `ERROR creating PDF: ${e.message}`;
     }
   },
 );

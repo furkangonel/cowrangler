@@ -1,16 +1,31 @@
 {
   "name": "co-wrangler",
-  "version": "1.0.0",
+  "version": "1.1.0",
+  "description": "An enterprise-grade personal AI agent for the terminal — powered by Claude, GPT, Gemini & more",
   "type": "module",
   "bin": {
     "cowrangler": "./dist/main.js"
   },
   "scripts": {
     "dev": "NODE_OPTIONS='--loader ts-node/esm --no-warnings' ts-node src/main.ts",
-    "build": "tsc && chmod +x dist/main.js",
+    "build": "tsc && npm run copy-assets && chmod +x dist/main.js",
+    "copy-assets": "cp -r src/bundled_skills dist/bundled_skills",
     "start": "node dist/main.js",
-    "setup": "npm install && npm run build && npm link"
+    "setup": "npm install && npm run build && npm link",
+    "clean": "rm -rf dist"
   },
+  "keywords": [
+    "ai",
+    "agent",
+    "cli",
+    "claude",
+    "gpt",
+    "gemini",
+    "terminal",
+    "automation",
+    "developer-tools"
+  ],
+  "license": "MIT",
   "dependencies": {
     "ai": "^4.0.0",
     "@ai-sdk/openai": "^1.0.0",

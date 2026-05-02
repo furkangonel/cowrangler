@@ -2,7 +2,6 @@ import os from "os";
 import { execSync } from "child_process";
 import chalk from "chalk";
 import boxen from "boxen";
-import Table from "cli-table3";
 import { marked } from "marked";
 // @ts-ignore
 import { markedTerminal } from "marked-terminal";
@@ -10,7 +9,9 @@ import { getConfig } from "../core/init.js";
 
 marked.use(markedTerminal() as unknown as any);
 
-// 1. Dark and Light Theme Palettes
+const VERSION = "1.1.0";
+
+// ── Color Palettes ────────────────────────────────────────────────────────────
 const palettes = {
   dark: {
     main: chalk.hex("#FF4C00"),
@@ -30,152 +31,240 @@ const palettes = {
   },
 };
 
-// 2. Auto-detect Operating System Theme Function
+// ── OS Theme Detection ────────────────────────────────────────────────────────
 function detectSystemTheme(): "dark" | "light" {
   try {
     const platform = os.platform();
-
     if (platform === "darwin") {
-      // macOS: Throws an error if system is in Light mode. Returns "Dark" otherwise.
       execSync("defaults read -g AppleInterfaceStyle", { stdio: "ignore" });
       return "dark";
     }
-
     if (platform === "win32") {
-      // Windows: Query the registry for App theme preference
       const result = execSync(
         'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize" /v AppsUseLightTheme',
         { encoding: "utf-8", stdio: "pipe" },
       );
       return result.includes("0x0") ? "dark" : "light";
     }
-
-    // Fallback for Linux/other terminals based on background color variable
-    if (process.env.COLORFGBG && process.env.COLORFGBG.endsWith(";15")) {
-      return "light";
-    }
-
-    return "dark"; // Default to dark if environment is unknown
-  } catch (error) {
-    // If 'defaults' throws on macOS, the system is explicitly in Light Mode
+    if (process.env.COLORFGBG?.endsWith(";15")) return "light";
+    return "dark";
+  } catch {
     return "light";
   }
 }
 
-// 3. Theme Resolution Logic (Config > Auto-detect > Fallback)
 const config = getConfig();
-let currentThemeMode: "dark" | "light" = "dark";
+const themeMode: "dark" | "light" =
+  config.theme === "light" || config.theme === "dark"
+    ? config.theme
+    : detectSystemTheme();
 
-if (config.theme === "light" || config.theme === "dark") {
-  // Use explicit config preference if defined
-  currentThemeMode = config.theme;
-} else {
-  // Otherwise, sniff the OS theme!
-  currentThemeMode = detectSystemTheme();
+export const Theme = palettes[themeMode];
+
+// ── ANSI helpers ──────────────────────────────────────────────────────────────
+function visLen(s: string): number {
+  // Strip ANSI escape codes to get the visible character count
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/\x1b\[[0-9;]*m/g, "").length;
 }
 
-export const Theme = palettes[currentThemeMode];
+function padR(s: string, width: number): string {
+  const pad = Math.max(0, width - visLen(s));
+  return s + " ".repeat(pad);
+}
 
-// --- UI OBJECT ---
-export const UI = {
-  renderMarkdown: async (text: string): Promise<string> => {
-    return marked.parse(text) as string;
-  },
+// ── Dashboard helpers ─────────────────────────────────────────────────────────
 
-  success: (msg: string) => console.log(Theme.success(`✓ ${msg}`)),
-  error: (msg: string) => console.log(Theme.fail(`✗ ${msg}`)),
-  warn: (msg: string) => console.log(Theme.main(`⚠ ${msg}`)),
-  info: (msg: string) => console.log(Theme.dim(`ℹ ${msg}`)),
-
-  printDashboard: (modelName: string, workspacePath: string) => {
-    const homeDir = os.homedir();
-    const displayPath = workspacePath.startsWith(homeDir)
-      ? workspacePath.replace(homeDir, "~")
-      : workspacePath;
-
-    const safeModelName = modelName || "unknown-engine";
-
-    const table = new Table({
-      chars: {
-        top: "",
-        "top-mid": "",
-        "top-left": "",
-        "top-right": "",
-        bottom: "",
-        "bottom-mid": "",
-        "bottom-left": "",
-        "bottom-right": "",
-        left: "",
-        "left-mid": "",
-        mid: "",
-        "mid-mid": "",
-        right: "",
-        "right-mid": "",
-        middle: " │ ",
-      },
-      style: { "padding-left": 2, "padding-right": 2 },
-      colWidths: [32, 33],
-      wordWrap: true,
+/**
+ * Fetch the last `n` git commits as [{age, subject}] pairs.
+ * Returns [] if not inside a git repo or git is unavailable.
+ */
+function recentCommits(n = 5): Array<{ age: string; subject: string }> {
+  try {
+    const raw = execSync(`git log --pretty=format:"%ar|%s" -${n} 2>/dev/null`, {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "ignore"],
+    }).trim();
+    if (!raw) return [];
+    return raw.split("\n").map((line) => {
+      const sep = line.indexOf("|");
+      const age = sep === -1 ? "?" : line.slice(0, sep).trim();
+      const subject = sep === -1 ? line : line.slice(sep + 1).trim();
+      // Abbreviate age: "3 hours ago" → "3h", "2 days ago" → "2d"
+      const shortAge = age
+        .replace(/(\d+) hours? ago/, "$1h")
+        .replace(/(\d+) minutes? ago/, "$1m")
+        .replace(/(\d+) days? ago/, "$1d")
+        .replace(/(\d+) weeks? ago/, "$1w")
+        .replace(/(\d+) months? ago/, "$1mo")
+        .replace("an hour ago", "1h")
+        .replace("a day ago", "1d")
+        .replace("a minute ago", "1m")
+        .replace("just now", "now");
+      return { age: shortAge, subject };
     });
+  } catch {
+    return [];
+  }
+}
 
-    const badge = `
-  ${Theme.main("▄▄▄▄▄▄▄")}
-  ${Theme.main("█ ███ █")}
-  ${Theme.main("███████")}
-  ${Theme.main("█▄█     █▄█")}
-`;
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+{
+  /*
+const brandLines = [
+  "",
+  Theme.main.bold("  ██████╗ ██╗    ██╗"),
+  Theme.main.bold("  ██╔════╝██║    ██║"),
+  Theme.main.bold("  ██║     ██║ █╗ ██║"),
+  Theme.main.bold("  ██║     ██║███╗██║"),
+  Theme.main.bold("  ╚██████╗╚███╔███╔╝"),
+  Theme.main.bold("   ╚═════╝ ╚══╝╚══╝ "),
+  "",
+  `${Theme.dim("Co-Wrangler")} ${Theme.main.bold(`v${VERSION}`)}`,
+  `  ${Theme.dim("Your personal AI agent")}`, "",
+  `  ${Theme.dim("Model   ")} ${Theme.accent(modelShort)}`,
+  `  ${Theme.dim("Project ")} ${Theme.accent(displayPath.length > 28 ? "..." + displayPath.slice(-25) : displayPath)}`
+  ,];
+  */
+}
 
-    const left = [
-      Theme.dim("Welcome back, Partner!"),
-      "",
-      badge,
-      "",
-      `${Theme.accent.dim(modelName.split("/").pop() || safeModelName)}`,
-      `${Theme.accent.dim(displayPath)}`,
-    ];
+const OCTOPUS = ["  ▄▄▄▄▄▄▄  ", "  █ ███ █  ", "  ███████  ", " █▄█   █▄█ "];
 
-    const right = [
-      Theme.main.bold("System Directives"),
-      "",
-      `${Theme.dim("/help")}    ${Theme.accent("Documentation")}`,
-      `${Theme.dim("/skills")}  ${Theme.accent("SOP Library")}`,
-      `${Theme.dim("/tools")}   ${Theme.accent("Capabilities")}`,
-      `${Theme.dim("/model")}   ${Theme.accent("Switch Engine")}`,
-      `${Theme.dim("/reset")}   ${Theme.accent("Clear Memory")}`,
-      `${Theme.dim("/exit")}    ${Theme.accent("Quit")}`,
-    ];
+export const UI = {
+  renderMarkdown: async (text: string): Promise<string> =>
+    marked.parse(text) as string,
+  success: (msg: string) => console.log(Theme.success(`  ✓ ${msg}`)),
+  error: (msg: string) => console.log(Theme.fail(`  ✗ ${msg}`)),
+  warn: (msg: string) => console.log(Theme.main(`  ⚠ ${msg}`)),
+  info: (msg: string) => console.log(Theme.info(`  ℹ ${msg}`)),
 
-    const maxRows = Math.max(left.length, right.length);
-    for (let i = 0; i < maxRows; i++) {
-      table.push([
-        { content: left[i] || "", hAlign: "center" },
-        { content: right[i] || "", hAlign: "left" },
-      ]);
-    }
-
+  box: (content: string, title: string) => {
     console.log(
       "\n" +
-        boxen(table.toString(), {
-          padding: { top: 1, bottom: 1, left: 1, right: 1 },
+        boxen(content, {
+          title: Theme.accent.bold(` ${title} `),
+          padding: { top: 0, bottom: 0, left: 1, right: 1 },
+          margin: { top: 0, bottom: 0, left: 2, right: 0 },
           borderStyle: "round",
           borderColor: "#FF4C00",
-          title: Theme.main(" Co-Wrangler v1.0.0 "),
           titleAlignment: "left",
-          width: 75,
         }) +
         "\n",
     );
   },
 
-  box: (content: string, title: string) => {
+  // ── Main dashboard ──────────────────────────────────────────────────────────
+  printDashboard: (modelName: string, workspacePath: string) => {
+    const homeDir = os.homedir();
+    const displayPath = workspacePath.startsWith(homeDir)
+      ? "~" + workspacePath.slice(homeDir.length)
+      : workspacePath;
+    const modelShort = modelName.split("/").pop() || modelName;
+    const commits = recentCommits(5);
+
+    // ── Panel widths (visible chars inside the border) ───────────────────────
+    const LEFT_W = 40; // visible width of left panel content
+    const RIGHT_W = 34; // visible width of right panel content
+    const SEP = " ╎ "; // 3-char visible separator
+
+    // ── Left panel lines ─────────────────────────────────────────────────────
+    const truncPath =
+      displayPath.length > LEFT_W - 12
+        ? "…" + displayPath.slice(-(LEFT_W - 13))
+        : displayPath;
+    const truncModel =
+      modelShort.length > LEFT_W - 12
+        ? modelShort.slice(0, LEFT_W - 15) + "…"
+        : modelShort;
+
+    const leftRaw: Array<string> = [
+      ...OCTOPUS.map((line) => "  " + Theme.main(line)),
+      "",
+      `  ${Theme.main.bold("Co-Wrangler")} ${Theme.dim("v" + VERSION)}`,
+      `  ${Theme.dim("Your personal AI agent")}`,
+      "",
+      `  ${Theme.dim("Model  ")} ${Theme.accent(truncModel)}`,
+      `  ${Theme.dim("Project")} ${Theme.accent(truncPath)}`,
+      "",
+      `  ${Theme.dim("/help")}  ${Theme.dim("/skills")}  ${Theme.dim("/tools")}`,
+      `  ${Theme.dim("/model")} ${Theme.dim("/key")}     ${Theme.dim("/reset")}`,
+    ];
+
+    // ── Right panel lines ─────────────────────────────────────────────────────
+    const rightRaw: Array<string> = [];
+
+    // Recent commits section
+    rightRaw.push(`  ${Theme.info("Recent Commits")}`);
+    rightRaw.push(`  ${Theme.dim("─".repeat(RIGHT_W - 2))}`);
+
+    if (commits.length > 0) {
+      for (const { age, subject } of commits) {
+        const ageStr = Theme.main(age.padEnd(4));
+        const maxSubj = RIGHT_W - 8;
+        const subjStr =
+          subject.length > maxSubj
+            ? subject.slice(0, maxSubj - 1) + "…"
+            : subject;
+        rightRaw.push(`  ${ageStr}  ${Theme.dim(subjStr)}`);
+      }
+    } else {
+      rightRaw.push(`  ${Theme.dim("(no git history found)")}`);
+    }
+
+    rightRaw.push("");
+
+    // What's new section
+    rightRaw.push(
+      `  ${Theme.success("What's New")}  ${Theme.dim("v" + VERSION)}`,
+    );
+    rightRaw.push(`  ${Theme.dim("─".repeat(RIGHT_W - 2))}`);
+
+    const news = [
+      "+ 9 specialized subagent types",
+      "+ 7 bundled SOPs (skills)",
+      "+ 25+ default tools",
+      "+ Live model switching",
+      "+ Step-by-step progress",
+      "+ @file completions in REPL",
+    ];
+    for (const n of news) {
+      rightRaw.push(`  ${Theme.dim(n)}`);
+    }
+
+    // ── Merge panels ─────────────────────────────────────────────────────────
+    const rows = Math.max(leftRaw.length, rightRaw.length);
+    const lines: string[] = [];
+
+    for (let i = 0; i < rows; i++) {
+      const left = padR(leftRaw[i] ?? "", LEFT_W);
+      const right = padR(rightRaw[i] ?? "", RIGHT_W);
+      lines.push(left + SEP + right);
+    }
+
+    const content = lines.join("\n");
+
+    // ── Dashed border ─────────────────────────────────────────────────────────
+    const totalWidth = LEFT_W + visLen(SEP) + RIGHT_W + 4; // +4 for boxen side padding
+
     console.log(
-      boxen(content, {
-        title: Theme.accent(title),
-        padding: 1,
-        borderColor: "#FF4C00",
-        titleAlignment: "left",
-        width: 75,
-      }),
+      "\n" +
+        boxen(content, {
+          padding: { top: 0, bottom: 0, left: 0, right: 0 },
+          margin: { top: 0, bottom: 0, left: 1, right: 0 },
+          borderStyle: {
+            topLeft: "╭",
+            topRight: "╮",
+            bottomLeft: "╰",
+            bottomRight: "╯",
+            top: "╌",
+            bottom: "╌",
+            left: "╎",
+            right: "╎",
+          },
+          borderColor: "#FF4C00",
+          width: totalWidth,
+        }) +
+        "\n",
     );
   },
 };
