@@ -20,6 +20,7 @@ export class InteractiveRepl {
   private choices: string[] = [];
   private filteredChoices: string[] = [];
   private lastMenuHeight: number = 0;
+  private lastInputHeight: number = 1;
 
   constructor(agent: Agent) {
     this.agent = agent;
@@ -151,20 +152,35 @@ export class InteractiveRepl {
     });
   }
 
+  // Terminal genişliğini hesaba katarak girdinin kaç satır kapladığını hesaplar
+  private calculateDisplayHeight(text: string): number {
+    const columns = process.stdout.columns || 80; // Terminal genişliği (varsayılan 80)
+    // ❯ simgesi ve boşluk (2 karakter) eklendiğini varsayıyoruz
+    return Math.ceil((text.length + 2) / columns);
+  }
+
   private clearLastRender() {
-    if (this.lastMenuHeight > 0) {
-      for (let i = 0; i < this.lastMenuHeight; i++) {
+    const totalHeightToClear = this.lastMenuHeight + this.lastInputHeight - 1;
+
+    if (totalHeightToClear > 0) {
+      // Bulunduğumuz satırdan aşağı inip eski menüyü sil
+      for (let i = 0; i < totalHeightToClear; i++) {
         process.stdout.write("\x1b[1B\r\x1b[2K");
       }
-      process.stdout.write(`\x1b[${this.lastMenuHeight}A\r`);
+      // İmleci tekrar en başa (yukarı) al
+      process.stdout.write(`\x1b[${totalHeightToClear}A\r`);
     }
+    // Ana satırı temizle
     process.stdout.write("\r\x1b[2K");
   }
 
   private render() {
     this.clearLastRender();
 
-    // Prompt + Girdi (❯ simgesi 2 karakter yer kaplar)
+    // Yeni girdinin yüksekliğini hesapla ve kaydet
+    this.lastInputHeight = this.calculateDisplayHeight(this.input);
+
+    // Prompt + Girdi
     process.stdout.write(`${Theme.accent.dim("❯")} ${this.input}`);
 
     if (this.menuVisible && this.filteredChoices.length > 0) {
@@ -180,13 +196,28 @@ export class InteractiveRepl {
       });
       process.stdout.write("\n\x1b[K" + Theme.main("  └─" + "─".repeat(50)));
 
-      // İmleci tam olarak yazının bittiği yere çek (Mıknatıs hizalaması: + 2)
-      process.stdout.write(
-        `\x1b[${this.lastMenuHeight}A\r\x1b[${this.cursor + 2}C`,
-      );
+      // İmleci tam olarak yazının bittiği yere çek
+      // X Ekseni hizalaması (Sütun)
+      const columns = process.stdout.columns || 80;
+      const cursorX = (this.cursor + 2) % columns;
+
+      process.stdout.write(`\x1b[${this.lastMenuHeight}A\r\x1b[${cursorX}C`);
     } else {
       this.lastMenuHeight = 0;
-      process.stdout.write(`\r\x1b[${this.cursor + 2}C`);
+
+      const columns = process.stdout.columns || 80;
+      // İmlecin hangi satır ve sütunda olması gerektiğini hesapla
+      const cursorY = Math.floor((this.cursor + 2) / columns);
+      const cursorX = (this.cursor + 2) % columns;
+
+      // Eğer imleç çok satırlı bir yazının ortasındaysa (backspace ile vs.) y eksenini ayarla
+      const yOffset = this.lastInputHeight - 1 - cursorY;
+
+      if (yOffset > 0) {
+        process.stdout.write(`\x1b[${yOffset}A\r\x1b[${cursorX}C`);
+      } else {
+        process.stdout.write(`\r\x1b[${cursorX}C`);
+      }
     }
   }
 
