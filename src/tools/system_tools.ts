@@ -133,23 +133,98 @@ const TODO_FILE = path.join(LOCAL_DIR, "AGENT_TODO.md");
 
 registerTool(
   "manage_todo",
-  "Read or update the agent's in-session task list (markdown checklist format).",
+  `Manage the agent's in-session task list (markdown checklist format).
+
+Actions:
+- read       → return the current todo list
+- update     → overwrite the entire list with new content (requires: content)
+- mark_done  → mark a specific item as [x] done (requires: item — partial text match or 1-based index as string)
+- append     → add a new pending item to the bottom of the list (requires: content — the task text)
+
+Always use mark_done immediately after completing each item. Never batch-mark at the end.`,
   z.object({
-    action: z.enum(["read", "update"]).describe("read the list or update/overwrite it"),
-    content: z.string().optional().describe("New TODO content in markdown checklist format (required for update)"),
+    action: z.enum(["read", "update", "mark_done", "append"]).describe(
+      "read | update (overwrite) | mark_done (check off item) | append (add item)"
+    ),
+    content: z.string().optional().describe(
+      "For update: full markdown content. For append: task description text."
+    ),
+    item: z.string().optional().describe(
+      "For mark_done: partial text match of the item, OR a 1-based index (e.g. '1', '2')."
+    ),
   }),
-  async ({ action, content }: { action: string; content?: string }) => {
+  async ({ action, content, item }: { action: string; content?: string; item?: string }) => {
     try {
+      // ── read ────────────────────────────────────────────────────────────────
       if (action === "read") {
         return fs.existsSync(TODO_FILE)
           ? fs.readFileSync(TODO_FILE, "utf-8")
           : "No active TODO list.";
       }
-      if (action === "update" && content) {
+
+      // ── update ──────────────────────────────────────────────────────────────
+      if (action === "update") {
+        if (!content) return "ERROR: 'update' requires content.";
         fs.writeFileSync(TODO_FILE, content, "utf-8");
         return "TODO list updated.";
       }
-      return "ERROR: 'update' requires content.";
+
+      // ── append ──────────────────────────────────────────────────────────────
+      if (action === "append") {
+        if (!content) return "ERROR: 'append' requires content.";
+        const existing = fs.existsSync(TODO_FILE)
+          ? fs.readFileSync(TODO_FILE, "utf-8")
+          : "# Active Agent Tasks\n";
+        const newItem = `- [ ] ${content.replace(/^-\s*\[.\]\s*/, "")}`;
+        fs.writeFileSync(TODO_FILE, existing.trimEnd() + "\n" + newItem + "\n", "utf-8");
+        return `Appended: ${newItem}`;
+      }
+
+      // ── mark_done ───────────────────────────────────────────────────────────
+      if (action === "mark_done") {
+        if (!item) return "ERROR: 'mark_done' requires item (text or 1-based index).";
+        if (!fs.existsSync(TODO_FILE)) return "ERROR: No todo file found.";
+
+        const raw = fs.readFileSync(TODO_FILE, "utf-8");
+        const lines = raw.split("\n");
+
+        // Determine if item is a numeric index
+        const idx = /^\d+$/.test(item.trim()) ? parseInt(item.trim(), 10) : -1;
+
+        let matched = false;
+        let checklistCount = 0; // counts only checklist lines (- [ ] or - [x])
+
+        const updated = lines.map((line) => {
+          const isCheckbox = /^\s*-\s*\[.\]/.test(line);
+          if (isCheckbox) checklistCount++;
+
+          if (matched) return line;
+
+          if (idx > 0) {
+            // Index match — match the Nth checklist item (1-based)
+            if (isCheckbox && checklistCount === idx) {
+              matched = true;
+              return line.replace(/\[.\]/, "[x]");
+            }
+          } else {
+            // Text match
+            if (isCheckbox && line.toLowerCase().includes(item.toLowerCase())) {
+              matched = true;
+              return line.replace(/\[.\]/, "[x]");
+            }
+          }
+          return line;
+        });
+
+        if (!matched) {
+          return `ERROR: No matching todo item found for: "${item}". Current list:\n${raw}`;
+        }
+
+        fs.writeFileSync(TODO_FILE, updated.join("\n"), "utf-8");
+        return `Marked done: "${item}"`;
+      }
+
+      return "ERROR: Unknown action.";
     } catch (e: any) {
       return `ERROR: ${e.message}`;
     }

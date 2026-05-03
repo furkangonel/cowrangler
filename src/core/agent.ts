@@ -83,6 +83,7 @@ export class Agent {
   async chat(
     userMessage: string,
     onToolCall?: (name: string, args: any) => void,
+    onStepText?: (text: string) => void,
   ): Promise<string> {
     this.messages.push({ role: "user", content: userMessage });
 
@@ -95,7 +96,11 @@ export class Agent {
         messages: this.messages.filter((m) => m.role !== "system"),
         tools: this.getTools(),
         maxSteps: this.maxIterations,
-        onStepFinish: ({ toolCalls }) => {
+        onStepFinish: ({ text, toolCalls }) => {
+          // Surface any reasoning text the LLM emitted before/between tool calls
+          if (text?.trim() && onStepText) {
+            onStepText(text.trim());
+          }
           if (toolCalls && onToolCall) {
             for (const call of toolCalls) {
               onToolCall(call.toolName, call.args);
