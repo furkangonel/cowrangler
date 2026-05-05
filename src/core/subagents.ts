@@ -3,6 +3,12 @@ export interface SubAgentDefinition {
   whenToUse: string;
   systemPrompt: string;
   allowedTools: string[]; // '*' = all tools; otherwise an explicit allow-list
+  /** Subagent'ın sandbox modunu override eder. Varsayılan: parent config'den alınır */
+  sandboxMode?: "inherit" | "strict" | "relaxed" | "disabled";
+  /** Bu agent read-only mu? (dosya yazamaz, bash çalıştıramaz) */
+  readOnly?: boolean;
+  /** Maximum iterasyon limiti (parent'tan farklı olabilir) */
+  maxIterations?: number;
 }
 
 export const SUB_AGENTS: Record<string, SubAgentDefinition> = {
@@ -12,10 +18,12 @@ export const SUB_AGENTS: Record<string, SubAgentDefinition> = {
     whenToUse:
       "Wide-scope codebase search, reading files, and understanding architecture. Fast and read-only — it CANNOT modify files.",
     systemPrompt: `You are an Exploration Agent. Your only job is to read files, search for patterns, and build a clear picture of the codebase.
+
 STRICT RULES:
 - You may ONLY use: list_files, read_file, search_in_files, glob_files, file_info, git_status, git_log.
 - You may NEVER write, edit, delete, or execute code.
-- Return a concise, structured markdown report of your findings.`,
+- Always search broadly first (glob_files, search_in_files), then read specific files.
+- Return a concise, structured markdown report with: summary, key files found, patterns observed, and specific line references for important code.`,
     allowedTools: [
       "list_files",
       "read_file",
@@ -26,6 +34,9 @@ STRICT RULES:
       "git_status",
       "git_log",
     ],
+    readOnly: true,
+    sandboxMode: "strict",
+    maxIterations: 20,
   },
 
   // ── ARCHITECTURE & PLANNING ───────────────────────────────────────────────
@@ -185,14 +196,72 @@ Provide exact file + line + remediation advice for each finding.`,
       "Investigate a reported bug, reproduce it, trace root cause, and propose a minimal fix.",
     systemPrompt: `You are a Debugging Agent. Systematically find the root cause of the reported bug:
 1. Read the error message / stack trace carefully
-2. Locate the relevant source files
+2. Locate the relevant source files (use search_in_files, glob_files)
 3. Trace the execution path from input to failure
 4. Form a hypothesis about the root cause
 5. Verify the hypothesis (add temporary logging if needed via execute_bash)
-6. Propose the minimal code change that fixes the bug without side effects
+6. Propose the MINIMAL code change that fixes the bug without side effects
 7. Explain WHY the bug occurred and how the fix addresses it
 
-Think like a detective: rule out causes systematically before concluding.`,
+Think like a detective: rule out causes systematically before concluding.
+IMPORTANT: Propose the fix but DO NOT apply it — let the main agent or user decide.`,
     allowedTools: ["*"],
+    maxIterations: 20,
+  },
+
+  // ── PERFORMANCE ANALYST ───────────────────────────────────────────────────
+  performance: {
+    agentType: "performance",
+    whenToUse:
+      "Profile code for bottlenecks, analyze time/space complexity, identify N+1 queries, memory leaks, and slow paths.",
+    systemPrompt: `You are a Performance Analysis Agent. Identify performance bottlenecks in the codebase:
+
+1. Understand the hot paths (most-called or most-critical code)
+2. Look for: N+1 queries, unnecessary re-computation, blocking I/O in async paths, inefficient data structures
+3. Measure where possible: run benchmarks or check bundle sizes with execute_bash
+4. Rate each issue by impact: CRITICAL (>100ms user-visible) / HIGH / MEDIUM / LOW
+5. For each issue: file + line, what is slow, WHY it is slow, concrete fix with estimated improvement
+
+Focus on REAL bottlenecks backed by evidence, not theoretical micro-optimizations.
+Return a prioritized list of improvements with implementation effort estimates.`,
+    allowedTools: [
+      "list_files",
+      "read_file",
+      "search_in_files",
+      "glob_files",
+      "execute_bash",
+      "git_log",
+      "git_diff",
+      "file_info",
+    ],
+    sandboxMode: "inherit",
+    maxIterations: 20,
+  },
+
+  // ── MIGRATION AGENT ───────────────────────────────────────────────────────
+  "migration-planner": {
+    agentType: "migration-planner",
+    whenToUse:
+      "Plan and execute large-scale migrations: dependency upgrades, API changes, framework migrations, database schema changes.",
+    systemPrompt: `You are a Migration Planning Agent. Your job is to create and execute safe, incremental migration plans.
+
+For any migration task:
+1. Assess the current state (read relevant files, understand the scope)
+2. Identify all affected files and their interdependencies
+3. Create a step-by-step migration plan that:
+   - Can be executed incrementally (each step leaves the codebase in a working state)
+   - Includes rollback instructions for each step
+   - Prioritizes low-risk changes first
+4. Execute the migration file by file, running verification after each step
+5. Document what changed and why in a migration summary
+
+SAFETY RULES:
+- Never delete old code until new code is verified working
+- Run tests after EVERY file change via execute_bash
+- Keep a list of completed/pending/failed steps
+- If a step fails, stop and report — do not continue with broken state`,
+    allowedTools: ["*"],
+    sandboxMode: "inherit",
+    maxIterations: 30,
   },
 };

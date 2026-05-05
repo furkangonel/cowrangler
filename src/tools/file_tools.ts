@@ -470,3 +470,108 @@ registerTool(
     }
   },
 );
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NOTEBOOK EDIT — Jupyter .ipynb hücre okuma ve düzenleme
+// ─────────────────────────────────────────────────────────────────────────────
+registerTool(
+  "notebook_edit",
+  `Read or edit a Jupyter notebook (.ipynb) file at the cell level.
+
+Actions:
+- read        → Return all cells (index, type, source, first line of output)
+- edit_cell   → Replace source of a specific cell (0-based cell_number)
+- insert_cell → Insert a new cell at position (0-based cell_number)
+- delete_cell → Delete the cell at position (0-based cell_number)
+- run_info    → Return cell types and execution counts`,
+  z.object({
+    notebook_path: z.string().describe("Absolute or workspace-relative path to the .ipynb file"),
+    action: z.enum(["read", "edit_cell", "insert_cell", "delete_cell", "run_info"]),
+    cell_number: z.number().optional().describe("0-based cell index"),
+    source: z.string().optional().describe("New cell source (required for edit_cell, insert_cell)"),
+    cell_type: z.enum(["code", "markdown"]).optional().default("code"),
+  }),
+  async ({
+    notebook_path,
+    action,
+    cell_number,
+    source,
+    cell_type = "code",
+  }: {
+    notebook_path: string;
+    action: string;
+    cell_number?: number;
+    source?: string;
+    cell_type?: string;
+  }) => {
+    const target = _safePath(notebook_path);
+    try {
+      if (!target.endsWith(".ipynb")) return `ERROR: File must be a .ipynb notebook.`;
+
+      let nb: any;
+      try {
+        nb = JSON.parse(await fs.readFile(target, "utf-8"));
+      } catch (e: any) {
+        return `ERROR reading notebook: ${e.message}`;
+      }
+      const cells: any[] = nb.cells ?? [];
+
+      if (action === "read") {
+        if (!cells.length) return "Notebook has no cells.";
+        const lines = cells.map((c: any, i: number) => {
+          const src = (c.source ?? []).join("").slice(0, 200).replace(/\n/g, "↵");
+          const outSnippet = c.outputs?.length
+            ? `\n    → output: ${JSON.stringify(c.outputs[0]).slice(0, 100)}`
+            : "";
+          return `[${i}] ${c.cell_type}  ${src}${outSnippet}`;
+        });
+        return `Notebook: ${notebook_path} (${cells.length} cells)\n\n${lines.join("\n")}`;
+      }
+
+      if (action === "run_info") {
+        return cells
+          .map((c: any, i: number) => `[${i}] ${c.cell_type}  exec_count=${c.execution_count ?? "-"}`)
+          .join("\n");
+      }
+
+      if (cell_number === undefined) return `ERROR: cell_number required for '${action}'.`;
+
+      if (action === "edit_cell") {
+        if (source === undefined) return `ERROR: source required for edit_cell.`;
+        if (cell_number < 0 || cell_number >= cells.length)
+          return `ERROR: cell_number ${cell_number} out of range (0–${cells.length - 1}).`;
+        cells[cell_number].source = source.split("\n").map((l, i, a) => (i < a.length - 1 ? l + "\n" : l));
+        nb.cells = cells;
+        await fs.writeFile(target, JSON.stringify(nb, null, 1), "utf-8");
+        return `OK: Cell ${cell_number} updated.`;
+      }
+
+      if (action === "insert_cell") {
+        if (source === undefined) return `ERROR: source required for insert_cell.`;
+        const newCell: any = {
+          cell_type,
+          metadata: {},
+          source: source.split("\n").map((l, i, a) => (i < a.length - 1 ? l + "\n" : l)),
+          ...(cell_type === "code" ? { outputs: [], execution_count: null } : {}),
+        };
+        cells.splice(cell_number, 0, newCell);
+        nb.cells = cells;
+        await fs.writeFile(target, JSON.stringify(nb, null, 1), "utf-8");
+        return `OK: New ${cell_type} cell inserted at position ${cell_number}.`;
+      }
+
+      if (action === "delete_cell") {
+        if (cell_number < 0 || cell_number >= cells.length)
+          return `ERROR: cell_number ${cell_number} out of range (0–${cells.length - 1}).`;
+        cells.splice(cell_number, 1);
+        nb.cells = cells;
+        await fs.writeFile(target, JSON.stringify(nb, null, 1), "utf-8");
+        return `OK: Cell ${cell_number} deleted. ${cells.length} cells remain.`;
+      }
+
+      return `ERROR: Unknown action '${action}'.`;
+    } catch (e: any) {
+      return `ERROR: ${e.message}`;
+    }
+  },
+);

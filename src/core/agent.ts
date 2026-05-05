@@ -8,6 +8,8 @@ import { DIRS, COWRNGLR_MD } from "./init.js";
 export class Agent {
   public llm: LLM;
   public maxIterations: number;
+  /** CLI görünüm modu — /mode komutu veya Ctrl+O ile değiştirilir */
+  public viewMode: "brief" | "default" | "transcript" = "default";
   private skillManager: SkillManager;
   private originalPrompt: string; // Raw base prompt — never mutated
   private baseSystemPrompt: string; // Fully-built: base + memory + skills
@@ -17,7 +19,7 @@ export class Agent {
   constructor(
     llm: LLM,
     systemPrompt: string,
-    maxIterations: number = 20,
+    maxIterations: number = 25,
     allowedTools?: string[],
   ) {
     this.llm = llm;

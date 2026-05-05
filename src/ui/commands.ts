@@ -8,6 +8,9 @@ import { SkillManager } from "../core/skills.js";
 import { TOOL_SCHEMAS } from "../tools/registry.js";
 import { Theme, UI } from "./theme.js";
 import { DIRS, COWRNGLR_MD, PROJECT_ROOT, ensureLocalMemory } from "../core/init.js";
+import { SUB_AGENTS } from "../core/subagents.js";
+import { getSandboxConfig, configureSandbox } from "../core/sandbox.js";
+import { PermissionMode } from "../core/permissions.js";
 
 export interface CommandContext {
   agent: Agent;
@@ -491,6 +494,180 @@ After writing, reply: "✓ COWRNGLR.md written. Agent context is now active."
         const n = ctx.agent.contextLength;
         UI.info(`Context: ${Theme.accent.bold(String(n))} message(s).`);
         if (n > 80) UI.warn("Context is getting large. Consider /reset to free up tokens.");
+      },
+    });
+
+    // ── /mode ─────────────────────────────────────────────────────────────────
+    this.commands.set("/mode", {
+      description: "Switch view mode: /mode [brief|default|transcript]  (Ctrl+O also cycles)",
+      execute: (args: string[], ctx: CommandContext) => {
+        const validModes = ["brief", "default", "transcript"];
+        const requested = args[0]?.toLowerCase();
+
+        if (!requested || !validModes.includes(requested)) {
+          const lines = [
+            `  ${Theme.dim("Current mode:")} ${Theme.accent(ctx.agent.viewMode ?? "default")}`,
+            "",
+            `  ${Theme.success("•")} ${Theme.accent("brief")}      ${Theme.dim("→ Tool'lar gizlenir; sadece send_message çıktısı")}`,
+            `  ${Theme.success("•")} ${Theme.accent("default")}    ${Theme.dim("→ Tool'lar ⎿ prefix ile gösterilir (varsayılan)")}`,
+            `  ${Theme.success("•")} ${Theme.accent("transcript")} ${Theme.dim("→ Her şey ham haliyle (debug için)")}`,
+            "",
+            `  ${Theme.dim("Tip:")} ${Theme.accent("Ctrl+O")} ${Theme.dim("ile de döngüsel değiştirebilirsin.")}`,
+          ];
+          return UI.box(lines.join("\n"), "View Mode");
+        }
+
+        ctx.agent.viewMode = requested as "brief" | "default" | "transcript";
+        UI.success(`Görünüm modu: ${Theme.accent.bold(requested)}`);
+
+        // Config'e kaydet
+        const cfgPath = DIRS.local.config;
+        let cfg: any = {};
+        if (fs.existsSync(cfgPath)) {
+          cfg = (yaml.load(fs.readFileSync(cfgPath, "utf-8")) as any) || {};
+        }
+        cfg.view_mode = requested;
+        fs.mkdirSync(path.dirname(cfgPath), { recursive: true });
+        fs.writeFileSync(cfgPath, yaml.dump(cfg), "utf-8");
+      },
+    });
+
+    // ── /agents ───────────────────────────────────────────────────────────────
+    this.commands.set("/agents", {
+      description: "List all available sub-agents and their capabilities.",
+      execute: (args: string[], ctx: CommandContext) => {
+        const detail = args[0];
+
+        if (detail && SUB_AGENTS[detail]) {
+          const agent = SUB_AGENTS[detail];
+          const lines = [
+            `  ${Theme.main("Type:")}       ${Theme.accent(agent.agentType)}`,
+            `  ${Theme.main("When:")}       ${Theme.dim(agent.whenToUse)}`,
+            `  ${Theme.main("Tools:")}      ${Theme.accent(agent.allowedTools.includes("*") ? "all" : agent.allowedTools.join(", "))}`,
+            `  ${Theme.main("Read-only:")}  ${Theme.dim(agent.readOnly ? "Yes" : "No")}`,
+            `  ${Theme.main("Sandbox:")}    ${Theme.dim(agent.sandboxMode ?? "inherit")}`,
+            `  ${Theme.main("Max iter:")}   ${Theme.dim(String(agent.maxIterations ?? 20))}`,
+          ];
+          return UI.box(lines.join("\n"), `Agent: ${detail}`);
+        }
+
+        const entries = Object.entries(SUB_AGENTS);
+        const lines: string[] = [
+          `  ${Theme.dim(`${entries.length} built-in agents · spawn with `)}${Theme.accent("spawn_subagent")}\n`,
+        ];
+        entries.forEach(([name, def]) => {
+          const toolSummary = def.allowedTools.includes("*")
+            ? "all tools"
+            : `${def.allowedTools.length} tools`;
+          const badge = def.readOnly ? Theme.info(" [ro]") : "";
+          lines.push(
+            `  ${Theme.success("•")} ${Theme.accent.bold(name.padEnd(20))}${badge}`,
+          );
+          lines.push(
+            `    ${Theme.dim(def.whenToUse.slice(0, 72))}`,
+          );
+          lines.push(`    ${Theme.dim(`(${toolSummary})`)}\n`);
+        });
+        lines.push(`  ${Theme.dim("Usage:")} ${Theme.accent("/agents <name>")} ${Theme.dim("for full details")}`);
+        UI.box(lines.join("\n"), "Available Agents");
+      },
+    });
+
+    // ── /sandbox ──────────────────────────────────────────────────────────────
+    this.commands.set("/sandbox", {
+      description: "Sandbox config: /sandbox [status|enable|disable|strict|audit]",
+      execute: (args: string[], ctx: CommandContext) => {
+        const action = args[0]?.toLowerCase() ?? "status";
+        const sandboxCfg = getSandboxConfig();
+
+        if (action === "status") {
+          const lines = [
+            `  ${Theme.dim("Enabled:         ")} ${sandboxCfg.enabled ? Theme.success("Yes") : Theme.fail("No")}`,
+            `  ${Theme.dim("Workspace Root:  ")} ${Theme.accent(sandboxCfg.workspaceRoot)}`,
+            `  ${Theme.dim("Max Timeout:     ")} ${Theme.accent(`${sandboxCfg.maxTimeoutMs}ms`)}`,
+            `  ${Theme.dim("Network Blocked: ")} ${sandboxCfg.networkRestricted ? Theme.main("Yes") : Theme.dim("No")}`,
+            `  ${Theme.dim("Audit Log:       ")} ${sandboxCfg.auditLogPath ? Theme.success(sandboxCfg.auditLogPath) : Theme.dim("Disabled")}`,
+            `  ${Theme.dim("Blocked Bins:    ")} ${Theme.dim(sandboxCfg.blockedBinaries.slice(0, 6).join(", ") + "...")}`,
+            "",
+            `  ${Theme.dim("Toggle:")} ${Theme.accent("/sandbox enable")} ${Theme.dim("/")} ${Theme.accent("/sandbox disable")}`,
+            `  ${Theme.dim("Strict:")} ${Theme.accent("/sandbox strict")} ${Theme.dim("→ also blocks network")}`,
+            `  ${Theme.dim("Audit: ")} ${Theme.accent("/sandbox audit")} ${Theme.dim("→ writes audit.log")}`,
+          ];
+          return UI.box(lines.join("\n"), "Sandbox Status");
+        }
+
+        const cfgPath = DIRS.local.config;
+        let cfg: any = {};
+        if (fs.existsSync(cfgPath)) {
+          cfg = (yaml.load(fs.readFileSync(cfgPath, "utf-8")) as any) || {};
+        }
+        if (!cfg.sandbox) cfg.sandbox = {};
+
+        if (action === "enable") {
+          cfg.sandbox.enabled = true;
+          configureSandbox({ enabled: true });
+          UI.success("Sandbox etkinleştirildi — tehlikeli komutlar korunuyor.");
+        } else if (action === "disable") {
+          cfg.sandbox.enabled = false;
+          configureSandbox({ enabled: false });
+          UI.warn("Sandbox devre dışı — tüm bash komutları doğrudan çalışır.");
+        } else if (action === "strict") {
+          cfg.sandbox.enabled = true;
+          cfg.sandbox.network_restricted = true;
+          configureSandbox({ enabled: true, networkRestricted: true });
+          UI.success("Strict mod aktif — network komutları da bloklandı.");
+        } else if (action === "audit") {
+          const logPath = DIRS.local.auditLog;
+          cfg.sandbox.audit_log = true;
+          configureSandbox({ auditLogPath: logPath });
+          UI.success(`Audit log aktif: ${Theme.accent(logPath)}`);
+        } else {
+          return UI.error("Geçerli seçenekler: status | enable | disable | strict | audit");
+        }
+
+        fs.mkdirSync(path.dirname(cfgPath), { recursive: true });
+        fs.writeFileSync(cfgPath, yaml.dump(cfg), "utf-8");
+      },
+    });
+
+    // ── /permissions ──────────────────────────────────────────────────────────
+    this.commands.set("/permissions", {
+      description: "Set permission mode: /permissions [default|plan|auto|bypass]",
+      execute: (args: string[], ctx: CommandContext) => {
+        const validModes: PermissionMode[] = ["default", "plan", "auto", "bypass"];
+        const requested = args[0]?.toLowerCase() as PermissionMode | undefined;
+
+        if (!requested || !validModes.includes(requested)) {
+          const cfgPath = DIRS.local.config;
+          let currentMode = "default";
+          if (fs.existsSync(cfgPath)) {
+            const raw = (yaml.load(fs.readFileSync(cfgPath, "utf-8")) as any) || {};
+            currentMode = raw.permission_mode ?? "default";
+          }
+          const lines = [
+            `  ${Theme.dim("Aktif mod:")} ${Theme.accent.bold(currentMode)}\n`,
+            `  ${Theme.success("•")} ${Theme.accent("default")} ${Theme.dim("→ Tehlikeli işlemleri loglar; kritikleri engeller")}`,
+            `  ${Theme.success("•")} ${Theme.accent("plan")}    ${Theme.dim("→ Default + her adım için onay ister")}`,
+            `  ${Theme.success("•")} ${Theme.accent("auto")}    ${Theme.dim("→ Sadece safe/moderate otomatik; dangerous reddedilir")}`,
+            `  ${Theme.main ("•")} ${Theme.accent("bypass")} ${Theme.dim("→ Tüm kontroller devre dışı (güvenilen ortam)")}`,
+          ];
+          return UI.box(lines.join("\n"), "Permission Modes");
+        }
+
+        if (requested === "bypass") {
+          UI.warn("UYARI: bypass modu tüm güvenlik kontrollerini devre dışı bırakır!");
+        }
+
+        const cfgPath = DIRS.local.config;
+        let cfg: any = {};
+        if (fs.existsSync(cfgPath)) {
+          cfg = (yaml.load(fs.readFileSync(cfgPath, "utf-8")) as any) || {};
+        }
+        cfg.permission_mode = requested;
+        fs.mkdirSync(path.dirname(cfgPath), { recursive: true });
+        fs.writeFileSync(cfgPath, yaml.dump(cfg), "utf-8");
+
+        UI.success(`İzin modu: ${Theme.accent.bold(requested)}`);
       },
     });
   }
