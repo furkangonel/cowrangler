@@ -54,6 +54,8 @@ export interface Turn {
   reply?: string;
   /** Error message, if this turn failed. */
   error?: string;
+  /** Total wall-clock time of the agent run, in milliseconds. */
+  durationMs?: number;
   /**
    * For /command turns we don't have a model reply — the command's own
    * stdout output (printed via console.log) shows up directly in the

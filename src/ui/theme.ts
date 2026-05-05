@@ -1,4 +1,6 @@
 import os from "os";
+import fs from "fs";
+import path from "path";
 import { execSync } from "child_process";
 import chalk from "chalk";
 import boxen from "boxen";
@@ -62,10 +64,24 @@ const themeMode: "dark" | "light" =
 export const Theme = palettes[themeMode];
 
 // ── ANSI helpers ──────────────────────────────────────────────────────────────
+
+/**
+ * Visible column width of a string.
+ *
+ * Strips ANSI escapes and counts terminal display columns.
+ * Unicode Block Elements (U+2580–U+259F) — the ▄ and █ chars used in the
+ * OCTOPUS art — are counted as 2 columns because most modern monospace
+ * terminal fonts render them at full-cell (double) width.
+ * Everything else (ASCII, box-drawing ─ │ ╭ etc.) stays at 1 column each.
+ */
 function visLen(s: string): number {
-  // Strip ANSI escape codes to get the visible character count
+  // 1. ANSI renk ve stil (escape) kodlarını metinden temizle
   // eslint-disable-next-line no-control-regex
-  return s.replace(/\x1b\[[0-9;]*m/g, "").length;
+  const bare = s.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
+
+  // 2. Kalan saf metnin karakter sayısını döndür
+  // (Spread operatörü [...] unicode emoji ve blokları doğru sayar)
+  return [...bare].length;
 }
 
 function padR(s: string, width: number): string {
@@ -160,95 +176,152 @@ export const UI = {
       ? "~" + workspacePath.slice(homeDir.length)
       : workspacePath;
     const modelShort = modelName.split("/").pop() || modelName;
-    const commits = recentCommits(5);
 
-    // ── Panel widths (visible chars inside the border) ───────────────────────
-    const LEFT_W = 40; // visible width of left panel content
-    const RIGHT_W = 34; // visible width of right panel content
-    const SEP = " ╎ "; // 3-char visible separator
+    // ── Panel widths (visible cols inside the border) ───────────────────────
+    // LEFT_W must be ≥ widest left-panel line.
+    // OCTOPUS[2] = "  ███████  " → widest when wide chars: 2 + 9*2 + 2 = 22 cols,
+    // plus the "  " prefix in leftRaw = 24 cols.  Model/Project labels can be up
+    // to LEFT_W wide so we leave generous room.
+    //const LEFT_W = 44; // visible cols of left panel content
+    //const RIGHT_W = 36; // visible cols of right panel content
+    //const SEP = " │ ";  // 3-col visible separator
+
+    const termWidth = process.stdout.columns || 80;
+
+    // Kutu genişliği terminali tam kaplamasın, yanlardan 2 boşluk bırakalım. (Maksimum 90 ile sınırlayalım ki dev ekranlarda çok uzamasın)
+    const maxBoxWidth = Math.min(termWidth - 2, 90);
+
+    // Boxen kenarlıkları (2) + Padding (2) + Ortadaki ayırıcı SEP (3) = 7 karakter sabit alan
+    const availableCols = maxBoxWidth - 7;
+
+    // Kalan alanı %55 Sol, %45 Sağ olacak şekilde paylaştır
+    const LEFT_W = Math.floor(availableCols * 0.55);
+    const RIGHT_W = availableCols - LEFT_W;
+    const SEP = " │ ";
 
     // ── Left panel lines ─────────────────────────────────────────────────────
+    // Reserve 10 cols for the "Model  " / "Project" label prefix
     const truncPath =
-      displayPath.length > LEFT_W - 12
-        ? "…" + displayPath.slice(-(LEFT_W - 13))
+      displayPath.length > LEFT_W - 10
+        ? "…" + displayPath.slice(-(LEFT_W - 11))
         : displayPath;
     const truncModel =
-      modelShort.length > LEFT_W - 12
-        ? modelShort.slice(0, LEFT_W - 15) + "…"
+      modelShort.length > LEFT_W - 10
+        ? modelShort.slice(0, LEFT_W - 13) + "…"
         : modelShort;
 
+    // Pad OCTOPUS art lines to uniform visual width so per-line centering
+    // keeps the art pixels aligned (each row gets the same left offset).
+    const maxOctopusWidth = Math.max(...OCTOPUS.map((l) => visLen(l)));
+    const paddedOctopus = OCTOPUS.map((l) => padR(l, maxOctopusWidth));
+
     const leftRaw: Array<string> = [
-      ...OCTOPUS.map((line) => "  " + Theme.main(line)),
+      ...paddedOctopus.map((line) => Theme.main(line)),
       "",
-      `  ${Theme.main.bold("Co-Wrangler")} ${Theme.dim("v" + VERSION)}`,
-      `  ${Theme.dim("Your personal AI agent")}`,
+      Theme.dim("Your personal AI agent"),
       "",
-      `  ${Theme.dim("Model  ")} ${Theme.accent(truncModel)}`,
-      `  ${Theme.dim("Project")} ${Theme.accent(truncPath)}`,
+      `${Theme.accent(truncModel)}`,
+      `${Theme.accent(truncPath)}`,
       "",
-      `  ${Theme.dim("/help")}  ${Theme.dim("/skills")}  ${Theme.dim("/tools")}`,
-      `  ${Theme.dim("/model")} ${Theme.dim("/key")}     ${Theme.dim("/reset")}`,
+      `${Theme.dim("/help")}  ${Theme.dim("/skills")} ${Theme.dim("/tools")}`,
+      `${Theme.dim("/model")} ${Theme.dim("/key")}    ${Theme.dim("/reset")}`,
     ];
 
     // ── Right panel lines ─────────────────────────────────────────────────────
     const rightRaw: Array<string> = [];
 
-    // Recent commits section
-    rightRaw.push(`  ${Theme.info("Recent Commits")}`);
+    {
+      /*
+    // Tips for getting started
+    const hasCowrnglr = fs.existsSync(path.join(workspacePath, "COWRNGLR.md"));
+
+    rightRaw.push(`  ${Theme.main.bold("Tips for getting started")}`);
     rightRaw.push(`  ${Theme.dim("─".repeat(RIGHT_W - 2))}`);
 
-    if (commits.length > 0) {
-      for (const { age, subject } of commits) {
-        const ageStr = Theme.main(age.padEnd(4));
-        const maxSubj = RIGHT_W - 8;
-        const subjStr =
-          subject.length > maxSubj
-            ? subject.slice(0, maxSubj - 1) + "…"
-            : subject;
-        rightRaw.push(`  ${ageStr}  ${Theme.dim(subjStr)}`);
-      }
+    if (!hasCowrnglr) {
+      rightRaw.push(
+        `  ${Theme.dim("Run")} ${Theme.accent("/init")} ${Theme.dim("to create a COWRNGLR.md")}`,
+      );
+      rightRaw.push(
+        `  ${Theme.dim("file with project context for the agent")}`,
+      );
     } else {
-      rightRaw.push(`  ${Theme.dim("(no git history found)")}`);
+      rightRaw.push(`  ${Theme.dim("COWRNGLR.md found — agent has context")}`);
+    }
+    */
+    }
+
+    rightRaw.push("");
+
+    // Tips for getting started section
+    const hasCowrnglr = fs.existsSync(
+      path.join(workspacePath, "COWRNGLR.md"),
+    );
+    rightRaw.push(Theme.main.bold("Tips for getting started"));
+    rightRaw.push(Theme.dim("─".repeat(RIGHT_W - 2)));
+    if (hasCowrnglr) {
+      rightRaw.push(Theme.success("✓ COWRNGLR.md found"));
+      rightRaw.push(Theme.dim("Agent has project context."));
+    } else {
+      rightRaw.push(Theme.accent("Run /init to get started"));
+      rightRaw.push(Theme.dim("Creates COWRNGLR.md with"));
+      rightRaw.push(Theme.dim("project context for the agent."));
     }
 
     rightRaw.push("");
 
     // What's new section
     rightRaw.push(
-      `  ${Theme.success("What's New")}  ${Theme.dim("v" + VERSION)}`,
+      `${Theme.success("What's New")}  ${Theme.dim("v" + VERSION)}`,
     );
-    rightRaw.push(`  ${Theme.dim("─".repeat(RIGHT_W - 2))}`);
+    rightRaw.push(Theme.dim("─".repeat(RIGHT_W - 2)));
 
     const news = [
-      "+ 9 specialized subagent types",
-      "+ 7 bundled SOPs (skills)",
-      "+ 25+ default tools",
-      "+ Live model switching",
-      "+ Step-by-step progress",
-      "+ @file completions in REPL",
+      "+ /init  scan & index project",
+      "+ /skills  list loaded SOPs",
+      "+ /tools  list capabilities",
+      "+ /memory  project memory",
+      "+ @file  path completions",
+      "+ ?  live shortcut reference",
     ];
     for (const n of news) {
-      rightRaw.push(`  ${Theme.dim(n)}`);
+      const maxN = RIGHT_W - 2;
+      const truncN = n.length > maxN ? n.slice(0, maxN - 1) + "…" : n;
+      rightRaw.push(Theme.dim(truncN));
     }
 
-    // ── Merge panels ─────────────────────────────────────────────────────────
+    // ── Merge panels — per-line centering for both left and right ─────────────
     const rows = Math.max(leftRaw.length, rightRaw.length);
     const lines: string[] = [];
 
     for (let i = 0; i < rows; i++) {
-      const left = padR(leftRaw[i] ?? "", LEFT_W);
-      const right = padR(rightRaw[i] ?? "", RIGHT_W);
+      // Left: center each line individually within LEFT_W
+      const leftLine = leftRaw[i] ?? "";
+      const leftPad = Math.max(0, Math.floor((LEFT_W - visLen(leftLine)) / 2));
+      const left = padR(" ".repeat(leftPad) + leftLine, LEFT_W);
+
+      // Right: center each line individually within RIGHT_W
+      const rightLine = rightRaw[i] ?? "";
+      const rightPad = Math.max(
+        0,
+        Math.floor((RIGHT_W - visLen(rightLine)) / 2),
+      );
+      const right = padR(" ".repeat(rightPad) + rightLine, RIGHT_W);
+
       lines.push(left + SEP + right);
     }
 
     const content = lines.join("\n");
 
-    // ── Dashed border ─────────────────────────────────────────────────────────
+    // ── Solid border ──────────────────────────────────────────────────────────
     const totalWidth = LEFT_W + visLen(SEP) + RIGHT_W + 4; // +4 for boxen side padding
 
     console.log(
       "\n" +
         boxen(content, {
+          title:
+            Theme.main.bold(" Co-Wrangler ") + Theme.dim("v" + VERSION + " "),
+          titleAlignment: "left",
           padding: { top: 0, bottom: 0, left: 0, right: 0 },
           margin: { top: 0, bottom: 0, left: 1, right: 0 },
           borderStyle: {
@@ -256,10 +329,10 @@ export const UI = {
             topRight: "╮",
             bottomLeft: "╰",
             bottomRight: "╯",
-            top: "╌",
-            bottom: "╌",
-            left: "╎",
-            right: "╎",
+            top: "─",
+            bottom: "─",
+            left: "│",
+            right: "│",
           },
           borderColor: "#FF4C00",
           width: totalWidth,

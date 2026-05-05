@@ -1,9 +1,15 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Box, Static, Text, useApp, useInput } from "ink";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
 import { Agent } from "../../core/agent.js";
 import { SkillManager } from "../../core/skills.js";
 import { CommandRouter, CommandContext } from "../commands.js";
-import { UI } from "../theme.js";
+import { UI, Theme } from "../theme.js";
 import { Turn, TraceEntry, CompletionItem } from "./types.js";
 import {
   buildStaticPool,
@@ -12,10 +18,11 @@ import {
   applyCompletion,
 } from "./completion.js";
 import { loadHistory, appendHistory } from "./history.js";
-import { Prompt } from "./Prompt.js";
+import { Prompt, PromptHint } from "./Prompt.js";
 import { CompletionMenu } from "./CompletionMenu.js";
 import { AgentTurn } from "./AgentTurn.js";
 import { ActiveSpinner, TraceLine } from "./Trace.js";
+import { ShortcutOverlay } from "./ShortcutOverlay.js";
 
 interface AppProps {
   agent: Agent;
@@ -42,6 +49,14 @@ interface AppProps {
  * stay put in the terminal's scrollback. There is no manual cursor
  * arithmetic anywhere in this file — that whole class of bugs is gone.
  */
+/** Full-width horizontal separator — mirrors Claude Code's input area dividers. */
+const Separator: React.FC = () => {
+  const { stdout } = useStdout();
+  const cols = stdout?.columns ?? 80;
+  const line = Theme.dim("─".repeat(cols));
+  return <Text>{line}</Text>;
+};
+
 export const App: React.FC<AppProps> = ({ agent }) => {
   const { exit } = useApp();
 
@@ -68,11 +83,16 @@ export const App: React.FC<AppProps> = ({ agent }) => {
   const [historyIdx, setHistoryIdx] = useState<number>(-1);
   const savedInputRef = useRef<string>("");
 
+  // ── Shortcut overlay ────────────────────────────────────────────────────
+  const [showShortcuts, setShowShortcuts] = useState<boolean>(false);
+
   // ── Live agent run ──────────────────────────────────────────────────────
   const [busy, setBusy] = useState<boolean>(false);
   const [spinnerLabel, setSpinnerLabel] = useState<string>("Thinking...");
   const [liveTrace, setLiveTrace] = useState<TraceEntry[]>([]);
+  const [stepCount, setStepCount] = useState<number>(0);
   const stepStartRef = useRef<number>(0);
+  const runStartRef = useRef<number>(0);   // wall-clock start of the whole run
   const busyRef = useRef<boolean>(false); // synchronous mirror for input gating
 
   // ── Derived: completion mode + visible menu items ───────────────────────
@@ -128,13 +148,17 @@ export const App: React.FC<AppProps> = ({ agent }) => {
       setBusy(true);
       setSpinnerLabel("Thinking...");
       setLiveTrace([]);
+      setStepCount(0);
+      runStartRef.current = Date.now();
       stepStartRef.current = Date.now();
 
       let collected: TraceEntry[] = [];
+      let toolCallCount = 0;
       try {
         const reply = await agent.chat(
           userInput,
           (toolName, args) => {
+            toolCallCount++;
             const elapsed = Date.now() - stepStartRef.current;
             const entry: TraceEntry = {
               kind: "tool",
@@ -144,6 +168,10 @@ export const App: React.FC<AppProps> = ({ agent }) => {
             };
             collected.push(entry);
             setLiveTrace((p) => [...p, entry]);
+            setStepCount(toolCallCount);
+            // Update spinner label to show current tool being called
+            const displayTool = toolName.replace(/_/g, " ");
+            setSpinnerLabel(`${displayTool}...`);
             stepStartRef.current = Date.now();
           },
           (text) => {
@@ -151,6 +179,7 @@ export const App: React.FC<AppProps> = ({ agent }) => {
             const entry: TraceEntry = { kind: "narrative", text: text.trim() };
             collected.push(entry);
             setLiveTrace((p) => [...p, entry]);
+            setSpinnerLabel("Thinking...");
             stepStartRef.current = Date.now();
           },
         );
@@ -161,6 +190,7 @@ export const App: React.FC<AppProps> = ({ agent }) => {
           userInput,
           trace: collected,
           reply: rendered.trimEnd(),
+          durationMs: Date.now() - runStartRef.current,
         });
       } catch (e: any) {
         commitTurn({
@@ -168,6 +198,7 @@ export const App: React.FC<AppProps> = ({ agent }) => {
           userInput,
           trace: collected,
           error: e?.message ?? String(e),
+          durationMs: Date.now() - runStartRef.current,
         });
       } finally {
         busyRef.current = false;
@@ -258,6 +289,7 @@ export const App: React.FC<AppProps> = ({ agent }) => {
     if (key.ctrl && char === "l") {
       process.stdout.write("\x1b[2J\x1b[H");
       setTurns([]);
+      setShowShortcuts(false);
       return;
     }
 
@@ -266,9 +298,24 @@ export const App: React.FC<AppProps> = ({ agent }) => {
     // a second request before the first one finishes.
     if (busyRef.current) return;
 
-    // Escape: dismiss the menu without applying anything.
+    // Escape: dismiss the menu / shortcut overlay without applying anything.
     if (key.escape) {
+      if (showShortcuts) {
+        setShowShortcuts(false);
+        return;
+      }
       if (menuOpen) setMenuOpen(false);
+      return;
+    }
+
+    // "?" on an empty input → show shortcut overlay (like Claude Code).
+    // Any further keypress dismisses it.
+    if (showShortcuts) {
+      setShowShortcuts(false);
+      // Don't consume the keypress — fall through so the character is inserted.
+    }
+    if (char === "?" && input === "" && !key.ctrl && !key.meta) {
+      setShowShortcuts(true);
       return;
     }
 
@@ -355,6 +402,26 @@ export const App: React.FC<AppProps> = ({ agent }) => {
       return;
     }
 
+    // ── Shift+Enter / Alt(Option)+Enter: insert newline ─────────────────
+    // Most terminal emulators cannot distinguish Shift+Enter from plain
+    // Enter (both send \r). key.meta+key.return (Alt/Option+Enter) IS
+    // reliably detectable because the terminal prefixes the sequence with
+    // ESC (\x1b\r), which readline surfaces as meta=true.
+    // We keep key.shift && key.return for terminals that DO support it
+    // (Kitty keyboard protocol, WezTerm, …) and char==='\n' for piped input.
+    if (
+      (key.shift && key.return) ||
+      (key.meta && key.return) ||
+      (key.ctrl && char === "n") ||
+      (char === "\n" && !key.return)
+    ) {
+      const next = input.slice(0, cursor) + "\n" + input.slice(cursor);
+      setInput(next);
+      setCursor(cursor + 1);
+      setHistoryIdx(-1);
+      return;
+    }
+
     // ── ENTER: submit ────────────────────────────────────────────────────
     if (key.return) {
       // If the menu is open, treat Enter on a file completion as "insert
@@ -429,27 +496,50 @@ export const App: React.FC<AppProps> = ({ agent }) => {
         {(turn) => <AgentTurn key={turn.id} turn={turn} />}
       </Static>
 
+      {/*
+       * ── Input region ──────────────────────────────────────────────────────
+       *
+       *  ────────────────────────────────────  (top separator)
+       *  ❯ user input here                     (prompt — between the lines)
+       *  ────────────────────────────────────  (bottom separator)
+       *  [completion menu / shortcut overlay / hint]  (OUTSIDE / below)
+       *
+       * While the agent is busy the trace + spinner live between the lines.
+       * Suggestions always appear below the bottom line so the input area
+       * stays clean and consistent with Claude Code's layout.
+       */}
       <Box flexDirection="column" marginTop={1}>
-        {/* Live trace + spinner while agent is running. */}
+        {/* ── Between the two separator lines ── */}
+        <Separator />
         {busy ? (
           <Box flexDirection="column">
-            {liveTrace.map((entry, i) => (
-              <TraceLine key={i} entry={entry} />
-            ))}
-            <ActiveSpinner label={spinnerLabel} />
+            {/* Rolling window: last 4 tool calls only — no narratives, no drift */}
+            {liveTrace
+              .filter((e) => e.kind === "tool")
+              .slice(-4)
+              .map((entry, i) => (
+                <TraceLine key={i} entry={entry} />
+              ))}
+            <ActiveSpinner label={spinnerLabel} stepCount={stepCount} />
           </Box>
         ) : (
-          <>
-            <Prompt value={input} cursor={cursor} active={!busy} />
-            {menuVisible ? (
-              <CompletionMenu
-                items={menuItems}
-                selectedIndex={menuIndex}
-                isFile={mode.mode === "file"}
-              />
-            ) : null}
-          </>
+          <Prompt value={input} cursor={cursor} active={!busy} />
         )}
+        <Separator />
+
+        {/* ── Below the bottom line: suggestions / overlay / hint ── */}
+        {!busy &&
+          (menuVisible ? (
+            <CompletionMenu
+              items={menuItems}
+              selectedIndex={menuIndex}
+              isFile={mode.mode === "file"}
+            />
+          ) : showShortcuts ? (
+            <ShortcutOverlay />
+          ) : input === "" ? (
+            <PromptHint />
+          ) : null)}
       </Box>
     </>
   );

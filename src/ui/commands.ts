@@ -1,4 +1,5 @@
 import fs from "fs";
+import path from "path";
 import { execSync } from "child_process";
 import yaml from "js-yaml";
 import { Agent } from "../core/agent.js";
@@ -6,7 +7,7 @@ import { LLM } from "../core/llm.js";
 import { SkillManager } from "../core/skills.js";
 import { TOOL_SCHEMAS } from "../tools/registry.js";
 import { Theme, UI } from "./theme.js";
-import { DIRS } from "../core/init.js";
+import { DIRS, COWRNGLR_MD, PROJECT_ROOT, ensureLocalMemory } from "../core/init.js";
 
 export interface CommandContext {
   agent: Agent;
@@ -172,12 +173,15 @@ export class CommandRouter {
       execute: (args: string[], ctx: CommandContext) => {
         const action = args[0] ?? "show";
         if (action === "show") {
-          if (!fs.existsSync(DIRS.local.memory)) return UI.warn("No project memory file found.");
+          if (!fs.existsSync(DIRS.local.memory)) {
+            return UI.warn("No memory file yet. Run /init or /memory clear to create one.");
+          }
           const content = fs.readFileSync(DIRS.local.memory, "utf-8");
           console.log("\n" + Theme.dim(content) + "\n");
           return;
         }
         if (action === "clear") {
+          ensureLocalMemory(); // create if missing
           fs.writeFileSync(DIRS.local.memory, "# Project Memory\n", "utf-8");
           ctx.agent.refreshSystemPrompt();
           return UI.success("Project memory cleared and system prompt refreshed.");
@@ -301,6 +305,182 @@ export class CommandRouter {
         }
 
         UI.error("Usage:\n  /key list\n  /key set <PROVIDER> <key>\n  /key delete <PROVIDER>");
+      },
+    });
+
+    // ── /init ─────────────────────────────────────────────────────────────────
+    this.commands.set("/init", {
+      description: "AI-powered project scan: reads source files and writes a real COWRNGLR.md.",
+      execute: async (args: string[], ctx: CommandContext) => {
+        const force = args[0] === "--force" || args[0] === "-f";
+
+        if (fs.existsSync(COWRNGLR_MD) && !force) {
+          UI.warn("COWRNGLR.md already exists. Use /init --force to regenerate.");
+          return;
+        }
+
+        UI.info("Gathering project signals — handing off to AI for deep analysis...\n");
+
+        // ── Phase 1: Fast static signal collection ──────────────────────────
+        // We gather everything that's cheap to read before hitting the LLM,
+        // so the agent starts with rich context and wastes fewer tool calls.
+        const signals: string[] = [];
+
+        // Root-level file listing (non-noise)
+        try {
+          const rootLs = execSync(
+            `ls -1 ${PROJECT_ROOT} | grep -vE "^(node_modules|dist|build|\\.git|\\.DS_Store|__pycache__)$" | head -40`,
+            { encoding: "utf-8", cwd: PROJECT_ROOT, stdio: ["pipe", "pipe", "ignore"] }
+          ).trim();
+          signals.push(`### Root directory\n\`\`\`\n${rootLs}\n\`\`\``);
+        } catch { /* ignore */ }
+
+        // Source file tree (up to 100 files, all common source dirs)
+        try {
+          const srcTree = execSync(
+            `find ${PROJECT_ROOT} -type f \\( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" -o -name "*.py" -o -name "*.go" -o -name "*.rs" -o -name "*.java" -o -name "*.rb" -o -name "*.cs" \\) | grep -vE "(node_modules|dist|build|\\.(git|cache))" | sed "s|${PROJECT_ROOT}/||" | sort | head -100`,
+            { encoding: "utf-8", cwd: PROJECT_ROOT, stdio: ["pipe", "pipe", "ignore"] }
+          ).trim();
+          if (srcTree) signals.push(`### Source files\n\`\`\`\n${srcTree}\n\`\`\``);
+        } catch { /* ignore */ }
+
+        // Package manifests (first 2000 chars each)
+        for (const manifest of [
+          "package.json", "pyproject.toml", "requirements.txt",
+          "go.mod", "Cargo.toml", "pom.xml", "build.gradle",
+        ]) {
+          const p = path.join(PROJECT_ROOT, manifest);
+          if (fs.existsSync(p)) {
+            try {
+              const raw = fs.readFileSync(p, "utf-8").slice(0, 2000);
+              signals.push(`### ${manifest}\n\`\`\`\n${raw}\n\`\`\``);
+            } catch { /* ignore */ }
+          }
+        }
+
+        // README (first 3000 chars)
+        for (const readmeName of ["README.md", "readme.md", "README.txt"]) {
+          const p = path.join(PROJECT_ROOT, readmeName);
+          if (fs.existsSync(p)) {
+            try {
+              const raw = fs.readFileSync(p, "utf-8").slice(0, 3000);
+              signals.push(`### ${readmeName}\n${raw}`);
+            } catch { /* ignore */ }
+            break;
+          }
+        }
+
+        // Git context
+        try {
+          const branch = execSync("git branch --show-current", {
+            encoding: "utf-8", cwd: PROJECT_ROOT, stdio: ["pipe", "pipe", "ignore"],
+          }).trim();
+          const remote = execSync("git remote get-url origin 2>/dev/null || true", {
+            encoding: "utf-8", cwd: PROJECT_ROOT, stdio: ["pipe", "pipe", "ignore"],
+          }).trim();
+          const log = execSync(`git log --pretty=format:"%h  %s  (%ar)" -15 2>/dev/null || true`, {
+            encoding: "utf-8", cwd: PROJECT_ROOT, stdio: ["pipe", "pipe", "ignore"],
+          }).trim();
+          const gitLines = [`Branch: ${branch}`];
+          if (remote) gitLines.push(`Remote: ${remote}`);
+          if (log) gitLines.push(`\nRecent commits:\n${log}`);
+          signals.push(`### Git\n${gitLines.join("\n")}`);
+        } catch { /* no git */ }
+
+        // Key config files (tsconfig, vite, eslint, jest, docker…)
+        for (const cfg of [
+          "tsconfig.json", "vite.config.ts", "vite.config.js",
+          "webpack.config.js", "jest.config.ts", "jest.config.js",
+          ".eslintrc.json", "eslint.config.js", "Dockerfile", "docker-compose.yml",
+        ]) {
+          const p = path.join(PROJECT_ROOT, cfg);
+          if (fs.existsSync(p)) {
+            try {
+              const raw = fs.readFileSync(p, "utf-8").slice(0, 1200);
+              signals.push(`### ${cfg}\n\`\`\`\n${raw}\n\`\`\``);
+            } catch { /* ignore */ }
+          }
+        }
+
+        // Existing project memory (seed context)
+        if (fs.existsSync(DIRS.local.memory)) {
+          try {
+            const mem = fs.readFileSync(DIRS.local.memory, "utf-8").trim();
+            if (mem && mem !== "# Project Memory") {
+              signals.push(`### Existing memory.md\n${mem}`);
+            }
+          } catch { /* ignore */ }
+        }
+
+        const signalBlock = signals.join("\n\n");
+        const today = new Date().toISOString().slice(0, 10);
+
+        // ── Phase 2: Agent-driven deep analysis + file writing ──────────────
+        // The agent reads real source files and writes COWRNGLR.md itself.
+        // This produces actual architectural insight, not placeholder comments.
+        const directive = `
+SYSTEM TASK: /init — AI-powered project scan
+=============================================
+
+Your job is to deeply understand this codebase and produce a high-quality COWRNGLR.md.
+The file acts as the agent's "brain" for this project — it is injected into every future
+conversation. Make it genuinely useful.
+
+## Pre-gathered signals
+${signalBlock}
+
+## Instructions
+
+### Step 1 — Explore the source
+Use \`read_file\` to read the most important source files.
+Prioritise: entry point(s), core modules, main classes/functions, routing/config layer.
+Read at least 6–10 files before writing. More is better.
+Skip generated files, lock files, and test fixtures.
+
+### Step 2 — Write COWRNGLR.md
+Use \`write_file\` to create the file at exactly this path:
+  ${COWRNGLR_MD}
+
+The file MUST use this structure (fill every section with REAL observations — no placeholder comments):
+
+\`\`\`markdown
+# COWRNGLR.md
+> Auto-generated by \`/init\` on ${today}. Edit freely — the agent reads this on every run.
+
+## Overview
+[2–3 sentences: what this project does, who it's for, core value proposition]
+
+## Tech Stack
+[Language(s), runtime version, frameworks, key libraries — one line each with purpose]
+
+## Architecture
+[How the codebase is structured. Layers, modules, patterns (MVC? service layer? event-driven?).
+Call out the most important design decisions. Be specific — name actual directories and files.]
+
+## Key Files & Modules
+[10–15 most important files. Format: \`path/to/file\` — what it does]
+
+## Entry Points & Commands
+[How to install, build, run, test, lint. Copy the exact commands.]
+
+## Conventions & Patterns
+[Naming style, code organisation, error handling pattern, commit message format,
+anything non-obvious observed in the code.]
+
+## Agent Rules
+- Always read a file with read_file before editing it.
+- Run the build/test command after any code change to verify it compiles/passes.
+[Add 3–5 more rules specific to THIS project based on what you found.]
+\`\`\`
+
+### Step 3 — Confirm
+After writing, reply: "✓ COWRNGLR.md written. Agent context is now active."
+`.trim();
+
+        await ctx.executeAgentDirective(directive);
+
+        // Immediately make the new file available to the agent's system prompt
+        ctx.agent.refreshSystemPrompt();
       },
     });
 

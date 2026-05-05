@@ -2,7 +2,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import { Turn } from "./types.js";
 import { SubmittedPrompt } from "./Prompt.js";
-import { TraceLine } from "./Trace.js";
+import { TraceSummary } from "./Trace.js";
 
 const FAIL = "#D62926";
 
@@ -32,13 +32,11 @@ export const AgentTurn: React.FC<AgentTurnProps> = ({ turn }) => {
     <Box flexDirection="column" marginBottom={1}>
       <SubmittedPrompt value={turn.userInput} />
 
-      {turn.trace.length > 0 ? (
-        <Box flexDirection="column">
-          {turn.trace.map((entry, i) => (
-            <TraceLine key={i} entry={entry} />
-          ))}
-        </Box>
-      ) : null}
+      {/* Compact summary — no full trace re-render in Static (prevents duplicate) */}
+      <TraceSummary
+        toolCount={turn.trace.filter((e) => e.kind === "tool").length}
+        durationMs={turn.durationMs}
+      />
 
       {turn.error ? (
         <Box marginTop={1}>

@@ -8,6 +8,8 @@ export const PROJECT_ROOT = process.cwd();
 export const LOCAL_DIR = path.join(PROJECT_ROOT, ".cowrangler");
 export const GLOBAL_DIR = path.join(os.homedir(), ".cowrangler");
 
+export const COWRNGLR_MD = path.join(PROJECT_ROOT, "COWRNGLR.md");
+
 export const DIRS = {
   local: {
     base: LOCAL_DIR,
@@ -62,8 +64,16 @@ Respond in the same language the user writes in.
 Available capabilities: file operations, git, bash execution, web fetching, sub-agents, and more.
 Think step-by-step. Be precise. Be genuinely helpful.`;
 
+/**
+ * initEnvironment — "lazy" init model, like Claude Code.
+ *
+ * Only global infra is created on every startup (needed for model/key config).
+ * Project-level files (.cowrangler/memory.md, AGENT_TODO.md) are NOT created
+ * automatically — they are created on demand by /init, /memory write, etc.
+ * This keeps the project root clean for users who never ask for those features.
+ */
 export function initEnvironment() {
-  // ── Global ─────────────────────────────────────────────────────────────────
+  // ── Global (always — needed for model + credential config) ─────────────────
   fs.mkdirSync(DIRS.global.base, { recursive: true });
   fs.mkdirSync(DIRS.global.skills, { recursive: true });
 
@@ -72,7 +82,7 @@ export function initEnvironment() {
       model: "openrouter/google/gemini-2.5-flash",
       saved_models: [
         "openrouter/google/gemini-2.5-flash",
-        "claude-claude-sonnet-4-5",
+        "claude-sonnet-4-5",
         "gpt-4o",
       ],
       system_prompt: DEFAULT_SYSTEM_PROMPT,
@@ -102,10 +112,19 @@ export function initEnvironment() {
     );
   }
 
-  // ── Local (per-project) ────────────────────────────────────────────────────
+  // ── Local directory skeleton (dirs only — no files unless user asks) ────────
+  // The .cowrangler/ dir and skills/ subdir are created so that skill discovery
+  // and history persistence work without errors. No .md files are written here.
   fs.mkdirSync(DIRS.local.base, { recursive: true });
   fs.mkdirSync(DIRS.local.skills, { recursive: true });
+}
 
+/**
+ * ensureLocalMemory — called lazily when memory is first written.
+ * Creates memory.md only when needed, not on every startup.
+ */
+export function ensureLocalMemory(): void {
+  fs.mkdirSync(DIRS.local.base, { recursive: true });
   if (!fs.existsSync(DIRS.local.memory)) {
     fs.writeFileSync(
       DIRS.local.memory,
@@ -125,7 +144,13 @@ export function initEnvironment() {
       "utf-8"
     );
   }
+}
 
+/**
+ * ensureAgentTodo — called lazily when the agent first writes a todo.
+ */
+export function ensureAgentTodo(): void {
+  fs.mkdirSync(DIRS.local.base, { recursive: true });
   if (!fs.existsSync(DIRS.local.todo)) {
     fs.writeFileSync(
       DIRS.local.todo,

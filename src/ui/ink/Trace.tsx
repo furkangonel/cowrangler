@@ -47,18 +47,36 @@ export const TraceLine: React.FC<{ entry: TraceEntry }> = ({ entry }) => {
 };
 
 /**
- * Live "Thinking..." spinner shown below the committed trace lines while
- * the agent is mid-step. ink-spinner provides the animated dots; we wrap
- * it in a single Text row with a chalk-styled label so the layout stays
- * predictable.
+ * Compact one-line summary shown in the committed (Static) turn record.
+ * Replaces the full trace so the scrollback stays clean.
+ * Example:  ⊕ 17 steps · 4.3s
  */
-export const ActiveSpinner: React.FC<{ label?: string }> = ({
+export const TraceSummary: React.FC<{
+  toolCount: number;
+  durationMs?: number;
+}> = ({ toolCount, durationMs }) => {
+  if (toolCount === 0) return null;
+  const steps = `${toolCount} step${toolCount !== 1 ? "s" : ""}`;
+  const time =
+    durationMs !== undefined ? ` · ${(durationMs / 1000).toFixed(1)}s` : "";
+  return <Text>{Theme.dim(`  ⊕ ${steps}${time}`)}</Text>;
+};
+
+/**
+ * Live spinner shown while the agent is mid-step.
+ * Shows animated dots, the current step label, and an optional step counter.
+ */
+export const ActiveSpinner: React.FC<{ label?: string; stepCount?: number }> = ({
   label = "Thinking...",
-}) => (
-  <Text>
-    <Text color="cyan">
-      <Spinner type="dots" />
+  stepCount = 0,
+}) => {
+  const stepBadge = stepCount > 0 ? Theme.dim(` [${stepCount}]`) : "";
+  return (
+    <Text>
+      <Text color="cyan">
+        <Spinner type="dots" />
+      </Text>
+      {" " + Theme.dim(label) + stepBadge}
     </Text>
-    {" " + Theme.dim(label)}
-  </Text>
-);
+  );
+};

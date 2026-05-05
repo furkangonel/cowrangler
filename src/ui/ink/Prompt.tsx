@@ -50,3 +50,11 @@ export const Prompt: React.FC<PromptProps> = ({ value, cursor, active }) => {
 export const SubmittedPrompt: React.FC<{ value: string }> = ({ value }) => (
   <Text>{`${Theme.dim("❯")} ${value}`}</Text>
 );
+
+/**
+ * One-line hint shown below an empty prompt — mirrors Claude Code's
+ * "? for shortcuts" footer. Disappears as soon as the user starts typing.
+ */
+export const PromptHint: React.FC = () => (
+  <Text>{Theme.dim("  ? for shortcuts")}</Text>
+);
