@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "NODE_OPTIONS='--loader ts-node/esm --no-warnings' ts-node src/main.ts",
     "build": "tsc && npm run copy-assets && chmod +x dist/main.js",
-    "copy-assets": "cp -r src/bundled_skills dist/bundled_skills",
+    "copy-assets": "mkdir -p dist/bundled_skills && cp -rf src/bundled_skills/* dist/bundled_skills/",
     "start": "node dist/main.js",
     "setup": "npm install && npm run build && npm link",
     "clean": "rm -rf dist"
