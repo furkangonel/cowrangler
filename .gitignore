@@ -24,7 +24,7 @@ credentials.env
 .cowrangler/config.yaml
 .cowrangler/memory.md
 .cowrangler/AGENT_TODO.md
-.wrangler_history
+.cowrangler/history
 
 # 5. OS & editor artifacts
 .DS_Store

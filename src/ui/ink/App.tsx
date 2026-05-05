@@ -5,12 +5,13 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Box, Static, Text, useApp, useInput, useStdout } from "ink";
+import { Box, Static, Text, useApp, useInput } from "ink";
 import { Agent } from "../../core/agent.js";
 import { SkillManager } from "../../core/skills.js";
 import { CommandRouter, CommandContext } from "../commands.js";
 import { UI, Theme } from "../theme.js";
-import { Turn, TraceEntry, CompletionItem } from "./types.js";
+import { Turn, TraceEntry, CompletionItem, ViewMode, SpinnerMode } from "./types.js";
+import { getBriefMessages, clearBriefMessages } from "../../tools/brief_tool.js";
 import {
   buildStaticPool,
   detectMode,
@@ -50,10 +51,8 @@ interface AppProps {
  * arithmetic anywhere in this file — that whole class of bugs is gone.
  */
 /** Full-width horizontal separator — mirrors Claude Code's input area dividers. */
-const Separator: React.FC = () => {
-  const { stdout } = useStdout();
-  const cols = stdout?.columns ?? 80;
-  const line = Theme.dim("─".repeat(cols));
+const Separator: React.FC<{ cols: number }> = ({ cols }) => {
+  const line = Theme.dim("─".repeat(Math.max(1, cols)));
   return <Text>{line}</Text>;
 };
 
@@ -86,9 +85,39 @@ export const App: React.FC<AppProps> = ({ agent }) => {
   // ── Shortcut overlay ────────────────────────────────────────────────────
   const [showShortcuts, setShowShortcuts] = useState<boolean>(false);
 
+  // ── Terminal width — resize-safe separator rendering ────────────────────
+  // We track columns in React state so the Separator re-renders with the
+  // correct width. On resize we also flush \x1b[J (erase-to-end-of-screen)
+  // so Ink's previous wider dynamic region is wiped before the next frame
+  // is drawn — eliminating the "stacked duplicate separator" artifact.
+  const [termCols, setTermCols] = useState<number>(
+    () => process.stdout.columns ?? 80,
+  );
+  useEffect(() => {
+    const onResize = () => {
+      // Erase from cursor to bottom of screen — clears the stale dynamic
+      // region that Ink hasn't overwritten yet after the width change.
+      process.stdout.write("\x1b[J");
+      setTermCols(process.stdout.columns ?? 80);
+    };
+    process.stdout.on("resize", onResize);
+    return () => { process.stdout.off("resize", onResize); };
+  }, []);
+
+  // ── View mode — CLI_CONVERSATION.md 3 katmanlı görünüm sistemi ──────────
+  // brief      → Tool'lar gizlenir, sadece send_message çıktısı görünür
+  // default    → Tool'lar ⎿ prefix ile gösterilir (varsayılan)
+  // transcript → Her şey ham haliyle (Ctrl+O ile aç/kapat)
+  const [viewMode, setViewMode] = useState<ViewMode>("default");
+
+  // ── Transient view-mode toast (replaces noisy console.log) ───────────────
+  const [viewModeToast, setViewModeToast] = useState<string | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // ── Live agent run ──────────────────────────────────────────────────────
   const [busy, setBusy] = useState<boolean>(false);
-  const [spinnerLabel, setSpinnerLabel] = useState<string>("Thinking...");
+  const [spinnerLabel, setSpinnerLabel] = useState<string>("Düşünüyor...");
+  const [spinnerMode, setSpinnerMode] = useState<SpinnerMode>("thinking");
   const [liveTrace, setLiveTrace] = useState<TraceEntry[]>([]);
   const [stepCount, setStepCount] = useState<number>(0);
   const stepStartRef = useRef<number>(0);
@@ -102,6 +131,13 @@ export const App: React.FC<AppProps> = ({ agent }) => {
     [busy, mode, staticPool],
   );
   const menuVisible = menuOpen && !busy && menuItems.length > 0;
+
+  // Cleanup toast timer on unmount
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
 
   // Clamp the selected index whenever the visible list changes.
   useEffect(() => {
@@ -146,9 +182,11 @@ export const App: React.FC<AppProps> = ({ agent }) => {
     async (userInput: string) => {
       busyRef.current = true;
       setBusy(true);
-      setSpinnerLabel("Thinking...");
+      setSpinnerLabel("Düşünüyor...");
+      setSpinnerMode("thinking");
       setLiveTrace([]);
       setStepCount(0);
+      clearBriefMessages();
       runStartRef.current = Date.now();
       stepStartRef.current = Date.now();
 
@@ -160,18 +198,33 @@ export const App: React.FC<AppProps> = ({ agent }) => {
           (toolName, args) => {
             toolCallCount++;
             const elapsed = Date.now() - stepStartRef.current;
-            const entry: TraceEntry = {
-              kind: "tool",
-              tool: toolName,
-              args,
-              ms: elapsed,
-            };
-            collected.push(entry);
-            setLiveTrace((p) => [...p, entry]);
+
+            // BriefTool çağrısını özel trace entry olarak ekle
+            if (toolName === "send_message" && args?.message) {
+              const briefEntry: TraceEntry = {
+                kind: "brief",
+                message: args.message,
+                status: args.status ?? "normal",
+                sentAt: new Date().toISOString(),
+              };
+              collected.push(briefEntry);
+              setLiveTrace((p) => [...p, briefEntry]);
+            } else {
+              const entry: TraceEntry = {
+                kind: "tool",
+                tool: toolName,
+                args,
+                ms: elapsed,
+              };
+              collected.push(entry);
+              setLiveTrace((p) => [...p, entry]);
+            }
+
             setStepCount(toolCallCount);
-            // Update spinner label to show current tool being called
+            // Spinner modunu tool'a göre ayarla
             const displayTool = toolName.replace(/_/g, " ");
             setSpinnerLabel(`${displayTool}...`);
+            setSpinnerMode("tool");
             stepStartRef.current = Date.now();
           },
           (text) => {
@@ -179,7 +232,8 @@ export const App: React.FC<AppProps> = ({ agent }) => {
             const entry: TraceEntry = { kind: "narrative", text: text.trim() };
             collected.push(entry);
             setLiveTrace((p) => [...p, entry]);
-            setSpinnerLabel("Thinking...");
+            setSpinnerLabel("Düşünüyor...");
+            setSpinnerMode("thinking");
             stepStartRef.current = Date.now();
           },
         );
@@ -191,6 +245,8 @@ export const App: React.FC<AppProps> = ({ agent }) => {
           trace: collected,
           reply: rendered.trimEnd(),
           durationMs: Date.now() - runStartRef.current,
+          completedAt: new Date().toISOString(),
+          viewMode,
         });
       } catch (e: any) {
         commitTurn({
@@ -206,7 +262,7 @@ export const App: React.FC<AppProps> = ({ agent }) => {
         setLiveTrace([]);
       }
     },
-    [agent, commitTurn],
+    [agent, commitTurn, viewMode],
   );
 
   /**
@@ -290,6 +346,25 @@ export const App: React.FC<AppProps> = ({ agent }) => {
       process.stdout.write("\x1b[2J\x1b[H");
       setTurns([]);
       setShowShortcuts(false);
+      return;
+    }
+
+    // Ctrl-O: görünüm modunu döngüsel olarak değiştir
+    // brief → default → transcript → brief (CLI_CONVERSATION.md)
+    if (key.ctrl && char === "o") {
+      setViewMode((prev) => {
+        const next = prev === "brief" ? "default" : prev === "default" ? "transcript" : "brief";
+        const labels: Record<ViewMode, string> = {
+          brief:      "Brief  —  sadece agent mesajları",
+          default:    "Default  —  dengeli görünüm",
+          transcript: "Transcript  —  tüm araç çağrıları",
+        };
+        // Transient toast: clear any pending timer then show the new label
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+        setViewModeToast(labels[next]);
+        toastTimerRef.current = setTimeout(() => setViewModeToast(null), 1800);
+        return next;
+      });
       return;
     }
 
@@ -493,7 +568,13 @@ export const App: React.FC<AppProps> = ({ agent }) => {
   return (
     <>
       <Static items={turns}>
-        {(turn) => <AgentTurn key={turn.id} turn={turn} />}
+        {(turn) => (
+          <AgentTurn
+            key={turn.id}
+            turn={turn}
+            viewMode={turn.viewMode ?? viewMode}
+          />
+        )}
       </Static>
 
       {/*
@@ -505,27 +586,65 @@ export const App: React.FC<AppProps> = ({ agent }) => {
        *  [completion menu / shortcut overlay / hint]  (OUTSIDE / below)
        *
        * While the agent is busy the trace + spinner live between the lines.
-       * Suggestions always appear below the bottom line so the input area
-       * stays clean and consistent with Claude Code's layout.
+       * Brief mod: tool'lar gizlenir, sadece brief mesajlar gösterilir.
+       * Default mod: son 4 tool call gösterilir.
+       * Transcript mod: tüm trace gösterilir.
        */}
       <Box flexDirection="column" marginTop={1}>
         {/* ── Between the two separator lines ── */}
-        <Separator />
+        <Separator cols={termCols} />
         {busy ? (
           <Box flexDirection="column">
-            {/* Rolling window: last 4 tool calls only — no narratives, no drift */}
-            {liveTrace
-              .filter((e) => e.kind === "tool")
-              .slice(-4)
-              .map((entry, i) => (
-                <TraceLine key={i} entry={entry} />
-              ))}
-            <ActiveSpinner label={spinnerLabel} stepCount={stepCount} />
+            {/* Görünüm moduna göre live trace filtresi */}
+            {viewMode === "brief"
+              ? // Brief: sadece brief (send_message) entries
+                liveTrace
+                  .filter((e) => e.kind === "brief")
+                  .slice(-3)
+                  .map((entry, i) => <TraceLine key={i} entry={entry} />)
+              : viewMode === "transcript"
+              ? // Transcript: tool + narrative entries (boş satırlar filtrelenir)
+                liveTrace
+                  .filter((e) => e.kind !== "narrative" || (e.kind === "narrative" && e.text.trim().length > 0))
+                  .slice(-8)
+                  .map((entry, i) => <TraceLine key={i} entry={entry} />)
+              : // Default: son 4 tool call
+                liveTrace
+                  .filter((e) => e.kind === "tool")
+                  .slice(-4)
+                  .map((entry, i) => <TraceLine key={i} entry={entry} />)}
+            <ActiveSpinner
+              label={spinnerLabel}
+              stepCount={stepCount}
+              mode={spinnerMode}
+              startTime={runStartRef.current}
+              verbose={viewMode === "transcript"}
+            />
           </Box>
         ) : (
           <Prompt value={input} cursor={cursor} active={!busy} />
         )}
-        <Separator />
+        <Separator cols={termCols} />
+
+        {/* ── Transient view-mode toast (Ctrl+O feedback, no scrollback pollution) ── */}
+        {viewModeToast && (
+          <Box paddingLeft={2} marginTop={0}>
+            <Text color="#5CA4D4">
+              {"◈ "}
+            </Text>
+            <Text color="#5CA4D4">{viewModeToast}</Text>
+            <Text dimColor>{"  [Ctrl+O]"}</Text>
+          </Box>
+        )}
+
+        {/* ── Persistent mode badge (only when non-default and no toast showing) ── */}
+        {!viewModeToast && viewMode !== "default" && (
+          <Box paddingLeft={2} marginTop={0}>
+            <Text dimColor>
+              {viewMode === "brief" ? "◈ brief mode" : "◈ transcript mode"}
+            </Text>
+          </Box>
+        )}
 
         {/* ── Below the bottom line: suggestions / overlay / hint ── */}
         {!busy &&
@@ -537,7 +656,7 @@ export const App: React.FC<AppProps> = ({ agent }) => {
             />
           ) : showShortcuts ? (
             <ShortcutOverlay />
-          ) : input === "" ? (
+          ) : input === "" && !viewModeToast ? (
             <PromptHint />
           ) : null)}
       </Box>
