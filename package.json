@@ -1,6 +1,6 @@
 {
   "name": "co-wrangler",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "An enterprise-grade personal AI agent for the terminal — powered by Claude, GPT, Gemini & more",
   "type": "module",
   "bin": {
