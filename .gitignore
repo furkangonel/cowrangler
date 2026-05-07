@@ -21,10 +21,12 @@ credentials.env
 # These are machine-local and session-specific.
 # .cowrangler/skills/ is intentionally NOT ignored — project skills
 # are worth tracking so the whole team benefits from them.
-.cowrangler/config.yaml
-.cowrangler/memory.md
-.cowrangler/AGENT_TODO.md
-.cowrangler/history
+.cowrangler/*
+!.cowrangler/agents
+!.cowrangler/skills
+
+
+
 
 # 5. OS & editor artifacts
 .DS_Store

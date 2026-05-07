@@ -14,7 +14,11 @@ registerTool(
   "utilize_skill",
   "Load the Standard Operating Procedure (SOP) for a skill. Call this BEFORE starting any complex task that matches an available skill.",
   z.object({
-    skill_name: z.string().describe("Exact ID of the skill to load (from the AVAILABLE SKILLS list)"),
+    skill_name: z
+      .string()
+      .describe(
+        "Exact ID of the skill to load (from the AVAILABLE SKILLS list)",
+      ),
   }),
   async ({ skill_name }: { skill_name: string }) => {
     const content = skillManager.readSkill(skill_name);
@@ -29,21 +33,41 @@ registerTool(
   "create_skill",
   "Create a new project-local skill (SOP) in .cowrangler/skills/. The skill will be immediately available for future use.",
   z.object({
-    skill_id: z.string().describe("Short, kebab-case identifier (e.g., 'deploy-process', 'data-pipeline')"),
-    description: z.string().describe("One-sentence description shown in the skill list"),
+    skill_id: z
+      .string()
+      .describe(
+        "Short, kebab-case identifier (e.g., 'deploy-process', 'data-pipeline')",
+      ),
+    description: z
+      .string()
+      .describe("One-sentence description shown in the skill list"),
     content: z.string().describe("Full SOP content in markdown format"),
-    scope: z.enum(["local", "global"]).optional().default("local")
-      .describe("'local' = project only (.cowrangler/skills/), 'global' = all projects (~/.cowrangler/skills/)"),
+    scope: z
+      .enum(["local", "global"])
+      .optional()
+      .default("local")
+      .describe(
+        "'local' = project only (.cowrangler/skills/), 'global' = all projects (~/.cowrangler/skills/)",
+      ),
   }),
-  async ({ skill_id, description, content, scope }: {
-    skill_id: string; description: string; content: string; scope: string;
+  async ({
+    skill_id,
+    description,
+    content,
+    scope,
+  }: {
+    skill_id: string;
+    description: string;
+    content: string;
+    scope: string;
   }) => {
     const cleanId = skill_id
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-|-$/g, "");
 
-    if (!cleanId) return "ERROR: Invalid skill_id. Use kebab-case (e.g., 'my-workflow').";
+    if (!cleanId)
+      return "ERROR: Invalid skill_id. Use kebab-case (e.g., 'my-workflow').";
 
     const baseDir = scope === "global" ? DIRS.global.skills : DIRS.local.skills;
     const skillDir = path.join(baseDir, cleanId);

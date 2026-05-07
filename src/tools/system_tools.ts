@@ -9,8 +9,16 @@ import { Agent } from "../core/agent.js";
 import { LLM } from "../core/llm.js";
 import { getConfig } from "../core/init.js";
 import { PROJECT_ROOT, LOCAL_DIR } from "../core/init.js";
-import { runInSandbox, configureSandbox, isSandboxEnabled } from "../core/sandbox.js";
-import { checkPermission, riskBadge, PermissionMode } from "../core/permissions.js";
+import {
+  runInSandbox,
+  configureSandbox,
+  isSandboxEnabled,
+} from "../core/sandbox.js";
+import {
+  checkPermission,
+  riskBadge,
+  PermissionMode,
+} from "../core/permissions.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET CURRENT TIME
@@ -19,7 +27,8 @@ registerTool(
   "get_current_time",
   "Get the current system date and time in ISO 8601 format.",
   z.object({}),
-  async () => new Date().toISOString().replace("T", " ").substring(0, 19) + " UTC",
+  async () =>
+    new Date().toISOString().replace("T", " ").substring(0, 19) + " UTC",
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -31,34 +40,50 @@ registerTool(
   z.object({}),
   async () => {
     const nodeVersion = process.version;
-    const npmVersion = (() => { try { return execSync("npm --version", { encoding: "utf-8" }).trim(); } catch { return "N/A"; } })();
-    const gitVersion = (() => { try { return execSync("git --version", { encoding: "utf-8" }).trim(); } catch { return "not installed"; } })();
+    const npmVersion = (() => {
+      try {
+        return execSync("npm --version", { encoding: "utf-8" }).trim();
+      } catch {
+        return "N/A";
+      }
+    })();
+    const gitVersion = (() => {
+      try {
+        return execSync("git --version", { encoding: "utf-8" }).trim();
+      } catch {
+        return "not installed";
+      }
+    })();
 
-    return JSON.stringify({
-      os: {
-        platform: os.platform(),
-        release: os.release(),
-        arch: os.arch(),
-        hostname: os.hostname(),
+    return JSON.stringify(
+      {
+        os: {
+          platform: os.platform(),
+          release: os.release(),
+          arch: os.arch(),
+          hostname: os.hostname(),
+        },
+        memory: {
+          total_gb: (os.totalmem() / 1024 / 1024 / 1024).toFixed(2),
+          free_gb: (os.freemem() / 1024 / 1024 / 1024).toFixed(2),
+          used_percent: Math.round((1 - os.freemem() / os.totalmem()) * 100),
+        },
+        cpu: {
+          model: os.cpus()[0]?.model ?? "unknown",
+          cores: os.cpus().length,
+          load_avg: os.loadavg().map((n) => n.toFixed(2)),
+        },
+        runtime: {
+          node: nodeVersion,
+          npm: npmVersion,
+          git: gitVersion,
+        },
+        cwd: process.cwd(),
+        home: os.homedir(),
       },
-      memory: {
-        total_gb: (os.totalmem() / 1024 / 1024 / 1024).toFixed(2),
-        free_gb: (os.freemem() / 1024 / 1024 / 1024).toFixed(2),
-        used_percent: Math.round((1 - os.freemem() / os.totalmem()) * 100),
-      },
-      cpu: {
-        model: os.cpus()[0]?.model ?? "unknown",
-        cores: os.cpus().length,
-        load_avg: os.loadavg().map((n) => n.toFixed(2)),
-      },
-      runtime: {
-        node: nodeVersion,
-        npm: npmVersion,
-        git: gitVersion,
-      },
-      cwd: process.cwd(),
-      home: os.homedir(),
-    }, null, 2);
+      null,
+      2,
+    );
   },
 );
 
@@ -69,14 +94,20 @@ registerTool(
   "which_command",
   "Check if a CLI tool is installed and get its path and version.",
   z.object({
-    command: z.string().describe("Command name to check, e.g., 'node', 'python3', 'docker'"),
+    command: z
+      .string()
+      .describe("Command name to check, e.g., 'node', 'python3', 'docker'"),
   }),
   async ({ command }: { command: string }) => {
     try {
-      const location = execSync(`which ${command}`, { encoding: "utf-8" }).trim();
+      const location = execSync(`which ${command}`, {
+        encoding: "utf-8",
+      }).trim();
       let version = "";
       try {
-        version = execSync(`${command} --version 2>&1 | head -1`, { encoding: "utf-8" }).trim();
+        version = execSync(`${command} --version 2>&1 | head -1`, {
+          encoding: "utf-8",
+        }).trim();
       } catch {}
       return `${command}: ${location}${version ? `\nVersion: ${version}` : ""}`;
     } catch {
@@ -102,10 +133,24 @@ SANDBOX PROTECTION (when enabled):
 
 Use execute_bash only when necessary. Prefer purpose-built tools (git_*, file_*) for common operations.`,
   z.object({
-    command: z.string().describe("Shell command to run. Avoid interactive commands (vim, nano, top). Use non-interactive flags (-y, --no-interaction, --batch)."),
-    cwd: z.string().optional().describe("Working directory override (default: project root)"),
-    timeout: z.number().optional().default(30000).describe("Timeout in ms (max: 30000 in sandbox, 60000 direct)"),
-    permission_mode: z.enum(["default", "plan", "auto", "bypass"]).optional().describe("Override permission mode for this call"),
+    command: z
+      .string()
+      .describe(
+        "Shell command to run. Avoid interactive commands (vim, nano, top). Use non-interactive flags (-y, --no-interaction, --batch).",
+      ),
+    cwd: z
+      .string()
+      .optional()
+      .describe("Working directory override (default: project root)"),
+    timeout: z
+      .number()
+      .optional()
+      .default(30000)
+      .describe("Timeout in ms (max: 30000 in sandbox, 60000 direct)"),
+    permission_mode: z
+      .enum(["default", "plan", "auto", "bypass"])
+      .optional()
+      .describe("Override permission mode for this call"),
   }),
   async ({
     command,
@@ -120,10 +165,16 @@ Use execute_bash only when necessary. Prefer purpose-built tools (git_*, file_*)
   }) => {
     const config = getConfig();
     const effectiveCwd = cwd ?? PROJECT_ROOT;
-    const effectivePermMode = (permission_mode ?? config.permission_mode ?? "default") as PermissionMode;
+    const effectivePermMode = (permission_mode ??
+      config.permission_mode ??
+      "default") as PermissionMode;
 
     // ── Permission check ────────────────────────────────────────────────────
-    const permResult = checkPermission("execute_bash", effectivePermMode, command);
+    const permResult = checkPermission(
+      "execute_bash",
+      effectivePermMode,
+      command,
+    );
     if (!permResult.allowed) {
       return `${riskBadge(permResult.riskLevel)} BLOCKED: ${permResult.reason}`;
     }
@@ -153,7 +204,9 @@ Use execute_bash only when necessary. Prefer purpose-built tools (git_*, file_*)
         ? `${riskBadge("dangerous")} [dangerous command — logged]\n`
         : "";
 
-    return warningPrefix + (result.output || "Command succeeded with no output.");
+    return (
+      warningPrefix + (result.output || "Command succeeded with no output.")
+    );
   },
 );
 
@@ -177,14 +230,23 @@ Workflow:
 
 Never skip the user approval step after writing a plan.`,
   z.object({
-    title: z.string().describe("Short title for the plan (e.g., 'Add authentication middleware')"),
-    summary: z.string().describe("1-2 sentence summary of what will be done and why"),
+    title: z
+      .string()
+      .describe(
+        "Short title for the plan (e.g., 'Add authentication middleware')",
+      ),
+    summary: z
+      .string()
+      .describe("1-2 sentence summary of what will be done and why"),
     steps: z
       .array(
         z.object({
           step: z.number().describe("Step number"),
           description: z.string().describe("What will be done in this step"),
-          files: z.array(z.string()).optional().describe("Files that will be created or modified"),
+          files: z
+            .array(z.string())
+            .optional()
+            .describe("Files that will be created or modified"),
           risk: z
             .enum(["low", "medium", "high"])
             .optional()
@@ -197,7 +259,10 @@ Never skip the user approval step after writing a plan.`,
       .string()
       .optional()
       .describe("Rough estimate (e.g., '~5 minutes', '2-3 tool calls')"),
-    notes: z.string().optional().describe("Any caveats, assumptions, or open questions"),
+    notes: z
+      .string()
+      .optional()
+      .describe("Any caveats, assumptions, or open questions"),
   }),
   async ({
     title,
@@ -208,11 +273,20 @@ Never skip the user approval step after writing a plan.`,
   }: {
     title: string;
     summary: string;
-    steps: Array<{ step: number; description: string; files?: string[]; risk?: string }>;
+    steps: Array<{
+      step: number;
+      description: string;
+      files?: string[];
+      risk?: string;
+    }>;
     estimated_duration?: string;
     notes?: string;
   }) => {
-    const riskEmoji: Record<string, string> = { low: "🟢", medium: "🟡", high: "🔴" };
+    const riskEmoji: Record<string, string> = {
+      low: "🟢",
+      medium: "🟡",
+      high: "🔴",
+    };
     const lines: string[] = [
       `# Plan: ${title}`,
       ``,
@@ -237,7 +311,10 @@ Never skip the user approval step after writing a plan.`,
       lines.push(`## Notes`, ``, notes, ``);
     }
 
-    lines.push(`---`, `*Awaiting user approval — reply "go ahead" or "devam et" to proceed.*`);
+    lines.push(
+      `---`,
+      `*Awaiting user approval — reply "go ahead" or "devam et" to proceed.*`,
+    );
 
     const planContent = lines.filter((l) => l !== undefined).join("\n");
 
@@ -272,14 +349,24 @@ Use proactively when:
 Do NOT use for every step — only for genuinely important milestones.`,
   z.object({
     title: z.string().default("Co-Wrangler").describe("Notification title"),
-    message: z.string().describe("Notification body text (keep under 120 chars)"),
+    message: z
+      .string()
+      .describe("Notification body text (keep under 120 chars)"),
     sound: z
       .boolean()
       .optional()
       .default(true)
       .describe("Play notification sound (default: true)"),
   }),
-  async ({ title, message, sound = true }: { title: string; message: string; sound?: boolean }) => {
+  async ({
+    title,
+    message,
+    sound = true,
+  }: {
+    title: string;
+    message: string;
+    sound?: boolean;
+  }) => {
     const platform = os.platform();
     try {
       if (platform === "darwin") {
@@ -311,7 +398,11 @@ registerTool(
   "sleep",
   "Pause execution for a specified number of milliseconds. Useful for waiting on async operations.",
   z.object({
-    ms: z.number().min(100).max(60000).describe("Milliseconds to wait (100–60000)"),
+    ms: z
+      .number()
+      .min(100)
+      .max(60000)
+      .describe("Milliseconds to wait (100–60000)"),
   }),
   async ({ ms }: { ms: number }) => {
     await new Promise((resolve) => setTimeout(resolve, ms));
@@ -336,17 +427,33 @@ Actions:
 
 Always use mark_done immediately after completing each item. Never batch-mark at the end.`,
   z.object({
-    action: z.enum(["read", "update", "mark_done", "append"]).describe(
-      "read | update (overwrite) | mark_done (check off item) | append (add item)"
-    ),
-    content: z.string().optional().describe(
-      "For update: full markdown content. For append: task description text."
-    ),
-    item: z.string().optional().describe(
-      "For mark_done: partial text match of the item, OR a 1-based index (e.g. '1', '2')."
-    ),
+    action: z
+      .enum(["read", "update", "mark_done", "append"])
+      .describe(
+        "read | update (overwrite) | mark_done (check off item) | append (add item)",
+      ),
+    content: z
+      .string()
+      .optional()
+      .describe(
+        "For update: full markdown content. For append: task description text.",
+      ),
+    item: z
+      .string()
+      .optional()
+      .describe(
+        "For mark_done: partial text match of the item, OR a 1-based index (e.g. '1', '2').",
+      ),
   }),
-  async ({ action, content, item }: { action: string; content?: string; item?: string }) => {
+  async ({
+    action,
+    content,
+    item,
+  }: {
+    action: string;
+    content?: string;
+    item?: string;
+  }) => {
     try {
       // ── read ────────────────────────────────────────────────────────────────
       if (action === "read") {
@@ -369,13 +476,18 @@ Always use mark_done immediately after completing each item. Never batch-mark at
           ? fs.readFileSync(TODO_FILE, "utf-8")
           : "# Active Agent Tasks\n";
         const newItem = `- [ ] ${content.replace(/^-\s*\[.\]\s*/, "")}`;
-        fs.writeFileSync(TODO_FILE, existing.trimEnd() + "\n" + newItem + "\n", "utf-8");
+        fs.writeFileSync(
+          TODO_FILE,
+          existing.trimEnd() + "\n" + newItem + "\n",
+          "utf-8",
+        );
         return `Appended: ${newItem}`;
       }
 
       // ── mark_done ───────────────────────────────────────────────────────────
       if (action === "mark_done") {
-        if (!item) return "ERROR: 'mark_done' requires item (text or 1-based index).";
+        if (!item)
+          return "ERROR: 'mark_done' requires item (text or 1-based index).";
         if (!fs.existsSync(TODO_FILE)) return "ERROR: No todo file found.";
 
         const raw = fs.readFileSync(TODO_FILE, "utf-8");
@@ -428,11 +540,19 @@ Always use mark_done immediately after completing each item. Never batch-mark at
 // SPAWN SUBAGENT — Enterprise grade ile sandbox + permission entegreli
 // ─────────────────────────────────────────────────────────────────────────────
 const AGENT_TYPES = [
-  "explore", "plan", "code-reviewer", "verify", "refactor",
-  "test-writer", "documentation", "security-audit", "debugger",
-  "performance", "migration-planner",
+  "explore",
+  "plan",
+  "code-reviewer",
+  "verify",
+  "refactor",
+  "test-writer",
+  "documentation",
+  "security-audit",
+  "debugger",
+  "performance",
+  "migration-planner",
 ] as const;
-type AgentType = typeof AGENT_TYPES[number];
+type AgentType = (typeof AGENT_TYPES)[number];
 
 registerTool(
   "spawn_subagent",
@@ -461,12 +581,14 @@ The report is returned to you (the calling agent) for review before acting on it
       .string()
       .describe(
         "Detailed task description. Include: what to do, which files are relevant, " +
-        "what constraints apply, and what format the report should be in.",
+          "what constraints apply, and what format the report should be in.",
       ),
     model: z
       .string()
       .optional()
-      .describe("Override model for this subagent (default: inherits parent model)"),
+      .describe(
+        "Override model for this subagent (default: inherits parent model)",
+      ),
   }),
   async ({
     agentType,
@@ -487,17 +609,22 @@ The report is returned to you (the calling agent) for review before acting on it
     const maxIter = agentDef.maxIterations ?? 20;
 
     const subLlm = new LLM(effectiveModel, config.temperature ?? 0.7);
-    const subAgent = new Agent(subLlm, agentDef.systemPrompt, maxIter, agentDef.allowedTools);
+    const subAgent = new Agent(
+      subLlm,
+      agentDef.systemPrompt,
+      maxIter,
+      agentDef.allowedTools,
+    );
 
     const startMs = Date.now();
     try {
       const result = await subAgent.chat(
         `TASK ASSIGNMENT:\n${taskDescription}\n\n` +
-        `CONSTRAINTS:\n` +
-        `- Read-only mode: ${agentDef.readOnly ? "YES — do not write or execute" : "No"}\n` +
-        `- Sandbox mode: ${agentDef.sandboxMode ?? "inherit"}\n` +
-        `- Max iterations: ${maxIter}\n\n` +
-        `Deliver your findings as a structured markdown report.`,
+          `CONSTRAINTS:\n` +
+          `- Read-only mode: ${agentDef.readOnly ? "YES — do not write or execute" : "No"}\n` +
+          `- Sandbox mode: ${agentDef.sandboxMode ?? "inherit"}\n` +
+          `- Max iterations: ${maxIter}\n\n` +
+          `Deliver your findings as a structured markdown report.`,
       );
       const durationS = ((Date.now() - startMs) / 1000).toFixed(1);
       return (
@@ -536,19 +663,27 @@ Prefer this over sequential spawn_subagent calls whenever the tasks don't depend
             .string()
             .describe(
               "Detailed task description for this agent. Include: what to do, which files are relevant, " +
-              "constraints, and expected report format.",
+                "constraints, and expected report format.",
             ),
           model: z
             .string()
             .optional()
-            .describe("Override model for this agent (default: inherits parent model)"),
+            .describe(
+              "Override model for this agent (default: inherits parent model)",
+            ),
         }),
       )
       .min(2)
       .describe("Array of agent tasks to run in parallel (minimum 2)"),
   }),
-  async ({ tasks }: {
-    tasks: Array<{ agentType: AgentType; taskDescription: string; model?: string }>;
+  async ({
+    tasks,
+  }: {
+    tasks: Array<{
+      agentType: AgentType;
+      taskDescription: string;
+      model?: string;
+    }>;
   }) => {
     const config = getConfig();
     const wallStart = Date.now();
@@ -561,41 +696,48 @@ Prefer this over sequential spawn_subagent calls whenever the tasks don't depend
     }
 
     // Launch all agents concurrently
-    const promises = tasks.map(async ({ agentType, taskDescription, model: modelOverride }) => {
-      const agentDef = SUB_AGENTS[agentType];
-      const effectiveModel = modelOverride ?? config.model;
-      const maxIter = agentDef.maxIterations ?? 20;
+    const promises = tasks.map(
+      async ({ agentType, taskDescription, model: modelOverride }) => {
+        const agentDef = SUB_AGENTS[agentType];
+        const effectiveModel = modelOverride ?? config.model;
+        const maxIter = agentDef.maxIterations ?? 20;
 
-      const subLlm = new LLM(effectiveModel, config.temperature ?? 0.7);
-      const subAgent = new Agent(subLlm, agentDef.systemPrompt, maxIter, agentDef.allowedTools);
-
-      const agentStart = Date.now();
-      try {
-        const result = await subAgent.chat(
-          `TASK ASSIGNMENT:\n${taskDescription}\n\n` +
-          `CONSTRAINTS:\n` +
-          `- Read-only mode: ${agentDef.readOnly ? "YES — do not write or execute" : "No"}\n` +
-          `- Sandbox mode: ${agentDef.sandboxMode ?? "inherit"}\n` +
-          `- Max iterations: ${maxIter}\n\n` +
-          `Deliver your findings as a structured markdown report.`,
+        const subLlm = new LLM(effectiveModel, config.temperature ?? 0.7);
+        const subAgent = new Agent(
+          subLlm,
+          agentDef.systemPrompt,
+          maxIter,
+          agentDef.allowedTools,
         );
-        const durationS = ((Date.now() - agentStart) / 1000).toFixed(1);
-        return {
-          agentType,
-          durationS,
-          ok: true,
-          report: result,
-        };
-      } catch (e: any) {
-        const durationS = ((Date.now() - agentStart) / 1000).toFixed(1);
-        return {
-          agentType,
-          durationS,
-          ok: false,
-          report: `Agent failed: ${e.message}`,
-        };
-      }
-    });
+
+        const agentStart = Date.now();
+        try {
+          const result = await subAgent.chat(
+            `TASK ASSIGNMENT:\n${taskDescription}\n\n` +
+              `CONSTRAINTS:\n` +
+              `- Read-only mode: ${agentDef.readOnly ? "YES — do not write or execute" : "No"}\n` +
+              `- Sandbox mode: ${agentDef.sandboxMode ?? "inherit"}\n` +
+              `- Max iterations: ${maxIter}\n\n` +
+              `Deliver your findings as a structured markdown report.`,
+          );
+          const durationS = ((Date.now() - agentStart) / 1000).toFixed(1);
+          return {
+            agentType,
+            durationS,
+            ok: true,
+            report: result,
+          };
+        } catch (e: any) {
+          const durationS = ((Date.now() - agentStart) / 1000).toFixed(1);
+          return {
+            agentType,
+            durationS,
+            ok: false,
+            report: `Agent failed: ${e.message}`,
+          };
+        }
+      },
+    );
 
     const results = await Promise.all(promises);
     const totalS = ((Date.now() - wallStart) / 1000).toFixed(1);

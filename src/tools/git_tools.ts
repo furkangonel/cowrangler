@@ -30,7 +30,9 @@ registerTool(
       `Branch: ${branch}`,
       ahead !== "0" ? `Ahead by ${ahead} commit(s)` : null,
       status ? `\nChanges:\n${status}` : "\nWorking tree clean.",
-    ].filter(Boolean).join("\n");
+    ]
+      .filter(Boolean)
+      .join("\n");
   },
 );
 
@@ -39,7 +41,10 @@ registerTool(
   "git_diff",
   "Show current unstaged or staged Git changes.",
   z.object({
-    staged: z.boolean().optional().describe("Show only staged (git add'd) changes"),
+    staged: z
+      .boolean()
+      .optional()
+      .describe("Show only staged (git add'd) changes"),
     file: z.string().optional().describe("Limit diff to a specific file"),
   }),
   async ({ staged, file }: { staged?: boolean; file?: string }) => {
@@ -54,16 +59,43 @@ registerTool(
   "git_log",
   "Show recent Git commit history.",
   z.object({
-    limit: z.number().optional().default(10).describe("Number of commits to show (default: 10)"),
-    oneline: z.boolean().optional().default(false).describe("Compact one-line format"),
+    limit: z
+      .number()
+      .optional()
+      .default(10)
+      .describe("Number of commits to show (default: 10)"),
+    oneline: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe("Compact one-line format"),
     author: z.string().optional().describe("Filter by author name or email"),
-    file: z.string().optional().describe("Show only commits touching a specific file"),
+    file: z
+      .string()
+      .optional()
+      .describe("Show only commits touching a specific file"),
   }),
-  async ({ limit, oneline, author, file }: { limit: number; oneline: boolean; author?: string; file?: string }) => {
+  async ({
+    limit,
+    oneline,
+    author,
+    file,
+  }: {
+    limit: number;
+    oneline: boolean;
+    author?: string;
+    file?: string;
+  }) => {
     const format = oneline ? "--oneline" : `--pretty=format:"%h  %an  %ar  %s"`;
     const authorFlag = author ? `--author="${author}"` : "";
     const fileFlag = file ? `-- "${file}"` : "";
-    return runGit(`git log -${limit} ${format} ${authorFlag} ${fileFlag}`.replace(/\s+/g, " ").trim()) || "No commits.";
+    return (
+      runGit(
+        `git log -${limit} ${format} ${authorFlag} ${fileFlag}`
+          .replace(/\s+/g, " ")
+          .trim(),
+      ) || "No commits."
+    );
   },
 );
 
@@ -75,7 +107,9 @@ registerTool(
     files: z.union([z.string(), z.array(z.string())]),
   }),
   async ({ files }: { files: string | string[] }) => {
-    const targets = Array.isArray(files) ? files.map((f) => `"${f}"`).join(" ") : `"${files}"`;
+    const targets = Array.isArray(files)
+      ? files.map((f) => `"${f}"`).join(" ")
+      : `"${files}"`;
     return runGit(`git add ${targets}`) || `OK: Staged.`;
   },
 );
@@ -85,11 +119,21 @@ registerTool(
   "git_commit",
   "Create a Git commit with a message.",
   z.object({
-    message: z.string().describe("Commit message (use conventional commits: feat:, fix:, chore:, etc.)"),
-    all: z.boolean().optional().default(false).describe("Stage all tracked modified files first (-a flag)"),
+    message: z
+      .string()
+      .describe(
+        "Commit message (use conventional commits: feat:, fix:, chore:, etc.)",
+      ),
+    all: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe("Stage all tracked modified files first (-a flag)"),
   }),
   async ({ message, all }: { message: string; all: boolean }) => {
-    return runGit(`git commit ${all ? "-a" : ""} -m "${message.replace(/"/g, '\\"')}"`);
+    return runGit(
+      `git commit ${all ? "-a" : ""} -m "${message.replace(/"/g, '\\"')}"`,
+    );
   },
 );
 
@@ -99,10 +143,25 @@ registerTool(
   "List, create, switch, or delete Git branches.",
   z.object({
     action: z.enum(["list", "create", "switch", "delete"]),
-    name: z.string().optional().describe("Branch name (required for create/switch/delete)"),
-    force: z.boolean().optional().default(false).describe("Force delete (unmerged branches)"),
+    name: z
+      .string()
+      .optional()
+      .describe("Branch name (required for create/switch/delete)"),
+    force: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe("Force delete (unmerged branches)"),
   }),
-  async ({ action, name, force }: { action: string; name?: string; force: boolean }) => {
+  async ({
+    action,
+    name,
+    force,
+  }: {
+    action: string;
+    name?: string;
+    force: boolean;
+  }) => {
     switch (action) {
       case "list": {
         const local = runGit("git branch --list");
@@ -133,13 +192,26 @@ registerTool(
     message: z.string().optional(),
     index: z.number().optional().default(0),
   }),
-  async ({ action, message, index }: { action: string; message?: string; index: number }) => {
+  async ({
+    action,
+    message,
+    index,
+  }: {
+    action: string;
+    message?: string;
+    index: number;
+  }) => {
     switch (action) {
-      case "push": return runGit(`git stash push${message ? ` -m "${message}"` : ""}`);
-      case "pop": return runGit(`git stash pop stash@{${index}}`);
-      case "list": return runGit("git stash list") || "No stashes.";
-      case "drop": return runGit(`git stash drop stash@{${index}}`);
-      default: return "ERROR: Unknown action.";
+      case "push":
+        return runGit(`git stash push${message ? ` -m "${message}"` : ""}`);
+      case "pop":
+        return runGit(`git stash pop stash@{${index}}`);
+      case "list":
+        return runGit("git stash list") || "No stashes.";
+      case "drop":
+        return runGit(`git stash drop stash@{${index}}`);
+      default:
+        return "ERROR: Unknown action.";
     }
   },
 );
@@ -150,7 +222,9 @@ registerTool(
   "Discard changes in a specific file and restore it to HEAD state.",
   z.object({
     file: z.string(),
-    confirm: z.boolean().describe("Must be true — this discards unsaved changes permanently"),
+    confirm: z
+      .boolean()
+      .describe("Must be true — this discards unsaved changes permanently"),
   }),
   async ({ file, confirm }: { file: string; confirm: boolean }) => {
     if (!confirm) return "Aborted: set confirm: true to discard changes.";

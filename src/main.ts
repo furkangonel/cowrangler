@@ -21,53 +21,78 @@ if (args.includes("--version") || args.includes("-v")) {
   process.exit(0);
 }
 if (args.includes("--help") || args.includes("-h")) {
-  console.log([
-    "",
-    chalk.hex("#FF4C00").bold("  Co-Wrangler v1.2.0") + chalk.dim(" — Enterprise AI Agent for the terminal"),
-    "",
-    chalk.bold("  Usage:"),
-    "    cowrangler                      Start the interactive REPL",
-    "    cowrangler --brief              Start in brief view (clean, tool-free output)",
-    "    cowrangler --verbose            Start in transcript view (full debug output)",
-    "    cowrangler --no-sandbox         Disable sandbox protection (not recommended)",
-    "    cowrangler --permission <mode>  Set permission mode (default/plan/auto/bypass)",
-    "    cowrangler --version            Print version",
-    "    cowrangler --help               Show this help",
-    "",
-    chalk.bold("  In-session commands:"),
-    "    /help        All commands          /skills      List skills (SOPs)",
-    "    /model       Switch AI model       /key         Manage API keys",
-    "    /tools       List capabilities     /status      Session info",
-    "    /memory      Project memory        /reset       Clear context",
-    "    /agents      List sub-agents       /mode        Switch view mode",
-    "    /sandbox     Sandbox settings      /permissions Permission mode",
-    "    /init        AI project scan       /context     Context size",
-    "",
-    chalk.bold("  View modes (Ctrl+O cycles):"),
-    "    brief       → Tool'lar gizlenir, sadece agent mesajları görünür",
-    "    default     → Tool'lar ⎿ prefix ile gösterilir (varsayılan)",
-    "    transcript  → Ham tool çağrıları + tüm detaylar",
-    "",
-    chalk.bold("  Built-in sub-agents:"),
-    "    explore, plan, code-reviewer, verify, refactor,",
-    "    test-writer, documentation, security-audit, debugger,",
-    "    performance, migration-planner",
-    "",
-    chalk.bold("  Configuration:"),
-    `    Global config:  ~/.cowrangler/config.yaml`,
-    `    Global keys:    ~/.cowrangler/credentials.env`,
-    `    Project config: .cowrangler/config.yaml`,
-    `    Project memory: .cowrangler/memory.md`,
-    `    Custom agents:  .cowrangler/agents/  or  ~/.cowrangler/agents/`,
-    `    Custom skills:  .cowrangler/skills/  or  ~/.cowrangler/skills/`,
-    "",
-    chalk.bold("  Supported providers:"),
-    "    Anthropic (claude-*), OpenAI (gpt-*), Google (gemini-*),",
-    "    OpenRouter (openrouter/*), Groq (groq/*)",
-    "",
-    chalk.dim("  https://github.com/furkangonel/co-wrangler"),
-    "",
-  ].join("\n"));
+  console.log(
+    [
+      "",
+      chalk.hex("#FF4C00").bold("  Co-Wrangler v1.2.0") +
+        chalk.dim(" — Enterprise AI Agent for the terminal"),
+      "",
+      chalk.bold("  Usage:"),
+      "    cowrangler                     Start the interactive REPL",
+      "    cowrangler setup               Interactive provider setup wizard",
+      "    cowrangler --brief             Start in brief view (clean, tool-free output)",
+      "    cowrangler --verbose           Start in transcript view (full debug output)",
+      "    cowrangler --no-sandbox        Disable sandbox protection (not recommended)",
+      "    cowrangler --permission <mode> Set permission mode (default/plan/auto/bypass)",
+      "    cowrangler --version           Print version",
+      "    cowrangler --help              Show this help",
+      "",
+      chalk.bold("  First time? Run the setup wizard:"),
+      "    cowrangler setup",
+      "",
+      chalk.bold("  In-session commands:"),
+      "    /help        All commands          /skills      List skills (SOPs)",
+      "    /model       Switch AI model       /key         Manage API keys",
+      "    /setup       Provider guide        /status      Session info",
+      "    /tools       List capabilities     /reset       Clear context",
+      "    /memory      Project memory        /mode        Switch view mode",
+      "    /agents      List sub-agents       /permissions Permission mode",
+      "    /sandbox     Sandbox settings      /context     Context size",
+      "    /init        AI project scan",
+      "",
+      chalk.bold("  View modes (Ctrl+O cycles):"),
+      "    brief       → Tools are hidden, only agent messages are shown",
+      "    default     → Tools are shown with ⎿ prefix (default)",
+      "    transcript  → Raw tool calls + full details",
+      "",
+      chalk.bold("  Built-in sub-agents:"),
+      "    explore, plan, code-reviewer, verify, refactor,",
+      "    test-writer, documentation, security-audit, debugger,",
+      "    performance, migration-planner",
+      "",
+      chalk.bold("  Configuration:"),
+      `    Global config:  ~/.cowrangler/config.yaml`,
+      `    Global keys:    ~/.cowrangler/credentials.env`,
+      `    Project config: .cowrangler/config.yaml`,
+      `    Project memory: .cowrangler/memory.md`,
+      `    Custom agents:  .cowrangler/agents/  or  ~/.cowrangler/agents/`,
+      `    Custom skills:  .cowrangler/skills/  or  ~/.cowrangler/skills/`,
+      "",
+      chalk.bold("  Supported providers:"),
+      "    Anthropic   (claude-*)               → ANTHROPIC_API_KEY",
+      "    OpenAI      (gpt-*, o1-*, o3-*)      → OPENAI_API_KEY",
+      "    Google      (gemini-*)               → GOOGLE_GENERATIVE_AI_API_KEY",
+      "    Vertex AI   (vertex/*)               → GCP Project + gcloud auth",
+      "    GitHub Copilot (copilot/*)           → GITHUB_TOKEN",
+      "    Groq        (groq/*)                 → GROQ_API_KEY",
+      "    OpenRouter  (openrouter/* or x/y)    → OPENROUTER_API_KEY",
+      "",
+      chalk.dim("  https://github.com/furkangonel/co-wrangler"),
+      "",
+    ].join("\n"),
+  );
+  process.exit(0);
+}
+
+// ── cowrangler setup — interactive provider setup wizard ─────────────
+if (args[0] === "setup") {
+  // Env loading required (init + credentials) but REPL is not started
+  const { initEnvironment, loadEnvironmentVariables } =
+    await import("./core/init.js");
+  initEnvironment();
+  loadEnvironmentVariables();
+  const { runSetupWizard } = await import("./ui/setup.js");
+  await runSetupWizard();
   process.exit(0);
 }
 
@@ -96,7 +121,7 @@ import { runCLI } from "./ui/cli.js";
 import { setWorkspace } from "./tools/file_tools.js";
 import { configureSandbox } from "./core/sandbox.js";
 
-// Import side-effect registrations (BriefTool dahil)
+// Import side-effect registrations (including BriefTool)
 import "./tools/system_tools.js";
 import "./tools/git_tools.js";
 import "./tools/file_tools.js";
@@ -110,8 +135,9 @@ async function main() {
   const configuration = getConfig();
   setWorkspace(PROJECT_ROOT);
 
-  // ── Sandbox konfigürasyonu ─────────────────────────────────────────────
-  const sandboxEnabled = !FLAG_NO_SANDBOX && (configuration.sandbox?.enabled ?? true);
+  // ── Sandbox configuration ──────────────────────────────────────────────
+  const sandboxEnabled =
+    !FLAG_NO_SANDBOX && (configuration.sandbox?.enabled ?? true);
   configureSandbox({
     enabled: sandboxEnabled,
     workspaceRoot: PROJECT_ROOT,
@@ -130,20 +156,68 @@ async function main() {
   } catch (e: any) {
     if (e.message.startsWith("MISSING_KEY:")) {
       const missingKey = e.message.split(":")[1];
-      console.log("\n" + chalk.red(`  ✗ Missing API key: ${missingKey}`));
-      console.log(chalk.yellow(`  The selected model (${configuration.model}) requires this key.`));
-      console.log(chalk.dim(`  Fix: start cowrangler anyway with a model that works,`));
-      console.log(chalk.dim(`       then run: /key set ${missingKey} <your_key>`));
-      console.log(chalk.dim(`       or add it to: ~/.cowrangler/credentials.env\n`));
+      const { missingKeyHint, runSetupWizard } = await import("./ui/setup.js");
+      console.log("\n" + chalk.red(`  ✗ Missing configuration: ${missingKey}`));
+      console.log(
+        chalk.yellow(
+          `  Selected model (${configuration.model}) requires this configuration.\n`,
+        ),
+      );
+      console.log(
+        chalk.dim(
+          missingKeyHint(missingKey)
+            .split("\n")
+            .map((l) => "  " + l)
+            .join("\n"),
+        ),
+      );
+      console.log();
+
+      // Offer to start interactive wizard
+      const { confirm, isCancel } = await import("@clack/prompts");
+      const doSetup = await confirm({
+        message: "Do you want to start the setup wizard now?",
+        initialValue: true,
+      });
+
+      if (!isCancel(doSetup) && doSetup) {
+        const newModel = await runSetupWizard();
+        if (newModel) {
+          // Setup complete — env is now updated, retry
+          llm = new LLM(newModel, configuration.temperature);
+          configuration.model = newModel;
+        } else {
+          process.exit(0);
+        }
+      } else {
+        console.log(
+          chalk.dim(
+            "\n  Exiting. Run \`cowrangler setup\` when you are ready.\n",
+          ),
+        );
+        process.exit(1);
+      }
+    } else if (e.message.startsWith("UNSUPPORTED_MODEL:")) {
+      console.log(
+        "\n" + chalk.red(`  ✗ Unrecognized model: ${configuration.model}`),
+      );
+      console.log(
+        chalk.dim("  Supported prefixes: claude-*, gpt-*, gemini-*, vertex/*,"),
+      );
+      console.log(
+        chalk.dim(
+          "                        copilot/*, groq/*, openrouter/*, provider/model",
+        ),
+      );
+      console.log(
+        chalk.dim(
+          "  To fix: edit ~/.cowrangler/config.yaml or run cowrangler setup\n",
+        ),
+      );
       process.exit(1);
+    } else {
+      throw e;
     }
-    if (e.message.startsWith("UNSUPPORTED_MODEL:")) {
-      console.log("\n" + chalk.red(`  ✗ Unrecognized model: ${configuration.model}`));
-      console.log(chalk.dim(`  Supported prefixes: claude-*, gpt-*, gemini-*, openrouter/*, groq/*`));
-      console.log(chalk.dim(`  Edit ~/.cowrangler/config.yaml to set a valid model.\n`));
-      process.exit(1);
-    }
-    throw e;
   }
 
   const agent = new Agent(
@@ -152,19 +226,27 @@ async function main() {
     configuration.max_iterations,
   );
 
-  // ── CLI flag'lerinden view mode ve permission mode ayarla ──────────────
+  // ── Set view mode and permission mode from CLI flags ──────────────
   if (FLAG_BRIEF) {
     agent.viewMode = "brief";
   } else if (FLAG_VERBOSE) {
     agent.viewMode = "transcript";
   } else {
-    agent.viewMode = (configuration.view_mode ?? "default") as "brief" | "default" | "transcript";
+    agent.viewMode = (configuration.view_mode ?? "default") as
+      | "brief"
+      | "default"
+      | "transcript";
   }
 
   // Permission mode log
-  const permMode = FLAG_PERMISSION_MODE ?? configuration.permission_mode ?? "default";
+  const permMode =
+    FLAG_PERMISSION_MODE ?? configuration.permission_mode ?? "default";
   if (permMode === "bypass") {
-    console.log(chalk.hex("#FF9500")("\n  ⚠ bypass mode aktif — güvenlik kontrolleri devre dışı\n"));
+    console.log(
+      chalk.hex("#FF9500")(
+        "\n  ⚠ bypass mode active — security checks are disabled\n",
+      ),
+    );
   }
 
   await runCLI(agent);
