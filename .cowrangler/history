@@ -1,14 +1,0 @@
-benim için tüm projeyi incele ve bizim README.md dosyasının yapısında readme_2.md adında bir dosya oluşturup gerçekten güzel bir readme dosyası yazmanı istiyorum. projenin çok derin teknik detaylarına dalmasın ama bakan geliştiricilerin anlayacağı şekilde olsun.
-devam et
-/model list
-/model set copilot/gpt-4o
-benim için tüm projeyi incele ve bizim README.md dosyasının yapısında readme_2.md adında bir dosya oluşturup gerçekten güzel bir readmedosyası yazmanı istiyorum. projenin çok derin teknik detaylarına dalmasın ama bakan geliştiricilerin anlayacağı şekilde olsun.
-/reset
-/model set openrouter/tencent/hy3-preview:free global
-benim için tüm projeyi incele ve bizim README.md dosyasının yapısında readme_2.md adında bir dosya oluşturup gerçekten güzel birdosyası yazmanı istiyorum. projenin çok derin teknik detaylarına dalmasın ama bakan geliştiricilerin anlayacağı şekilde olsun.
-şimdi benim @README.md ile @readme_2.md dosyalarını harmanlayıp son olarak ingilice bir readme_latest.md yazmanı istiyorum. ama şimdi bir kullanıcı projeyi indirdi başlattı o aşamada ona cowrangler setup yapması gerektiğini de ekle. bir de artık local.cowrangler folderı altında md agentları da eklenebiliyor skill gibi. bu gibi durumları da anlat. ama dediğim gibi en ince detaya kadar da inme. hadi başla. ingilizce dilinde olması lazım kesinlikle
-'irmhttps://cowrangler.com/install.ps1 | iex ve curl -fsSL https://cowrangler.com/install.sh | bash şeklinde iki farklı komut ile birisi linux&mac diğeride win için direkt kurulum komutlarmızı da readme_latest.md ye ekleyelim.
-/model list
-/model set openrouter/tencent/hy3-preview:free
-https://cowrangler.com/install.ps1 | iex ve curl -fsSL https://cowrangler.com/install.sh | bash şeklinde iki farklı komut ile birisi  linux&mac diğeride win için direkt kurulum komutlarmızı da readme_latest.md ye ekleyelim.
-readme_latest.md dosyasına 'curl -fsSL https://cowrangler.com/install.sh | bash' ve 'irm https://cowrangler.com/install.ps1 | iex' bu iki yöntemle linux-mac için ilki windows için ikincisi olarak gösterelim. çok hızlı bir şekilde ekle.
