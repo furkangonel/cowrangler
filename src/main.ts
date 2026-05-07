@@ -17,7 +17,7 @@ process.on("uncaughtException", (err) => {
 // ── CLI flags ──────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
 if (args.includes("--version") || args.includes("-v")) {
-  console.log("Co-Wrangler v1.2.0");
+  console.log("Co-Wrangler v1.1.1");
   process.exit(0);
 }
 if (args.includes("--help") || args.includes("-h")) {

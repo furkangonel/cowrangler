@@ -127,7 +127,7 @@ export class CommandRouter {
     this.commands.set("/version", {
       description: "Show Co-Wrangler version.",
       execute: () => {
-        UI.info("Co-Wrangler v1.1.0");
+        UI.info("Co-Wrangler v1.1.1");
       },
     });
 
