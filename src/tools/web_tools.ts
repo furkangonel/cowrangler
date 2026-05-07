@@ -190,7 +190,7 @@ registerTool(
         url,
         headers: {
           "Content-Type": "application/json",
-          "User-Agent": "cowrangler/1.1.0",
+          "User-Agent": "cowrangler/1.1.1",
           ...headers,
         },
         data: body !== undefined ? body : undefined,

@@ -11,7 +11,7 @@ import { getConfig } from "../core/init.js";
 
 marked.use(markedTerminal() as unknown as any);
 
-const VERSION = "1.1.0";
+const VERSION = "1.1.1";
 
 // ── Color Palettes ────────────────────────────────────────────────────────────
 const palettes = {
@@ -254,9 +254,7 @@ export const UI = {
     rightRaw.push("");
 
     // Tips for getting started section
-    const hasCowrnglr = fs.existsSync(
-      path.join(workspacePath, "COWRNGLR.md"),
-    );
+    const hasCowrnglr = fs.existsSync(path.join(workspacePath, "COWRNGLR.md"));
     rightRaw.push(Theme.main.bold("Tips for getting started"));
     rightRaw.push(Theme.dim("─".repeat(RIGHT_W - 2)));
     if (hasCowrnglr) {
@@ -278,11 +276,11 @@ export const UI = {
 
     const news = [
       "+ /init  scan & index project",
-      "+ /skills  list loaded SOPs",
-      "+ /tools  list capabilities",
-      "+ /memory  project memory",
-      "+ @file  path completions",
-      "+ ?  live shortcut reference",
+      "+ /skills  list loaded SOPs  ",
+      "+ /tools  list capabilities  ",
+      "+ /memory  project memory    ",
+      "+ @file  path completions    ",
+      "+ ?  live shortcut reference ",
     ];
     for (const n of news) {
       const maxN = RIGHT_W - 2;

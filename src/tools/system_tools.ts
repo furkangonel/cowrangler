@@ -26,7 +26,12 @@ import {
 registerTool(
   "get_current_time",
   "Get the current system date and time in ISO 8601 format.",
-  z.object({}),
+  z.object({
+    timezone: z
+      .string()
+      .default("UTC")
+      .describe("The timezone to return (default: UTC)"),
+  }),
   async () =>
     new Date().toISOString().replace("T", " ").substring(0, 19) + " UTC",
 );
