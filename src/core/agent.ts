@@ -1,19 +1,112 @@
-import { generateText, CoreMessage } from "ai";
+import { streamText, generateText, CoreMessage } from "ai";
 import fs from "fs";
 import { LLM } from "./llm.js";
 import { SkillManager } from "./skills.js";
 import { TOOL_SCHEMAS } from "../tools/registry.js";
+import { BriefBuffer, createSendMessageTool } from "../tools/brief_tool.js";
 import { DIRS, COWRNGLR_MD } from "./init.js";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// RETRY — exponential backoff for transient API errors (429 / 500 / 503)
+// ─────────────────────────────────────────────────────────────────────────────
+const RETRYABLE_CODES = new Set([429, 500, 503]);
+const MAX_RETRIES = 3;
+const BASE_BACKOFF_MS = 1000;
+
+function isRetryable(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const e = error as any;
+  // Vercel AI SDK wraps HTTP errors with statusCode or status
+  const code = e.statusCode ?? e.status ?? e.code;
+  if (typeof code === "number" && RETRYABLE_CODES.has(code)) return true;
+  // Also catch rate-limit strings (some providers surface them differently)
+  const msg: string = (e.message ?? "").toLowerCase();
+  return msg.includes("rate limit") || msg.includes("too many requests") || msg.includes("service unavailable");
+}
+
+async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      if (attempt < MAX_RETRIES && isRetryable(err)) {
+        const delayMs = BASE_BACKOFF_MS * Math.pow(2, attempt); // 1s, 2s, 4s
+        await new Promise((r) => setTimeout(r, delayMs));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONTEXT COMPRESSION — summarise old messages when context grows too large
+// ─────────────────────────────────────────────────────────────────────────────
+const CONTEXT_COMPRESS_THRESHOLD = 40; // messages before compression
+const CONTEXT_KEEP_RECENT = 10;        // always keep the N most-recent messages
+
+async function compressContext(
+  messages: CoreMessage[],
+  llm: LLM,
+  systemPrompt: string,
+): Promise<CoreMessage[]> {
+  const toSummarise = messages.slice(0, messages.length - CONTEXT_KEEP_RECENT);
+  const recent = messages.slice(messages.length - CONTEXT_KEEP_RECENT);
+
+  if (toSummarise.length === 0) return messages;
+
+  try {
+    const summaryResult = await generateText({
+      model: llm.getModel(),
+      system:
+        "You are a conversation summarizer. Produce a concise factual summary " +
+        "of the conversation history below. Preserve: decisions made, files changed, " +
+        "errors encountered, and any open tasks. Omit pleasantries and repeated content. " +
+        "Reply with plain prose, no headers.",
+      messages: [
+        {
+          role: "user",
+          content:
+            "Summarize this conversation history:\n\n" +
+            toSummarise
+              .map((m) => `[${m.role}]: ${JSON.stringify(m.content).slice(0, 500)}`)
+              .join("\n"),
+        },
+      ],
+      maxTokens: 600,
+    });
+
+    const summaryMessage: CoreMessage = {
+      role: "user",
+      content: `[CONVERSATION SUMMARY — earlier messages compressed]\n${summaryResult.text}`,
+    };
+
+    return [summaryMessage, ...recent];
+  } catch {
+    // If compression fails, just drop the oldest messages rather than crashing
+    return recent;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AGENT
+// ─────────────────────────────────────────────────────────────────────────────
 export class Agent {
   public llm: LLM;
   public maxIterations: number;
   /** CLI görünüm modu — /mode komutu veya Ctrl+O ile değiştirilir */
   public viewMode: "brief" | "default" | "transcript" = "default";
+
+  /** Per-instance brief message buffer — no shared global state */
+  public readonly briefBuffer: BriefBuffer;
+
   private skillManager: SkillManager;
-  private originalPrompt: string; // Raw base prompt — never mutated
-  private baseSystemPrompt: string; // Fully-built: base + memory + skills
-  private messages: CoreMessage[] = []; // Does NOT hold a "system" role entry
+  private originalPrompt: string;
+  private baseSystemPrompt: string;
+  private messages: CoreMessage[] = [];
   private allowedTools?: string[];
 
   constructor(
@@ -28,15 +121,12 @@ export class Agent {
     this.skillManager = new SkillManager();
     this.originalPrompt = systemPrompt;
     this.baseSystemPrompt = this._buildSystemPrompt(systemPrompt);
-    // NOTE: System prompt is passed to generateText via the `system` param,
-    // NOT as a message in the messages array. Sending it both ways causes
-    // double-injection and provider errors on some models.
+    this.briefBuffer = new BriefBuffer();
   }
 
   private _buildSystemPrompt(basePrompt: string): string {
     let finalPrompt = basePrompt;
 
-    // 1. Inject COWRNGLR.md (project-level context, highest priority — like CLAUDE.md)
     if (fs.existsSync(COWRNGLR_MD)) {
       const cowrnglrContent = fs.readFileSync(COWRNGLR_MD, "utf-8").trim();
       if (cowrnglrContent) {
@@ -44,7 +134,6 @@ export class Agent {
       }
     }
 
-    // 2. Inject Project Memory (.cowrangler/memory.md)
     if (fs.existsSync(DIRS.local.memory)) {
       const memoryContent = fs.readFileSync(DIRS.local.memory, "utf-8").trim();
       if (memoryContent) {
@@ -52,7 +141,6 @@ export class Agent {
       }
     }
 
-    // 2. Inject available Skills
     const skills = this.skillManager.getAvailableSkills();
     if (skills.length > 0) {
       const skillsText = skills
@@ -65,83 +153,140 @@ export class Agent {
   }
 
   private getTools() {
+    let base: Record<string, any>;
     if (!this.allowedTools || this.allowedTools.includes("*")) {
-      return TOOL_SCHEMAS;
+      base = { ...TOOL_SCHEMAS };
+    } else {
+      base = {};
+      for (const [key, value] of Object.entries(TOOL_SCHEMAS)) {
+        if (this.allowedTools.includes(key)) base[key] = value;
+      }
     }
-    const filtered: Record<string, any> = {};
-    for (const [key, value] of Object.entries(TOOL_SCHEMAS)) {
-      if (this.allowedTools.includes(key)) filtered[key] = value;
-    }
-    return filtered;
+    // Inject instance-specific send_message — overrides any global registration
+    base["send_message"] = createSendMessageTool(this.briefBuffer);
+    return base;
   }
 
-  /**
-   * Hot-swap the underlying LLM (called by /model set).
-   */
   setModel(newLlm: LLM) {
     this.llm = newLlm;
   }
 
-  /**
-   * Re-read memory & skills from disk and refresh the injected system prompt.
-   * Useful after /memory edit or skill additions mid-session.
-   */
   refreshSystemPrompt() {
     this.baseSystemPrompt = this._buildSystemPrompt(this.originalPrompt);
   }
 
+  /**
+   * Main chat loop.
+   *
+   * Callbacks:
+   *   onToolCall(name, args)  — fired when a tool is invoked
+   *   onStepText(text)        — fired when the model emits intermediate narrative
+   *   onToken(token)          — fired for every streamed text token in the final reply
+   *
+   * Returns: { text, tokenCount }
+   */
   async chat(
     userMessage: string,
     onToolCall?: (name: string, args: any) => void,
     onStepText?: (text: string) => void,
-  ): Promise<string> {
+    onToken?: (token: string) => void,
+  ): Promise<{ text: string; tokenCount: number }> {
+    // Compress context if it's grown too large
+    if (this.messages.length >= CONTEXT_COMPRESS_THRESHOLD) {
+      this.messages = await compressContext(
+        this.messages,
+        this.llm,
+        this.baseSystemPrompt,
+      );
+    }
+
     this.messages.push({ role: "user", content: userMessage });
 
     try {
-      const result = await generateText({
-        model: this.llm.getModel(),
-        system: this.baseSystemPrompt,
-        // Explicitly filter out any accidental "system" role messages —
-        // the system param above is the single source of truth.
-        messages: this.messages.filter((m) => m.role !== "system"),
-        tools: this.getTools(),
-        maxSteps: this.maxIterations,
-        onStepFinish: ({ text, toolCalls }) => {
-          // Surface any reasoning text the LLM emitted before/between tool calls
-          if (text?.trim() && onStepText) {
-            onStepText(text.trim());
-          }
-          if (toolCalls && onToolCall) {
-            for (const call of toolCalls) {
-              onToolCall(call.toolName, call.args);
-            }
-          }
-        },
-      });
+      let totalTokens = 0;
+      let finalText = "";
+      let responseMessages: CoreMessage[] = [];
 
-      // Persist the full step history (tool calls + results + final reply)
-      // so subsequent turns have complete context of what was done.
-      for (const msg of result.response.messages) {
+      // Retry loop — each attempt initiates a fresh HTTP request.
+      // We use `for await` to actively pull from the stream, which prevents
+      // backpressure deadlocks (the main cause of "stuck on thinking" with
+      // providers like OpenRouter that don't always resolve sr.usage).
+      let lastError: unknown;
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        if (attempt > 0) {
+          await new Promise((r) => setTimeout(r, BASE_BACKOFF_MS * Math.pow(2, attempt - 1)));
+        }
+        try {
+          let stepTokens = 0;
+          let accumulated = "";
+
+          const sr = streamText({
+            model: this.llm.getModel(),
+            system: this.baseSystemPrompt,
+            messages: this.messages.filter((m) => m.role !== "system"),
+            tools: this.getTools(),
+            maxSteps: this.maxIterations,
+            onStepFinish: ({ text, toolCalls, usage }) => {
+              if (text?.trim() && onStepText) {
+                onStepText(text.trim());
+              }
+              if (toolCalls && onToolCall) {
+                for (const call of toolCalls) {
+                  onToolCall(call.toolName, call.args);
+                }
+              }
+              if (usage) stepTokens += usage.totalTokens ?? 0;
+            },
+          });
+
+          // Actively pull the stream — this is the key fix.
+          // Promise.all([sr.text, sr.usage, sr.response]) can deadlock with
+          // providers (e.g. OpenRouter) that don't always emit a final usage chunk.
+          // for-await guarantees the stream is fully consumed before we move on.
+          for await (const chunk of sr.textStream) {
+            accumulated += chunk;
+            if (onToken) onToken(chunk);
+          }
+
+          // Stream fully consumed — these resolve immediately now.
+          const response = await sr.response;
+
+          // Usage is optional — some providers omit it; don't block on it.
+          const usage = await Promise.race([
+            sr.usage,
+            new Promise<undefined>((r) => setTimeout(() => r(undefined), 2000)),
+          ]);
+
+          finalText = accumulated;
+          totalTokens = stepTokens > 0 ? stepTokens : (usage?.totalTokens ?? 0);
+          responseMessages = response.messages as CoreMessage[];
+          break; // success — exit retry loop
+        } catch (err) {
+          lastError = err;
+          if (attempt < MAX_RETRIES && isRetryable(err)) continue;
+          throw err;
+        }
+      }
+
+      if (responseMessages.length === 0 && lastError) throw lastError;
+
+      for (const msg of responseMessages) {
         this.messages.push(msg as CoreMessage);
       }
 
-      return result.text;
+      return { text: finalText, tokenCount: totalTokens };
     } catch (error) {
-      // Roll back the user message to keep history consistent
       this.messages.pop();
       throw error;
     }
   }
 
-  /**
-   * Clear conversation history and rebuild the system prompt from disk.
-   */
   reset(): void {
     this.baseSystemPrompt = this._buildSystemPrompt(this.originalPrompt);
     this.messages = [];
+    this.briefBuffer.clear();
   }
 
-  /** Number of messages in the current conversation context. */
   get contextLength(): number {
     return this.messages.length;
   }

@@ -888,5 +888,31 @@ After writing, reply: "✓ COWRNGLR.md written. Agent context is now active."
         UI.success(`Permission mode: ${Theme.accent.bold(requested)}`);
       },
     });
+
+    // ── /todo ─────────────────────────────────────────────────────────────────
+    this.commands.set("/todo", {
+      description: "Show the agent's active TODO list (.cowrangler/AGENT_TODO.md)",
+      execute: () => {
+        const todoPath = DIRS.local.todo;
+        if (!fs.existsSync(todoPath)) {
+          return UI.info("No active TODO list. The agent creates one automatically for multi-step tasks.");
+        }
+        const raw = fs.readFileSync(todoPath, "utf-8").trim();
+        if (!raw) return UI.info("TODO list is empty.");
+
+        const lines = raw.split("\n").map((line) => {
+          // Colour checked items dimmed, unchecked items highlighted
+          if (/^\s*-\s*\[x\]/i.test(line)) {
+            return `  ${Theme.dim(line)}`;
+          }
+          if (/^\s*-\s*\[ \]/.test(line)) {
+            return `  ${Theme.success("▶")} ${Theme.accent(line.replace(/^\s*-\s*\[\s*\]\s*/, ""))}`;
+          }
+          // Headers and other lines
+          return `  ${Theme.main(line)}`;
+        });
+        UI.box(lines.join("\n"), "Active Agent TODO");
+      },
+    });
   }
 }
