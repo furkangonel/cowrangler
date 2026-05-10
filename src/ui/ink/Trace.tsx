@@ -122,7 +122,7 @@ export const TraceSummary: React.FC<{
   durationMs?: number;
 }> = ({ toolCount, durationMs }) => {
   if (toolCount === 0) return null;
-  const steps = `${toolCount} adım`;
+  const steps = `${toolCount} ${toolCount === 1 ? "step" : "steps"}`;
   const time =
     durationMs !== undefined ? ` · ${(durationMs / 1000).toFixed(1)}s` : "";
   return <Text>{Theme.dim(`  ⊕ ${steps}${time}`)}</Text>;
@@ -147,7 +147,7 @@ export const ActiveSpinner: React.FC<{
   startTime?: number;
   verbose?: boolean;
 }> = ({
-  label = "Düşünüyor...",
+  label = "Thinking...",
   stepCount = 0,
   mode = "thinking",
   startTime,
@@ -168,7 +168,7 @@ export const ActiveSpinner: React.FC<{
   const shouldShowSteps = elapsed > SHOW_STEPS_AFTER_MS;
   const stepBadge =
     shouldShowSteps && stepCount > 0
-      ? Theme.dim(` [${stepCount} adım]`)
+      ? Theme.dim(` [${stepCount} ${stepCount === 1 ? "step" : "steps"}]`)
       : stepCount > 0
       ? Theme.dim(` [${stepCount}]`)
       : "";

@@ -623,7 +623,7 @@ The report is returned to you (the calling agent) for review before acting on it
 
     const startMs = Date.now();
     try {
-      const result = await subAgent.chat(
+      const { text: result } = await subAgent.chat(
         `TASK ASSIGNMENT:\n${taskDescription}\n\n` +
           `CONSTRAINTS:\n` +
           `- Read-only mode: ${agentDef.readOnly ? "YES — do not write or execute" : "No"}\n` +
@@ -717,7 +717,7 @@ Prefer this over sequential spawn_subagent calls whenever the tasks don't depend
 
         const agentStart = Date.now();
         try {
-          const result = await subAgent.chat(
+          const { text: result } = await subAgent.chat(
             `TASK ASSIGNMENT:\n${taskDescription}\n\n` +
               `CONSTRAINTS:\n` +
               `- Read-only mode: ${agentDef.readOnly ? "YES — do not write or execute" : "No"}\n` +

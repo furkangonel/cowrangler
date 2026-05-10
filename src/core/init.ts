@@ -48,10 +48,13 @@ State the root cause or goal, not just the action. This creates an audit trail.
 - Always use git_status before git_commit.
 - Never assume a file's content — check it.
 
-### 3. Checklist discipline for multi-step tasks
-- Start complex tasks by writing a checklist with manage_todo(action="update").
-- Mark each item done with manage_todo(action="mark_done") IMMEDIATELY after completing it.
-- Never batch-mark at the end. Never leave completed items unchecked.
+### 3. TODO discipline — MANDATORY for any non-trivial task
+If a task requires 3 or more steps, touches more than one file, OR takes more than a few seconds:
+1. Call manage_todo(action="update") as your VERY FIRST action — before reading any file, before any tool call.
+2. Mark each item done with manage_todo(action="mark_done") IMMEDIATELY after completing it — not at the end.
+3. Never batch-mark. Never skip. No task leaves the TODO in an unfinished state.
+
+Single-step tasks (one file, one obvious action) may skip the TODO. Everything else: TODO first.
 
 ### 4. Use send_message to communicate with the user
 After completing your work, ALWAYS call send_message to deliver your final response.
@@ -84,7 +87,7 @@ For INDEPENDENT parallel tasks, prefer spawn_subagent_parallel — total time eq
 Before implementing anything that touches multiple files, has irreversible steps, or involves architectural decisions:
 1. Call write_plan with title, summary, and ordered steps
 2. Present the plan to the user with send_message
-3. WAIT for explicit user approval ("go ahead", "devam et", "proceed")
+3. WAIT for explicit user approval ("go ahead", "proceed", "looks good")
 4. Only then start implementation
 
 Skip write_plan only for trivial single-file edits or direct user instructions that already specify exactly what to do.
@@ -96,7 +99,7 @@ After any task that takes more than ~30 seconds, call notify so the user knows i
 For up-to-date information, use web_search first to discover relevant pages, then fetch_webpage to read specific content. Always cite your sources.
 
 ### 10. Language & tone
-- Respond in the SAME LANGUAGE the user writes in (Turkish → Turkish, English → English).
+- Always respond in English, regardless of the language the user writes in.
 - Be direct, precise, and actionable. Avoid filler phrases like "Certainly!" or "Of course!".
 - When uncertain about something, say so explicitly rather than guessing.
 - Never apologize excessively — acknowledge mistakes once and fix them.
@@ -107,12 +110,21 @@ For up-to-date information, use web_search first to discover relevant pages, the
 - If a requested action looks dangerous, explain the specific risk before proceeding.
 - Respect the active permission mode (default/plan/auto/bypass) shown in your context.
 
-### 12. Structured output discipline
-When presenting code changes, always show:
-- Which file was changed
-- What specifically changed (diff or summary)
-- Why it was necessary
+### 12. Narrative discipline — NO CODE IN MESSAGES
+When writing or editing files, NEVER reproduce the file content in your narrative or in send_message.
+The code is already in the file — repeating it wastes tokens and pollutes the trace.
+
+- ✗ BAD:  "Writing the following to registry.ts: [full code block with wrapExecute...]"
+- ✓ GOOD: "Wrapping execute in registry.ts to fix the Vertex struct format issue."
+
+In send_message and narratives: reference the file path and what changed — not the code itself.
+The only exception is short inline snippets (≤3 lines) needed to explain a specific decision.
+
+### 13. Structured output discipline
+When reporting what was done to the user (via send_message), state:
+- Which file(s) were changed and why
 - How to verify it works (test command or expected output)
+Do NOT include diffs or full code blocks in send_message — those belong in the files.
 
 ---
 
@@ -120,7 +132,7 @@ When presenting code changes, always show:
 
 When all steps are done, end with this exact format:
 
-**Tamamlandı / Done:**
+**Done:**
 - ✓ [action taken — one line each]
 - ✓ ...
 
@@ -154,7 +166,10 @@ export function initEnvironment() {
         "gpt-4o-mini",
         "openrouter/anthropic/claude-sonnet-4-5",
       ],
-      system_prompt: DEFAULT_SYSTEM_PROMPT,
+      // system_prompt is intentionally NOT stored in config.yaml.
+      // It is always sourced from the in-code DEFAULT_SYSTEM_PROMPT so that
+      // updates take effect immediately without manual config migration.
+      // To add custom instructions, set `custom_system_prompt` in config.yaml.
       temperature: 0.7,
       max_iterations: 25,
       theme: "auto",
@@ -266,7 +281,7 @@ export function ensureAgentTodo(): void {
   if (!fs.existsSync(DIRS.local.todo)) {
     fs.writeFileSync(
       DIRS.local.todo,
-      "# Active Agent Tasks\n- [ ] (agent will populate this)\n",
+      "# Active Agent Tasks\n",
       "utf-8"
     );
   }
@@ -297,7 +312,12 @@ export function getConfig() {
 
   // Ensure defaults
   config.model = config.model || "openrouter/google/gemini-2.5-flash";
-  config.system_prompt = config.system_prompt || DEFAULT_SYSTEM_PROMPT;
+  // Always use the in-code DEFAULT_SYSTEM_PROMPT so updates take effect immediately.
+  // Users who want to customise the prompt should set `custom_system_prompt` in their
+  // config.yaml — that value is appended after the default, never replacing it.
+  config.system_prompt = config.custom_system_prompt
+    ? DEFAULT_SYSTEM_PROMPT + "\n\n---\n\n## USER CUSTOMIZATIONS\n\n" + config.custom_system_prompt
+    : DEFAULT_SYSTEM_PROMPT;
   config.temperature = config.temperature ?? 0.7;
   config.max_iterations = config.max_iterations ?? 25;
   config.view_mode = config.view_mode ?? "default";

@@ -11,19 +11,20 @@ import { SkillManager } from "../../core/skills.js";
 import { CommandRouter, CommandContext } from "../commands.js";
 import { UI, Theme } from "../theme.js";
 import { Turn, TraceEntry, CompletionItem, ViewMode, SpinnerMode } from "./types.js";
-import { getBriefMessages, clearBriefMessages } from "../../tools/brief_tool.js";
 import {
   buildStaticPool,
   detectMode,
   filterForMode,
   applyCompletion,
 } from "./completion.js";
+import fs from "fs";
 import { loadHistory, appendHistory } from "./history.js";
 import { Prompt, PromptHint } from "./Prompt.js";
 import { CompletionMenu } from "./CompletionMenu.js";
 import { AgentTurn } from "./AgentTurn.js";
 import { ActiveSpinner, TraceLine } from "./Trace.js";
 import { ShortcutOverlay } from "./ShortcutOverlay.js";
+import { DIRS } from "../../core/init.js";
 
 interface AppProps {
   agent: Agent;
@@ -116,10 +117,12 @@ export const App: React.FC<AppProps> = ({ agent }) => {
 
   // ── Live agent run ──────────────────────────────────────────────────────
   const [busy, setBusy] = useState<boolean>(false);
-  const [spinnerLabel, setSpinnerLabel] = useState<string>("Düşünüyor...");
+  const [spinnerLabel, setSpinnerLabel] = useState<string>("Thinking...");
   const [spinnerMode, setSpinnerMode] = useState<SpinnerMode>("thinking");
   const [liveTrace, setLiveTrace] = useState<TraceEntry[]>([]);
   const [stepCount, setStepCount] = useState<number>(0);
+  const [streamingText, setStreamingText] = useState<string>(""); // live token stream
+  const [activeTodoItem, setActiveTodoItem] = useState<string | null>(null); // current pending TODO
   const stepStartRef = useRef<number>(0);
   const runStartRef = useRef<number>(0);   // wall-clock start of the whole run
   const busyRef = useRef<boolean>(false); // synchronous mirror for input gating
@@ -138,6 +141,35 @@ export const App: React.FC<AppProps> = ({ agent }) => {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     };
   }, []);
+
+  // ── TODO polling — while busy, read the first pending item from AGENT_TODO.md ──
+  // Polls every 800ms so the user can see which task is being worked on.
+  useEffect(() => {
+    if (!busy) {
+      setActiveTodoItem(null);
+      return;
+    }
+    const readActiveTodo = () => {
+      try {
+        if (!fs.existsSync(DIRS.local.todo)) return;
+        const raw = fs.readFileSync(DIRS.local.todo, "utf-8");
+        const firstPending = raw
+          .split("\n")
+          .find((l) => /^\s*-\s*\[ \]/.test(l));
+        if (firstPending) {
+          const text = firstPending.replace(/^\s*-\s*\[\s*\]\s*/, "").trim();
+          setActiveTodoItem(text || null);
+        } else {
+          setActiveTodoItem(null);
+        }
+      } catch {
+        setActiveTodoItem(null);
+      }
+    };
+    readActiveTodo();
+    const interval = setInterval(readActiveTodo, 800);
+    return () => clearInterval(interval);
+  }, [busy]);
 
   // Clamp the selected index whenever the visible list changes.
   useEffect(() => {
@@ -182,24 +214,28 @@ export const App: React.FC<AppProps> = ({ agent }) => {
     async (userInput: string) => {
       busyRef.current = true;
       setBusy(true);
-      setSpinnerLabel("Düşünüyor...");
+      setSpinnerLabel("Thinking...");
       setSpinnerMode("thinking");
       setLiveTrace([]);
+      setStreamingText("");
       setStepCount(0);
-      clearBriefMessages();
+      agent.briefBuffer.clear();
       runStartRef.current = Date.now();
       stepStartRef.current = Date.now();
 
       let collected: TraceEntry[] = [];
       let toolCallCount = 0;
       try {
-        const reply = await agent.chat(
+        const { text: reply, tokenCount } = await agent.chat(
           userInput,
+          // onToolCall
           (toolName, args) => {
             toolCallCount++;
             const elapsed = Date.now() - stepStartRef.current;
 
-            // BriefTool çağrısını özel trace entry olarak ekle
+            // Reset streaming text on each tool call — model is done talking
+            setStreamingText("");
+
             if (toolName === "send_message" && args?.message) {
               const briefEntry: TraceEntry = {
                 kind: "brief",
@@ -221,23 +257,30 @@ export const App: React.FC<AppProps> = ({ agent }) => {
             }
 
             setStepCount(toolCallCount);
-            // Spinner modunu tool'a göre ayarla
             const displayTool = toolName.replace(/_/g, " ");
             setSpinnerLabel(`${displayTool}...`);
             setSpinnerMode("tool");
             stepStartRef.current = Date.now();
           },
+          // onStepText (intermediate narrative between tool calls)
           (text) => {
             if (!text.trim()) return;
             const entry: TraceEntry = { kind: "narrative", text: text.trim() };
             collected.push(entry);
             setLiveTrace((p) => [...p, entry]);
-            setSpinnerLabel("Düşünüyor...");
+            setSpinnerLabel("Thinking...");
             setSpinnerMode("thinking");
             stepStartRef.current = Date.now();
           },
+          // onToken (streaming final reply token by token)
+          (token) => {
+            setStreamingText((prev) => prev + token);
+            setSpinnerLabel("Writing...");
+            setSpinnerMode("waiting");
+          },
         );
 
+        setStreamingText(""); // clear before committing
         const rendered = await UI.renderMarkdown(reply);
         commitTurn({
           id: `t-${Date.now()}`,
@@ -246,9 +289,11 @@ export const App: React.FC<AppProps> = ({ agent }) => {
           reply: rendered.trimEnd(),
           durationMs: Date.now() - runStartRef.current,
           completedAt: new Date().toISOString(),
+          tokenCount: tokenCount > 0 ? tokenCount : undefined,
           viewMode,
         });
       } catch (e: any) {
+        setStreamingText("");
         commitTurn({
           id: `t-${Date.now()}`,
           userInput,
@@ -355,9 +400,9 @@ export const App: React.FC<AppProps> = ({ agent }) => {
       setViewMode((prev) => {
         const next = prev === "brief" ? "default" : prev === "default" ? "transcript" : "brief";
         const labels: Record<ViewMode, string> = {
-          brief:      "Brief  —  sadece agent mesajları",
-          default:    "Default  —  dengeli görünüm",
-          transcript: "Transcript  —  tüm araç çağrıları",
+          brief:      "Brief  —  agent messages only",
+          default:    "Default  —  balanced view",
+          transcript: "Transcript  —  all tool calls",
         };
         // Transient toast: clear any pending timer then show the new label
         if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -613,13 +658,32 @@ export const App: React.FC<AppProps> = ({ agent }) => {
                   .filter((e) => e.kind === "tool")
                   .slice(-4)
                   .map((entry, i) => <TraceLine key={i} entry={entry} />)}
-            <ActiveSpinner
-              label={spinnerLabel}
-              stepCount={stepCount}
-              mode={spinnerMode}
-              startTime={runStartRef.current}
-              verbose={viewMode === "transcript"}
-            />
+
+            {/* ── Active TODO item — shows current task being worked on ── */}
+            {activeTodoItem && !streamingText && (
+              <Box paddingLeft={2} marginTop={0}>
+                <Text dimColor>{"  ◎ "}</Text>
+                <Text color="#FF9500">{activeTodoItem}</Text>
+              </Box>
+            )}
+
+            {/* ── Streaming reply — live token output ── */}
+            {streamingText ? (
+              <Box marginTop={1} flexDirection="row" paddingLeft={2}>
+                <Text dimColor>{"⎿  "}</Text>
+                <Box flexShrink={1} flexGrow={1}>
+                  <Text>{streamingText}</Text>
+                </Box>
+              </Box>
+            ) : (
+              <ActiveSpinner
+                label={spinnerLabel}
+                stepCount={stepCount}
+                mode={spinnerMode}
+                startTime={runStartRef.current}
+                verbose={viewMode === "transcript"}
+              />
+            )}
           </Box>
         ) : (
           <Prompt value={input} cursor={cursor} active={!busy} />
@@ -641,7 +705,7 @@ export const App: React.FC<AppProps> = ({ agent }) => {
         {!viewModeToast && viewMode !== "default" && (
           <Box paddingLeft={2} marginTop={0}>
             <Text dimColor>
-              {viewMode === "brief" ? "◈ brief mode" : "◈ transcript mode"}
+              {viewMode === "brief" ? "◈ brief mode  [Ctrl+O]" : "◈ transcript mode  [Ctrl+O]"}
             </Text>
           </Box>
         )}

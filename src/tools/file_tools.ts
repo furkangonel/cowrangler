@@ -6,6 +6,7 @@ import mammoth from "mammoth";
 import pdfParse from "pdf-parse";
 import xlsx from "xlsx";
 import markdownpdf from "markdown-pdf";
+import fg from "fast-glob";
 import { registerTool } from "./registry.js";
 
 let _WORKSPACE = path.resolve("./workspace");
@@ -75,40 +76,26 @@ registerTool(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GLOB FILES
+// GLOB FILES — powered by fast-glob for real pattern support
 // ─────────────────────────────────────────────────────────────────────────────
 registerTool(
   "glob_files",
-  "Find files matching a glob pattern (e.g., '**/*.ts', 'src/**/*.test.*').",
+  "Find files matching a glob pattern. Supports full glob syntax: **, ?, [], {}, negation (!). Examples: '**/*.ts', 'src/**/*.test.*', '!**/node_modules/**'.",
   z.object({
-    pattern: z.string().describe("Glob pattern, e.g., '**/*.ts'"),
+    pattern: z.string().describe("Glob pattern, e.g., '**/*.ts' or 'src/**/*.{ts,tsx}'"),
     cwd: z.string().optional().describe("Root directory for the search (default: workspace root)"),
+    ignore: z.array(z.string()).optional().describe("Additional ignore patterns (node_modules, .git, dist are always ignored)"),
   }),
-  async ({ pattern, cwd }: { pattern: string; cwd?: string }) => {
+  async ({ pattern, cwd, ignore = [] }: { pattern: string; cwd?: string; ignore?: string[] }) => {
     try {
       const baseDir = cwd ? _safePath(cwd) : _WORKSPACE;
-      const matches: string[] = [];
-
-      // Manual recursive scan with simple pattern matching
-      const extMatch = pattern.match(/\*\.([a-z0-9]+)$/i);
-      const ext = extMatch ? `.${extMatch[1]}` : null;
-
-      async function scan(dir: string) {
-        try {
-          const items = await fs.readdir(dir, { withFileTypes: true });
-          for (const item of items) {
-            if (item.name === "node_modules" || item.name === ".git" || item.name === "dist") continue;
-            const fullPath = path.join(dir, item.name);
-            if (item.isDirectory()) {
-              await scan(fullPath);
-            } else if (!ext || item.name.endsWith(ext)) {
-              matches.push(path.relative(baseDir, fullPath));
-            }
-          }
-        } catch {}
-      }
-      await scan(baseDir);
-
+      const matches = await fg(pattern, {
+        cwd: baseDir,
+        ignore: ["**/node_modules/**", "**/.git/**", "**/dist/**", ...ignore],
+        dot: false,
+        onlyFiles: true,
+        unique: true,
+      });
       if (matches.length === 0) return `No files matched '${pattern}'.`;
       return `Found ${matches.length} file(s):\n` + matches.sort().join("\n");
     } catch (e: any) {
