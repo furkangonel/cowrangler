@@ -4,7 +4,6 @@
  * cua-driver'ın MCP arayüzü üzerinden çalışır. Kullanıcının imlecini,
  * klavye odağını veya Space'ini ÇALMAZ — arka plan co-work modeli.
  *
- * Kaynak: NousResearch/hermes-agent tools/computer_use/ (Python → TypeScript port)
  * Sadece macOS destekler; cua-driver binary gerektirir.
  *
  * Kurulum:
@@ -68,7 +67,10 @@ class CuaDriverClient {
     this.connected = true;
   }
 
-  async callTool(name: string, args: Record<string, unknown>): Promise<McpToolResult> {
+  async callTool(
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<McpToolResult> {
     await this.ensureConnected();
     const result = await this.client.callTool({ name, arguments: args });
     return extractToolResult(result);
@@ -106,9 +108,10 @@ function extractToolResult(mcpResult: any): McpToolResult {
   if (textChunks.length > 0) {
     const joined = textChunks.join("\n");
     try {
-      data = joined.trimStart().startsWith("{") || joined.trimStart().startsWith("[")
-        ? JSON.parse(joined)
-        : joined;
+      data =
+        joined.trimStart().startsWith("{") || joined.trimStart().startsWith("[")
+          ? JSON.parse(joined)
+          : joined;
     } catch {
       data = joined;
     }
@@ -135,20 +138,32 @@ const _alwaysAllow = new Set<string>();
 
 const SAFE_ACTIONS = new Set(["capture", "wait", "list_apps"]);
 const DESTRUCTIVE_ACTIONS = new Set([
-  "click", "double_click", "right_click", "middle_click",
-  "drag", "scroll", "type", "key", "set_value", "focus_app",
+  "click",
+  "double_click",
+  "right_click",
+  "middle_click",
+  "drag",
+  "scroll",
+  "type",
+  "key",
+  "set_value",
+  "focus_app",
 ]);
 
 const BLOCKED_KEY_COMBOS: Set<string>[] = [
-  new Set(["cmd", "shift", "backspace"]),   // çöp kutusunu boşalt
-  new Set(["cmd", "option", "backspace"]),  // zorla sil
-  new Set(["cmd", "ctrl", "q"]),            // ekranı kilitle
-  new Set(["cmd", "shift", "q"]),           // çıkış yap
+  new Set(["cmd", "shift", "backspace"]), // çöp kutusunu boşalt
+  new Set(["cmd", "option", "backspace"]), // zorla sil
+  new Set(["cmd", "ctrl", "q"]), // ekranı kilitle
+  new Set(["cmd", "shift", "q"]), // çıkış yap
   new Set(["cmd", "option", "shift", "q"]), // zorla çıkış yap
 ];
 
 const KEY_ALIASES: Record<string, string> = {
-  command: "cmd", control: "ctrl", alt: "option", "⌘": "cmd", "⌥": "option",
+  command: "cmd",
+  control: "ctrl",
+  alt: "option",
+  "⌘": "cmd",
+  "⌥": "option",
 };
 
 const BLOCKED_TYPE_PATTERNS = [
@@ -165,7 +180,7 @@ function canonKeyCombo(keys: string): Set<string> {
     keys.split(/\s*\+\s*/).map((p) => {
       const n = p.trim().toLowerCase();
       return KEY_ALIASES[n] ?? n;
-    })
+    }),
   );
 }
 
@@ -186,9 +201,24 @@ function isBlockedType(text: string): string | null {
   return null;
 }
 
-function parseKeyCombo(keys: string): { key: string | null; modifiers: string[] } {
-  const MODIFIER_NAMES = new Set(["cmd", "command", "shift", "option", "alt", "ctrl", "control", "fn"]);
-  const parts = keys.split(/[+\-]/).map((p) => p.trim().toLowerCase()).filter(Boolean);
+function parseKeyCombo(keys: string): {
+  key: string | null;
+  modifiers: string[];
+} {
+  const MODIFIER_NAMES = new Set([
+    "cmd",
+    "command",
+    "shift",
+    "option",
+    "alt",
+    "ctrl",
+    "control",
+    "fn",
+  ]);
+  const parts = keys
+    .split(/[+\-]/)
+    .map((p) => p.trim().toLowerCase())
+    .filter(Boolean);
   const modifiers: string[] = [];
   let key: string | null = null;
   for (const part of parts) {
@@ -220,7 +250,8 @@ interface UIElement {
   label: string;
 }
 
-const WINDOW_LINE_RE = /^-\s+(.+?)\s+\(pid\s+(\d+)\)\s+.*\[window_id:\s+(\d+)\]/gm;
+const WINDOW_LINE_RE =
+  /^-\s+(.+?)\s+\(pid\s+(\d+)\)\s+.*\[window_id:\s+(\d+)\]/gm;
 const ELEMENT_LINE_RE = /^\s*-\s+\[(\d+)\]\s+(\w+)(?:\s+"([^"]*)")?/gm;
 
 function parseWindowsFromText(text: string): WindowInfo[] {
@@ -252,13 +283,15 @@ function parseElementsFromTree(markdown: string): UIElement[] {
 function parseWindowsFromResult(result: McpToolResult): WindowInfo[] {
   const sc = result.structuredContent;
   if (sc?.windows && Array.isArray(sc.windows)) {
-    return (sc.windows as any[]).map((w) => ({
-      app_name: w.app_name ?? "",
-      pid: parseInt(w.pid, 10),
-      window_id: parseInt(w.window_id, 10),
-      z_index: w.z_index ?? 0,
-      off_screen: !w.is_on_screen,
-    })).sort((a, b) => a.z_index - b.z_index);
+    return (sc.windows as any[])
+      .map((w) => ({
+        app_name: w.app_name ?? "",
+        pid: parseInt(w.pid, 10),
+        window_id: parseInt(w.window_id, 10),
+        z_index: w.z_index ?? 0,
+        off_screen: !w.is_on_screen,
+      }))
+      .sort((a, b) => a.z_index - b.z_index);
   }
   const text = typeof result.data === "string" ? result.data : "";
   return parseWindowsFromText(text);
@@ -272,14 +305,19 @@ type ContentPart =
   | { type: "text"; text: string }
   | { type: "image"; data: string; mimeType: string };
 
-async function dispatch(action: string, args: Record<string, any>): Promise<string | ContentPart[]> {
+async function dispatch(
+  action: string,
+  args: Record<string, any>,
+): Promise<string | ContentPart[]> {
   const captureAfter = Boolean(args.capture_after);
 
   // ── capture ──────────────────────────────────────────────────────────────
   if (action === "capture") {
     const mode = String(args.mode ?? "som");
     if (!["som", "vision", "ax"].includes(mode)) {
-      return JSON.stringify({ error: `Geçersiz mod: ${mode}. som|vision|ax kullanın.` });
+      return JSON.stringify({
+        error: `Geçersiz mod: ${mode}. som|vision|ax kullanın.`,
+      });
     }
     return await doCapture(mode, args.app as string | undefined);
   }
@@ -313,18 +351,27 @@ async function dispatch(action: string, args: Record<string, any>): Promise<stri
   if (action === "focus_app") {
     const app = args.app as string;
     if (!app) return JSON.stringify({ error: "focus_app için `app` gerekli" });
-    const lwResult = await _client.callTool("list_windows", { on_screen_only: true });
+    const lwResult = await _client.callTool("list_windows", {
+      on_screen_only: true,
+    });
     const windows = parseWindowsFromResult(lwResult);
     const appLower = app.toLowerCase();
-    const matched = windows.filter((w) => w.app_name.toLowerCase().includes(appLower));
+    const matched = windows.filter((w) =>
+      w.app_name.toLowerCase().includes(appLower),
+    );
     const target = matched[0] ?? windows[0];
     if (!target) {
-      return JSON.stringify({ ok: false, action: "focus_app", message: `Uygulama bulunamadı: ${app}` });
+      return JSON.stringify({
+        ok: false,
+        action: "focus_app",
+        message: `Uygulama bulunamadı: ${app}`,
+      });
     }
     _activePid = target.pid;
     _activeWindowId = target.window_id;
     const resp = JSON.stringify({
-      ok: true, action: "focus_app",
+      ok: true,
+      action: "focus_app",
       message: `${target.app_name} hedeflendi (pid ${_activePid}, window ${_activeWindowId}) — pencere öne alınmadı.`,
     });
     if (captureAfter) return await maybeCaptureAfter(resp, true);
@@ -332,17 +379,27 @@ async function dispatch(action: string, args: Record<string, any>): Promise<stri
   }
 
   // ── click / double_click / right_click / middle_click ────────────────────
-  if (["click", "double_click", "right_click", "middle_click"].includes(action)) {
+  if (
+    ["click", "double_click", "right_click", "middle_click"].includes(action)
+  ) {
     if (_activePid === null) {
-      return JSON.stringify({ error: "Aktif pencere yok — önce capture() çağırın." });
+      return JSON.stringify({
+        error: "Aktif pencere yok — önce capture() çağırın.",
+      });
     }
     let toolName = "click";
     let clickCount = 1;
     let button = (args.button as string) ?? "left";
 
-    if (action === "double_click") { toolName = "double_click"; clickCount = 2; }
-    else if (action === "right_click") { toolName = "right_click"; button = "right"; }
-    else if (action === "middle_click") { button = "middle"; }
+    if (action === "double_click") {
+      toolName = "double_click";
+      clickCount = 2;
+    } else if (action === "right_click") {
+      toolName = "right_click";
+      button = "right";
+    } else if (action === "middle_click") {
+      button = "middle";
+    }
 
     const callArgs: Record<string, any> = { pid: _activePid };
     if (args.element != null && _activeWindowId !== null) {
@@ -352,7 +409,9 @@ async function dispatch(action: string, args: Record<string, any>): Promise<stri
       callArgs.x = args.coordinate[0];
       callArgs.y = args.coordinate[1];
     } else {
-      return JSON.stringify({ error: "click için element= veya coordinate= gerekli" });
+      return JSON.stringify({
+        error: "click için element= veya coordinate= gerekli",
+      });
     }
     if (args.modifiers) callArgs.modifier = args.modifiers;
 
@@ -360,15 +419,22 @@ async function dispatch(action: string, args: Record<string, any>): Promise<stri
     const actionResult = JSON.stringify({
       ok: !result.isError,
       action,
-      message: typeof result.data === "string" ? result.data : result.data?.message ?? "",
+      message:
+        typeof result.data === "string"
+          ? result.data
+          : (result.data?.message ?? ""),
     });
-    return captureAfter ? await maybeCaptureAfter(actionResult, !result.isError) : actionResult;
+    return captureAfter
+      ? await maybeCaptureAfter(actionResult, !result.isError)
+      : actionResult;
   }
 
   // ── scroll ────────────────────────────────────────────────────────────────
   if (action === "scroll") {
     if (_activePid === null) {
-      return JSON.stringify({ error: "Aktif pencere yok — önce capture() çağırın." });
+      return JSON.stringify({
+        error: "Aktif pencere yok — önce capture() çağırın.",
+      });
     }
     const scrollArgs: Record<string, any> = {
       pid: _activePid,
@@ -383,57 +449,90 @@ async function dispatch(action: string, args: Record<string, any>): Promise<stri
       scrollArgs.y = args.coordinate[1];
     }
     const result = await _client.callTool("scroll", scrollArgs);
-    const actionResult = JSON.stringify({ ok: !result.isError, action: "scroll" });
-    return captureAfter ? await maybeCaptureAfter(actionResult, !result.isError) : actionResult;
+    const actionResult = JSON.stringify({
+      ok: !result.isError,
+      action: "scroll",
+    });
+    return captureAfter
+      ? await maybeCaptureAfter(actionResult, !result.isError)
+      : actionResult;
   }
 
   // ── type ─────────────────────────────────────────────────────────────────
   if (action === "type") {
     if (_activePid === null) {
-      return JSON.stringify({ error: "Aktif pencere yok — önce capture() çağırın." });
+      return JSON.stringify({
+        error: "Aktif pencere yok — önce capture() çağırın.",
+      });
     }
     const result = await _client.callTool("type_text_chars", {
       pid: _activePid,
       text: args.text ?? "",
     });
-    const actionResult = JSON.stringify({ ok: !result.isError, action: "type" });
-    return captureAfter ? await maybeCaptureAfter(actionResult, !result.isError) : actionResult;
+    const actionResult = JSON.stringify({
+      ok: !result.isError,
+      action: "type",
+    });
+    return captureAfter
+      ? await maybeCaptureAfter(actionResult, !result.isError)
+      : actionResult;
   }
 
   // ── key ───────────────────────────────────────────────────────────────────
   if (action === "key") {
     if (_activePid === null) {
-      return JSON.stringify({ error: "Aktif pencere yok — önce capture() çağırın." });
+      return JSON.stringify({
+        error: "Aktif pencere yok — önce capture() çağırın.",
+      });
     }
     const keys = String(args.keys ?? "");
     const { key, modifiers } = parseKeyCombo(keys);
-    if (!key) return JSON.stringify({ error: `Tuş ayrıştırılamadı: '${keys}'` });
+    if (!key)
+      return JSON.stringify({ error: `Tuş ayrıştırılamadı: '${keys}'` });
 
     let result: McpToolResult;
     if (modifiers.length > 0) {
-      result = await _client.callTool("hotkey", { pid: _activePid, keys: [...modifiers, key] });
+      result = await _client.callTool("hotkey", {
+        pid: _activePid,
+        keys: [...modifiers, key],
+      });
     } else {
       result = await _client.callTool("press_key", { pid: _activePid, key });
     }
-    const actionResult = JSON.stringify({ ok: !result.isError, action: "key", keys });
-    return captureAfter ? await maybeCaptureAfter(actionResult, !result.isError) : actionResult;
+    const actionResult = JSON.stringify({
+      ok: !result.isError,
+      action: "key",
+      keys,
+    });
+    return captureAfter
+      ? await maybeCaptureAfter(actionResult, !result.isError)
+      : actionResult;
   }
 
   // ── set_value ─────────────────────────────────────────────────────────────
   if (action === "set_value") {
     if (_activePid === null || _activeWindowId === null) {
-      return JSON.stringify({ error: "Aktif pencere yok — önce capture() çağırın." });
+      return JSON.stringify({
+        error: "Aktif pencere yok — önce capture() çağırın.",
+      });
     }
-    if (args.value == null) return JSON.stringify({ error: "set_value için `value` gerekli" });
-    if (args.element == null) return JSON.stringify({ error: "set_value için `element` gerekli" });
+    if (args.value == null)
+      return JSON.stringify({ error: "set_value için `value` gerekli" });
+    if (args.element == null)
+      return JSON.stringify({ error: "set_value için `element` gerekli" });
     const result = await _client.callTool("set_value", {
       pid: _activePid,
       window_id: _activeWindowId,
       element_index: args.element,
       value: String(args.value),
     });
-    const actionResult = JSON.stringify({ ok: !result.isError, action: "set_value" });
-    return captureAfter ? await maybeCaptureAfter(actionResult, !result.isError) : actionResult;
+    const actionResult = JSON.stringify({
+      ok: !result.isError,
+      action: "set_value",
+    });
+    return captureAfter
+      ? await maybeCaptureAfter(actionResult, !result.isError)
+      : actionResult;
   }
 
   // ── drag (cua-driver desteklemiyor) ───────────────────────────────────────
@@ -451,9 +550,14 @@ async function dispatch(action: string, args: Record<string, any>): Promise<stri
 // Capture yardımcıları
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function doCapture(mode: string, appFilter?: string): Promise<string | ContentPart[]> {
+async function doCapture(
+  mode: string,
+  appFilter?: string,
+): Promise<string | ContentPart[]> {
   // Pencere listesini al
-  const lwResult = await _client.callTool("list_windows", { on_screen_only: true });
+  const lwResult = await _client.callTool("list_windows", {
+    on_screen_only: true,
+  });
   let windows = parseWindowsFromResult(lwResult);
 
   if (windows.length === 0) {
@@ -463,7 +567,9 @@ async function doCapture(mode: string, appFilter?: string): Promise<string | Con
   // Uygulama filtresi
   if (appFilter) {
     const appLower = appFilter.toLowerCase();
-    const filtered = windows.filter((w) => w.app_name.toLowerCase().includes(appLower));
+    const filtered = windows.filter((w) =>
+      w.app_name.toLowerCase().includes(appLower),
+    );
     if (filtered.length > 0) windows = filtered;
   }
 
@@ -504,11 +610,15 @@ async function doCapture(mode: string, appFilter?: string): Promise<string | Con
 
   // Özet metin oluştur
   const summaryLines = [
-    `capture mode=${mode} app=${target.app_name}` + (windowTitle ? ` window="${windowTitle}"` : ""),
+    `capture mode=${mode} app=${target.app_name}` +
+      (windowTitle ? ` window="${windowTitle}"` : ""),
     `${elements.length} etkileşimli eleman:`,
-    ...elements.slice(0, 40).map(
-      (e) => `  #${e.index} ${e.role} "${e.label.replace(/\n/g, " ").slice(0, 60)}"`
-    ),
+    ...elements
+      .slice(0, 40)
+      .map(
+        (e) =>
+          `  #${e.index} ${e.role} "${e.label.replace(/\n/g, " ").slice(0, 60)}"`,
+      ),
     ...(elements.length > 40 ? [`  ... +${elements.length - 40} daha`] : []),
   ];
   const summary = summaryLines.join("\n");
@@ -525,12 +635,19 @@ async function doCapture(mode: string, appFilter?: string): Promise<string | Con
     mode,
     app: target.app_name,
     window_title: windowTitle,
-    elements: elements.map((e) => ({ index: e.index, role: e.role, label: e.label })),
+    elements: elements.map((e) => ({
+      index: e.index,
+      role: e.role,
+      label: e.label,
+    })),
     summary,
   });
 }
 
-async function maybeCaptureAfter(actionResult: string, actionOk: boolean): Promise<string | ContentPart[]> {
+async function maybeCaptureAfter(
+  actionResult: string,
+  actionOk: boolean,
+): Promise<string | ContentPart[]> {
   if (!actionOk) return actionResult;
   try {
     const cap = await doCapture("som");
@@ -591,8 +708,7 @@ async function handleComputerUse(args: {
   if (!cuaDriverAvailable()) {
     return JSON.stringify({
       error: "cua-driver kurulu değil.",
-      hint:
-        "Kurmak için: /bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.sh)\"",
+      hint: 'Kurmak için: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.sh)"',
     });
   }
 
@@ -620,7 +736,11 @@ async function handleComputerUse(args: {
 
   // Onay sistemi (session auto-approve veya always_allow yoksa)
   // Gelecekte CLI approval callback buraya eklenebilir
-  if (DESTRUCTIVE_ACTIONS.has(action) && !_sessionAutoApprove && !_alwaysAllow.has(action)) {
+  if (
+    DESTRUCTIVE_ACTIONS.has(action) &&
+    !_sessionAutoApprove &&
+    !_alwaysAllow.has(action)
+  ) {
     // Şu an otomatik onay — approval callback entegrasyonu ilerleyen versiyonda
   }
 
@@ -670,30 +790,36 @@ ardından güvenilirlik için element index ile tıkla. macOS zorunlu; cua-drive
       ])
       .describe(
         "Gerçekleştirilecek aksiyon. capture/wait/list_apps ücretsizdir. " +
-          "Diğerleri masaüstü durumunu değiştirir."
+          "Diğerleri masaüstü durumunu değiştirir.",
       ),
     mode: z
       .enum(["som", "vision", "ax"])
       .optional()
       .describe(
         "Capture modu. som (varsayılan): numaralı element overlay'leri + AX ağacı olan ekran görüntüsü. " +
-          "vision: saf ekran görüntüsü. ax: sadece erişilebilirlik ağacı."
+          "vision: saf ekran görüntüsü. ax: sadece erişilebilirlik ağacı.",
       ),
     app: z
       .string()
       .optional()
-      .describe("İsteğe bağlı. Capture/aksiyonu belirli bir uygulamayla sınırla (ör. 'Safari')."),
+      .describe(
+        "İsteğe bağlı. Capture/aksiyonu belirli bir uygulamayla sınırla (ör. 'Safari').",
+      ),
     element: z
       .number()
       .int()
       .optional()
-      .describe("Son capture(mode='som') çağrısından 1-tabanlı SOM index'i. Koordinatlardan daha güvenilir."),
+      .describe(
+        "Son capture(mode='som') çağrısından 1-tabanlı SOM index'i. Koordinatlardan daha güvenilir.",
+      ),
     coordinate: z
       .array(z.number().int())
       .min(2)
       .max(2)
       .optional()
-      .describe("Mantıksal ekran uzayında piksel koordinatları [x, y]. Element index yoksa kullanın."),
+      .describe(
+        "Mantıksal ekran uzayında piksel koordinatları [x, y]. Element index yoksa kullanın.",
+      ),
     button: z
       .enum(["left", "right", "middle"])
       .optional()
@@ -702,8 +828,16 @@ ardından güvenilirlik için element index ile tıkla. macOS zorunlu; cua-drive
       .array(z.enum(["cmd", "shift", "option", "alt", "ctrl", "fn"]))
       .optional()
       .describe("Aksiyon sırasında basılı tutulan değiştirici tuşlar."),
-    from_element: z.number().int().optional().describe("Kaynak element index'i (drag)."),
-    to_element: z.number().int().optional().describe("Hedef element index'i (drag)."),
+    from_element: z
+      .number()
+      .int()
+      .optional()
+      .describe("Kaynak element index'i (drag)."),
+    to_element: z
+      .number()
+      .int()
+      .optional()
+      .describe("Hedef element index'i (drag)."),
     from_coordinate: z
       .array(z.number().int())
       .min(2)
@@ -720,7 +854,11 @@ ardından güvenilirlik için element index ile tıkla. macOS zorunlu; cua-drive
       .enum(["up", "down", "left", "right"])
       .optional()
       .describe("Kaydırma yönü."),
-    amount: z.number().int().optional().describe("Kaydırma miktarı (tik). Varsayılan: 3."),
+    amount: z
+      .number()
+      .int()
+      .optional()
+      .describe("Kaydırma miktarı (tik). Varsayılan: 3."),
     value: z
       .string()
       .optional()
@@ -729,16 +867,25 @@ ardından güvenilirlik için element index ile tıkla. macOS zorunlu; cua-drive
     keys: z
       .string()
       .optional()
-      .describe("Tuş kombinasyonu, ör. 'cmd+s', 'ctrl+alt+t', 'return', 'escape'."),
-    seconds: z.number().optional().describe("Bekleme süresi (saniye). Maks: 30."),
+      .describe(
+        "Tuş kombinasyonu, ör. 'cmd+s', 'ctrl+alt+t', 'return', 'escape'.",
+      ),
+    seconds: z
+      .number()
+      .optional()
+      .describe("Bekleme süresi (saniye). Maks: 30."),
     raise_window: z
       .boolean()
       .optional()
-      .describe("Yalnızca focus_app için. true ise pencereyi öne alır (KULLANICIYI RAHATSIZ EDER). Varsayılan: false."),
+      .describe(
+        "Yalnızca focus_app için. true ise pencereyi öne alır (KULLANICIYI RAHATSIZ EDER). Varsayılan: false.",
+      ),
     capture_after: z
       .boolean()
       .optional()
-      .describe("true ise aksiyon sonrası otomatik capture alır. Aksiyonun etkisini doğrulamak için."),
+      .describe(
+        "true ise aksiyon sonrası otomatik capture alır. Aksiyonun etkisini doğrulamak için.",
+      ),
   }),
   handleComputerUse,
 );

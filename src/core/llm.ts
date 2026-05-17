@@ -22,6 +22,25 @@ export class LLM {
    */
 
   private _validateRequiredVars(modelName: string): void {
+    // ── provider/model_name format (örn: anthropic/claude-sonnet-4-6) ──────
+    // eski kısa prefix'ler (claude-*, gpt-*) hâlâ çalışır.
+    if (modelName.startsWith("anthropic/")) {
+      if (!process.env.ANTHROPIC_API_KEY)
+        throw new Error("MISSING_KEY:ANTHROPIC_API_KEY");
+      return;
+    }
+    if (modelName.startsWith("openai/")) {
+      if (!process.env.OPENAI_API_KEY)
+        throw new Error("MISSING_KEY:OPENAI_API_KEY");
+      return;
+    }
+    if (modelName.startsWith("google/")) {
+      if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY)
+        throw new Error("MISSING_KEY:GOOGLE_GENERATIVE_AI_API_KEY");
+      return;
+    }
+
+    // ── Kısa prefix'ler (geriye dönük uyumluluk) ────────────────────────────
     if (
       modelName.startsWith("gpt-") ||
       modelName.startsWith("o1-") ||
@@ -59,6 +78,31 @@ export class LLM {
    */
 
   private resolveProvider(modelName: string): LanguageModelV1 {
+    // 0. PROVIDER/MODEL_NAME FORMAT (eg. anthropic/claude-sonnet-4-6)
+    // Uzun format kısa prefix'lerden önce kontrol edilir.
+    if (modelName.startsWith("anthropic/")) {
+      if (!process.env.ANTHROPIC_API_KEY)
+        throw new Error("MISSING_KEY:ANTHROPIC_API_KEY");
+      const anthropic = createAnthropic({
+        apiKey: process.env.ANTHROPIC_API_KEY,
+      });
+      return anthropic(modelName.slice("anthropic/".length));
+    }
+    if (modelName.startsWith("openai/")) {
+      if (!process.env.OPENAI_API_KEY)
+        throw new Error("MISSING_KEY:OPENAI_API_KEY");
+      const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      return openai(modelName.slice("openai/".length));
+    }
+    if (modelName.startsWith("google/")) {
+      if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY)
+        throw new Error("MISSING_KEY:GOOGLE_GENERATIVE_AI_API_KEY");
+      const google = createGoogleGenerativeAI({
+        apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+      });
+      return google(modelName.slice("google/".length));
+    }
+
     // 1. OFFICIAL OPENAI KONTROLÜ (gpt-..., o1-..., o3-..., o4-...)
     if (
       modelName.startsWith("gpt-") ||

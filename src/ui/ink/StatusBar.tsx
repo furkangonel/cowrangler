@@ -1,16 +1,16 @@
 /**
- * StatusBar — Ink TUI için istek-bazlı durum çubuğu.
+ * StatusBar — Ink TUI için kalıcı oturum durum çubuğu.
  *
  * Davranış kuralları:
- *   • Sadece agent meşgulken (busy=true) görünür, boştayken gizlenir.
- *   • Sayaç anlık istek süresini gösterir (oturum toplam süresi değil).
- *     İstek başladığında 0:00'dan başlar, istek bitince bileşen kaybolur.
- *
+ *   • Her zaman görünürdür (busy veya idle).
+ *   • BUSY modda: anlık istek süresi sayar (0:00'dan başlar), toplam oturum
+ *     süresi context engine'den alınır.
+ *   • IDLE modda: toplam oturum süresi ve son turdaki süre gösterilir.
  *
  * Genişlik modları (buildStatusBarText ile aynı eşikler):
  *   < 52  →  ◆ model · 0:07
- *   52-76 →  ◆ model · 23% · 0:07
- *   ≥ 76  →  ◆ model │ 45k/200k │ █░░░░ 23% │ 0:07
+ *   52-76 →  ◆ model · 23% · 🗜2 · 0:07
+ *   ≥ 76  →  ◆ model │ 12k/128k │ ██░░░ 9% │ 🗜 2 │ 3:41:05 │ 2.3s
  *
  * Renk kodlaması:
  *   normal   → dim (soluk)
@@ -26,9 +26,9 @@ import { buildStatusBarText } from "../../core/context_engine.js";
 interface StatusBarProps {
   agent: Agent;
   termCols: number;
-  /** Durum çubuğunu göster/gizle. false → null render edilir. */
+  /** Agent şu an çalışıyor mu. Süre gösterimini etkiler. */
   busy: boolean;
-  /** Mevcut isteğin başlangıç epoch ms'i (Date.now()). busy=false'da yok sayılır. */
+  /** Mevcut isteğin başlangıç epoch ms'i (Date.now()). Sadece busy=true'da kullanılır. */
   runStartMs: number;
 }
 
@@ -46,29 +46,30 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   busy,
   runStartMs,
 }) => {
-  // 200 ms'de bir yenile — anlık sayaç için yeterince akıcı,
-  // fazla render yaratmayacak kadar seyrek.
+  // 200 ms'de bir yenile — hem busy hem idle'da oturum sayacını canlı tutar.
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
-    if (!busy) return;
     const id = setInterval(() => setTick((t) => t + 1), 200);
     return () => clearInterval(id);
-  }, [busy]);
+  }, []); // bağımlılık yok — her zaman çalışır
 
-  // Busy değilse hiç render etme
-  if (!busy) return null;
+  const baseSnap = agent.getContextSnapshot();
 
-  // Anlık istek süresi — oturum toplam süresi değil
-  const elapsedMs = Date.now() - runStartMs;
+  let snap: typeof baseSnap;
 
-  // Context snapshot'ını al; sessionDurationMs'i anlık süreyle geçersiz kıl.
-  // lastRoundDurationMs = 0 → geniş modda önceki turdan kalan "2.3s" çıkmaz.
-  const snap = {
-    ...agent.getContextSnapshot(),
-    sessionDurationMs: elapsedMs,
-    lastRoundDurationMs: 0,
-  };
+  if (busy) {
+    // BUSY: anlık istek süresi sayacı (0'dan başlar), son tur süresi gizlenir.
+    const elapsedMs = Date.now() - runStartMs;
+    snap = {
+      ...baseSnap,
+      sessionDurationMs: elapsedMs,
+      lastRoundDurationMs: 0,
+    };
+  } else {
+    // IDLE: gerçek oturum süresi + son tur süresi (varsa).
+    snap = baseSnap;
+  }
 
   const { text, style } = buildStatusBarText(
     snap,

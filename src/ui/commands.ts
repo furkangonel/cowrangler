@@ -251,7 +251,7 @@ export class CommandRouter {
     // ── /model ────────────────────────────────────────────────────────────────
     this.commands.set("/model", {
       description:
-        "Manage models: /model [list|current|add|set] — live switch without restart",
+        "/model → interactive picker  |  /model [list|current|add|set] — live switch without restart",
       execute: (args: string[], ctx: CommandContext) => {
         const action = args[0];
         let globalConfig: any = {};
