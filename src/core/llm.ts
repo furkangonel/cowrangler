@@ -160,6 +160,10 @@ export class LLM {
       const openrouter = createOpenAI({
         apiKey: process.env.OPENROUTER_API_KEY,
         baseURL: "https://openrouter.ai/api/v1",
+        headers: {
+          "HTTP-Referer": "https://cowrangler.com",
+          "X-Title": "Co-Wrangler",
+        },
       }); // "openrouter/" önekini temizle (varsa), direkt model adını kullan
 
       const cleanModelName = modelName.replace("openrouter/", "");

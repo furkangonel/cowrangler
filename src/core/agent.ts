@@ -485,7 +485,14 @@ export class Agent {
         durationMs: durationMs2,
       };
     } catch (error) {
-      getLogger().error("agent", "Chat round failed", error, { model: this.llm.model });
+      const e = error as any;
+      getLogger().error("agent", "Chat round failed", {
+        model: this.llm.model,
+        error: e?.message ?? String(error),
+        status: e?.statusCode ?? e?.status ?? e?.code,
+        responseBody: e?.responseBody ?? e?.data ?? undefined,
+        url: e?.url ?? undefined,
+      });
       this.messages.pop();
       throw error;
     }
