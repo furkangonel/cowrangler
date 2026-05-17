@@ -38,7 +38,12 @@ if (args.includes("--help") || args.includes("-h")) {
       "    cowrangler                     Start the interactive REPL",
       "    cowrangler setup               Interactive provider setup wizard",
       "    cowrangler -p <profile>        Run with a named profile",
-      "    cowrangler gateway start       Start Telegram/Discord gateway",
+      "    cowrangler model               Interactive model picker (arrow keys)",
+    "    cowrangler gateway setup       Configure Telegram/Discord bot (wizard)",
+    "    cowrangler gateway start       Start Telegram/Discord gateway",
+    "    cowrangler mcp browse          MCP marketplace — browse & install servers",
+    "    cowrangler mcp add             Add an MCP server (interactive wizard)",
+    "    cowrangler mcp list            List configured MCP servers",
       "    cowrangler cron list           List scheduled jobs",
       "    cowrangler cron create         Create a scheduled job",
       "    cowrangler cron daemon         Start the cron scheduler daemon",
@@ -149,6 +154,16 @@ if (args[0] === "update") {
   process.exit(0);
 }
 
+// ── cowrangler gateway setup — Telegram/Discord kurulum sihirbazı ────
+if (args[0] === "gateway" && args[1] === "setup") {
+  const { initEnvironment, loadEnvironmentVariables } = await import("./core/init.js");
+  initEnvironment();
+  loadEnvironmentVariables();
+  const { runGatewaySetupWizard } = await import("./cli/gateway_wizard.js");
+  await runGatewaySetupWizard();
+  process.exit(0);
+}
+
 // ── cowrangler gateway start ──────────────────────────────────────────
 if (args[0] === "gateway" && args[1] === "start") {
   const { initEnvironment, loadEnvironmentVariables } = await import("./core/init.js");
@@ -156,6 +171,65 @@ if (args[0] === "gateway" && args[1] === "start") {
   loadEnvironmentVariables();
   const { gatewayMain } = await import("./gateway/run.js");
   await gatewayMain();
+  process.exit(0);
+}
+
+// ── cowrangler mcp add — interaktif MCP sunucu kurulum sihirbazı ─────
+if (args[0] === "mcp" && args[1] === "add") {
+  const { initEnvironment, loadEnvironmentVariables } = await import("./core/init.js");
+  initEnvironment();
+  loadEnvironmentVariables();
+  const { runMcpAddWizard } = await import("./cli/mcp_wizard.js");
+  await runMcpAddWizard();
+  process.exit(0);
+}
+
+// ── cowrangler mcp browse — MCP marketplace ──────────────────────────
+if (args[0] === "mcp" && args[1] === "browse") {
+  const { initEnvironment, loadEnvironmentVariables } = await import("./core/init.js");
+  initEnvironment();
+  loadEnvironmentVariables();
+  const { runMcpBrowse } = await import("./cli/mcp_browse.js");
+  await runMcpBrowse();
+  process.exit(0);
+}
+
+// ── cowrangler mcp list — MCP sunucu listesi ─────────────────────────
+if (args[0] === "mcp" && args[1] === "list") {
+  const { initEnvironment, loadEnvironmentVariables } = await import("./core/init.js");
+  initEnvironment();
+  loadEnvironmentVariables();
+  const { runMcpAddWizard } = await import("./cli/mcp_wizard.js");
+  const yaml = (await import("js-yaml")).default;
+  const fs = (await import("fs")).default;
+  const { DIRS } = await import("./core/init.js");
+  let cfg: any = {};
+  if (fs.existsSync(DIRS.global.config)) {
+    cfg = (yaml.load(fs.readFileSync(DIRS.global.config, "utf-8")) as any) || {};
+  }
+  const servers = cfg.mcp_servers || {};
+  const names = Object.keys(servers);
+  if (names.length === 0) {
+    console.log(chalk.dim("  No MCP servers configured. Run: cowrangler mcp add"));
+  } else {
+    console.log(chalk.bold("\n  Configured MCP Servers\n"));
+    for (const name of names) {
+      const s = servers[name];
+      const transport = s.command ? `stdio  (${s.command})` : s.transport === "sse" ? "SSE" : `HTTP (${s.url})`;
+      console.log(`  ${chalk.hex("#FF4C00").bold("◆")} ${chalk.bold(name.padEnd(20))} ${chalk.dim(transport)}`);
+    }
+    console.log();
+  }
+  process.exit(0);
+}
+
+// ── cowrangler model — interaktif model seçici (standalone) ──────────
+if (args[0] === "model") {
+  const { initEnvironment, loadEnvironmentVariables } = await import("./core/init.js");
+  initEnvironment();
+  loadEnvironmentVariables();
+  const { runModelPicker } = await import("./cli/model_picker_cli.js");
+  await runModelPicker();
   process.exit(0);
 }
 

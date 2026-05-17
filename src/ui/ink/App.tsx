@@ -10,7 +10,13 @@ import { Agent } from "../../core/agent.js";
 import { SkillManager } from "../../core/skills.js";
 import { CommandRouter, CommandContext } from "../commands.js";
 import { UI, Theme } from "../theme.js";
-import { Turn, TraceEntry, CompletionItem, ViewMode, SpinnerMode } from "./types.js";
+import {
+  Turn,
+  TraceEntry,
+  CompletionItem,
+  ViewMode,
+  SpinnerMode,
+} from "./types.js";
 import {
   buildStaticPool,
   detectMode,
@@ -25,7 +31,10 @@ import { AgentTurn } from "./AgentTurn.js";
 import { ActiveSpinner, TraceLine } from "./Trace.js";
 import { ShortcutOverlay } from "./ShortcutOverlay.js";
 import { StatusBar } from "./StatusBar.js";
+import { ModelPicker } from "./ModelPicker.js";
 import { DIRS } from "../../core/init.js";
+import { LLM } from "../../core/llm.js";
+import yaml from "js-yaml";
 
 interface AppProps {
   agent: Agent;
@@ -87,6 +96,9 @@ export const App: React.FC<AppProps> = ({ agent }) => {
   // ── Shortcut overlay ────────────────────────────────────────────────────
   const [showShortcuts, setShowShortcuts] = useState<boolean>(false);
 
+  // ── Model picker overlay ─────────────────────────────────────────────────
+  const [modelPickerOpen, setModelPickerOpen] = useState<boolean>(false);
+
   // ── Terminal width — resize-safe separator rendering ────────────────────
   // We track columns in React state so the Separator re-renders with the
   // correct width. On resize we also flush \x1b[J (erase-to-end-of-screen)
@@ -103,7 +115,9 @@ export const App: React.FC<AppProps> = ({ agent }) => {
       setTermCols(process.stdout.columns ?? 80);
     };
     process.stdout.on("resize", onResize);
-    return () => { process.stdout.off("resize", onResize); };
+    return () => {
+      process.stdout.off("resize", onResize);
+    };
   }, []);
 
   // ── View mode — CLI_CONVERSATION.md 3 katmanlı görünüm sistemi ──────────
@@ -124,7 +138,7 @@ export const App: React.FC<AppProps> = ({ agent }) => {
   const [stepCount, setStepCount] = useState<number>(0);
   const [activeTodoItem, setActiveTodoItem] = useState<string | null>(null); // current pending TODO
   const stepStartRef = useRef<number>(0);
-  const runStartRef = useRef<number>(0);   // wall-clock start of the whole run
+  const runStartRef = useRef<number>(0); // wall-clock start of the whole run
   const busyRef = useRef<boolean>(false); // synchronous mirror for input gating
 
   // ── Derived: completion mode + visible menu items ───────────────────────
@@ -308,6 +322,38 @@ export const App: React.FC<AppProps> = ({ agent }) => {
    */
   const runCommand = useCallback(
     async (text: string) => {
+      // ── /model (argüman yok) → Model Picker overlay'i aç ─────────────────
+      if (text.trim() === "/model") {
+        setModelPickerOpen(true);
+        return;
+      }
+
+      // ── /skill-adı → Skill içeriğini kullanıcı mesajı olarak enjekte et ──
+      // içeriği sistem promptuna değil, kullanıcı mesajına enjekte edilir.
+      const slashArg = text.trim().slice(1).split(/\s+/)[0]; // "/git-workflow extra" → "git-workflow"
+      if (slashArg && !router.getCommandNames().includes("/" + slashArg)) {
+        const skills = skillManager.getAvailableSkills();
+        const matchedSkill = skills.find((s) => s.id === slashArg);
+        if (matchedSkill) {
+          // Skill içeriğini oku ve kullanıcı mesajı olarak enjekte et
+          try {
+            const content = skillManager.readSkill(matchedSkill.id);
+            // Orijinal mesajdan skill adından sonra gelen argümanları al
+            const extraArgs = text
+              .trim()
+              .slice(1 + slashArg.length)
+              .trim();
+            const injected = extraArgs
+              ? `${content}\n\n---\nKullanıcı notu: ${extraArgs}`
+              : content;
+            await runAgent(injected);
+            return;
+          } catch {
+            // readSkill başarısız → normal komut akışına düş
+          }
+        }
+      }
+
       busyRef.current = true;
       setBusy(true);
 
@@ -364,6 +410,9 @@ export const App: React.FC<AppProps> = ({ agent }) => {
 
   // ── Keyboard handling ───────────────────────────────────────────────────
   useInput((char, key) => {
+    // Model picker açıkken ana input'u engelle — picker kendi useInput'unu yönetir.
+    if (modelPickerOpen) return;
+
     // Ctrl-C: graceful exit. Ink restores the terminal automatically.
     if (key.ctrl && char === "c") {
       exit();
@@ -386,10 +435,15 @@ export const App: React.FC<AppProps> = ({ agent }) => {
     // brief → default → transcript → brief (CLI_CONVERSATION.md)
     if (key.ctrl && char === "o") {
       setViewMode((prev) => {
-        const next = prev === "brief" ? "default" : prev === "default" ? "transcript" : "brief";
+        const next =
+          prev === "brief"
+            ? "default"
+            : prev === "default"
+              ? "transcript"
+              : "brief";
         const labels: Record<ViewMode, string> = {
-          brief:      "Brief  —  agent messages only",
-          default:    "Default  —  balanced view",
+          brief: "Brief  —  agent messages only",
+          default: "Default  —  balanced view",
           transcript: "Transcript  —  all tool calls",
         };
         // Transient toast: clear any pending timer then show the new label
@@ -636,16 +690,20 @@ export const App: React.FC<AppProps> = ({ agent }) => {
                   .slice(-3)
                   .map((entry, i) => <TraceLine key={i} entry={entry} />)
               : viewMode === "transcript"
-              ? // Transcript: tool + narrative entries (boş satırlar filtrelenir)
-                liveTrace
-                  .filter((e) => e.kind !== "narrative" || (e.kind === "narrative" && e.text.trim().length > 0))
-                  .slice(-8)
-                  .map((entry, i) => <TraceLine key={i} entry={entry} />)
-              : // Default: son 4 tool call
-                liveTrace
-                  .filter((e) => e.kind === "tool")
-                  .slice(-4)
-                  .map((entry, i) => <TraceLine key={i} entry={entry} />)}
+                ? // Transcript: tool + narrative entries (boş satırlar filtrelenir)
+                  liveTrace
+                    .filter(
+                      (e) =>
+                        e.kind !== "narrative" ||
+                        (e.kind === "narrative" && e.text.trim().length > 0),
+                    )
+                    .slice(-8)
+                    .map((entry, i) => <TraceLine key={i} entry={entry} />)
+                : // Default: son 4 tool call
+                  liveTrace
+                    .filter((e) => e.kind === "tool")
+                    .slice(-4)
+                    .map((entry, i) => <TraceLine key={i} entry={entry} />)}
 
             {/* ── Active TODO item — shows current task being worked on ── */}
             {activeTodoItem && (
@@ -671,9 +729,7 @@ export const App: React.FC<AppProps> = ({ agent }) => {
         {/* ── Transient view-mode toast (Ctrl+O feedback, no scrollback pollution) ── */}
         {viewModeToast && (
           <Box paddingLeft={2} marginTop={0}>
-            <Text color="#5CA4D4">
-              {"◈ "}
-            </Text>
+            <Text color="#5CA4D4">{"◈ "}</Text>
             <Text color="#5CA4D4">{viewModeToast}</Text>
             <Text dimColor>{"  [Ctrl+O]"}</Text>
           </Box>
@@ -683,7 +739,9 @@ export const App: React.FC<AppProps> = ({ agent }) => {
         {!viewModeToast && viewMode !== "default" && (
           <Box paddingLeft={2} marginTop={0}>
             <Text dimColor>
-              {viewMode === "brief" ? "◈ brief mode  [Ctrl+O]" : "◈ transcript mode  [Ctrl+O]"}
+              {viewMode === "brief"
+                ? "◈ brief mode  [Ctrl+O]"
+                : "◈ transcript mode  [Ctrl+O]"}
             </Text>
           </Box>
         )}
@@ -702,13 +760,60 @@ export const App: React.FC<AppProps> = ({ agent }) => {
             <PromptHint />
           ) : null)}
 
-        {/* ── Status bar: sadece busy'de görünür, anlık istek süresi sayar ── */}
+        {/* ── Status bar: her zaman görünür, oturum toplam süresi sayar ── */}
         <StatusBar
           agent={agent}
           termCols={termCols}
           busy={busy}
           runStartMs={runStartRef.current}
         />
+
+        {/* ── Model picker overlay ── */}
+        {modelPickerOpen && (
+          <Box marginTop={1}>
+            <ModelPicker
+              currentModel={agent.llm.model}
+              termCols={termCols}
+              onSelect={(newModel) => {
+                setModelPickerOpen(false);
+                // Modeli hot-swap ile değiştir
+                try {
+                  const newLlm = new LLM(newModel, 0.7);
+                  agent.setModel(newLlm);
+                  // Global config'e kaydet
+                  let cfg: any = {};
+                  if (fs.existsSync(DIRS.global.config)) {
+                    cfg =
+                      (yaml.load(
+                        fs.readFileSync(DIRS.global.config, "utf-8"),
+                      ) as any) || {};
+                  }
+                  cfg.model = newModel;
+                  if (!Array.isArray(cfg.saved_models)) cfg.saved_models = [];
+                  if (!cfg.saved_models.includes(newModel))
+                    cfg.saved_models.push(newModel);
+                  fs.writeFileSync(DIRS.global.config, yaml.dump(cfg));
+                  commitTurn({
+                    id: `t-${Date.now()}`,
+                    userInput: `/model set ${newModel}`,
+                    trace: [],
+                    isCommand: true,
+                    reply: `✓ Model değiştirildi → **${newModel}**`,
+                  });
+                } catch (e: any) {
+                  commitTurn({
+                    id: `t-${Date.now()}`,
+                    userInput: `/model set ${newModel}`,
+                    trace: [],
+                    isCommand: true,
+                    error: e?.message ?? String(e),
+                  });
+                }
+              }}
+              onCancel={() => setModelPickerOpen(false)}
+            />
+          </Box>
+        )}
       </Box>
     </>
   );
