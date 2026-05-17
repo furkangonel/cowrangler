@@ -1,16 +1,16 @@
 /**
  * MCP Browse — cowrangler mcp browse
  *
- * Küratörlüğü yapılmış MCP server'larını interaktif terminal arayüzünde
- * listeler. Kullanıcı seçim yaptığında sunucu otomatik olarak
- * yapılandırılır ve ~/.cowrangler/config.yaml'a kaydedilir.
+ * Lists curated MCP servers in an interactive terminal UI.
+ * When the user selects a server, it is automatically configured
+ * and saved to ~/.cowrangler/config.yaml.
  *
- * Kontroller:
- *   ↑ / ↓       — listede gezin
- *   ← / →       — kategori geç
- *   Enter / i   — seçili server'ı kur
- *   /           — arama moduna gir
- *   q / Esc     — çık
+ * Controls:
+ *   ↑ / ↓       — navigate list
+ *   ← / →       — switch category
+ *   Enter / i   — install selected server
+ *   /           — enter search mode
+ *   q / Esc     — quit
  */
 
 import readline from "readline";
@@ -21,68 +21,68 @@ import chalk from "chalk";
 import { DIRS } from "../core/init.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Marketplace Verisi
+// Marketplace Data
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface McpServerEntry {
-  id: string;           // config.yaml'daki anahtar adı
-  name: string;         // Gösterim adı
+  id: string;           // key name in config.yaml
+  name: string;         // display name
   category: Category;
-  description: string;  // Kısa açıklama (liste satırı)
-  details: string;      // Uzun açıklama (detay paneli)
-  tools: string[];      // Sunucunun sunduğu araçlar
-  package?: string;     // npm paketi (npx ile kurulur)
-  command?: string;     // Özel komut (package yoksa)
-  args?: string[];      // Komut argümanları ({{PLACEHOLDER}} şablonları desteklenir)
-  envVars?: Array<{     // Gerekli ortam değişkenleri
+  description: string;  // short description (list row)
+  details: string;      // long description (detail panel)
+  tools: string[];      // tools provided by the server
+  package?: string;     // npm package (installed via npx)
+  command?: string;     // custom command (if no package)
+  args?: string[];      // command arguments ({{PLACEHOLDER}} templates supported)
+  envVars?: Array<{     // required environment variables
     key: string;
     label: string;
     required: boolean;
     example?: string;
   }>;
-  configArgs?: Array<{  // Kullanıcıdan alınacak ek argümanlar (dizin yolu vb.)
+  configArgs?: Array<{  // additional arguments collected from the user (directory path, etc.)
     key: string;
     label: string;
     default?: string;
     required: boolean;
   }>;
-  stars?: string;       // Popülerlik göstergesi (★★★★☆ gibi)
-  official?: boolean;   // Anthropic/MCP resmi paketi mi?
+  stars?: string;       // popularity indicator (e.g. ★★★★☆)
+  official?: boolean;   // official Anthropic/MCP package?
 }
 
 type Category =
-  | "🗂  Dosya & Depolama"
-  | "🔍  Arama & Web"
-  | "💻  Geliştirme"
-  | "🗄  Veritabanları"
-  | "💬  İletişim"
-  | "🧠  AI & Bellek"
-  | "📝  Üretkenlik";
+  | "🗂  Files & Storage"
+  | "🔍  Search & Web"
+  | "💻  Development"
+  | "🗄  Databases"
+  | "💬  Messaging"
+  | "🧠  AI & Memory"
+  | "📝  Productivity";
 
 const CATEGORIES: Category[] = [
-  "🗂  Dosya & Depolama",
-  "🔍  Arama & Web",
-  "💻  Geliştirme",
-  "🗄  Veritabanları",
-  "💬  İletişim",
-  "🧠  AI & Bellek",
-  "📝  Üretkenlik",
+  "🗂  Files & Storage",
+  "🔍  Search & Web",
+  "💻  Development",
+  "🗄  Databases",
+  "💬  Messaging",
+  "🧠  AI & Memory",
+  "📝  Productivity",
 ];
 
 const REGISTRY: McpServerEntry[] = [
-  // ── 🗂 Dosya & Depolama ────────────────────────────────────────────────────
+  // ── 🗂 Files & Storage ────────────────────────────────────────────────────
   {
     id: "filesystem",
     name: "Filesystem",
-    category: "🗂  Dosya & Depolama",
-    description: "Yerel dosya sistemi okuma, yazma, arama",
+    category: "🗂  Files & Storage",
+    description: "Read, write, and search the local file system",
     details:
-      "Dosyaları okur, yazar, listeler ve arar. Belirtilen dizinlere erişimi kısıtlayarak güvenli çalışır. Herhangi bir dizini erişilebilir kılabilirsin.",
+      "Reads, writes, lists, and searches files. Works securely by restricting access to specified directories. You can make any directory accessible.",
     tools: ["read_file", "write_file", "list_directory", "search_files", "get_file_info"],
     package: "@modelcontextprotocol/server-filesystem",
     args: ["{{ALLOWED_DIR}}"],
     configArgs: [
-      { key: "ALLOWED_DIR", label: "Erişim izni verilecek dizin", default: process.env.HOME + "/Documents", required: true },
+      { key: "ALLOWED_DIR", label: "Directory to grant access to", default: process.env.HOME + "/Documents", required: true },
     ],
     stars: "★★★★★",
     official: true,
@@ -90,10 +90,10 @@ const REGISTRY: McpServerEntry[] = [
   {
     id: "google-drive",
     name: "Google Drive",
-    category: "🗂  Dosya & Depolama",
-    description: "Google Drive'daki dosyaları oku ve arama yap",
+    category: "🗂  Files & Storage",
+    description: "Read and search files in Google Drive",
     details:
-      "Google Drive'daki dokümanları okur, listeler ve içlerinde arama yapar. Google OAuth2 kimlik doğrulaması gerektirir.",
+      "Reads, lists, and searches documents in Google Drive. Requires Google OAuth2 authentication.",
     tools: ["search_drive", "read_file", "list_files"],
     package: "@modelcontextprotocol/server-google-drive",
     envVars: [
@@ -106,10 +106,10 @@ const REGISTRY: McpServerEntry[] = [
   {
     id: "s3",
     name: "AWS S3",
-    category: "🗂  Dosya & Depolama",
-    description: "S3 bucket'larında dosya oku/yaz/listele",
+    category: "🗂  Files & Storage",
+    description: "Read, write, and list files in S3 buckets",
     details:
-      "Amazon S3 bucket'larına erişir. Dosya okuma, yazma, listeleme ve silme işlemleri yapar. AWS kimlik bilgileri gerektirir.",
+      "Accesses Amazon S3 buckets. Reads, writes, lists, and deletes files. Requires AWS credentials.",
     tools: ["s3_get_object", "s3_put_object", "s3_list_objects", "s3_delete_object"],
     package: "mcp-server-aws-s3",
     envVars: [
@@ -120,14 +120,14 @@ const REGISTRY: McpServerEntry[] = [
     stars: "★★★☆☆",
   },
 
-  // ── 🔍 Arama & Web ─────────────────────────────────────────────────────────
+  // ── 🔍 Search & Web ─────────────────────────────────────────────────────────
   {
     id: "brave-search",
     name: "Brave Search",
-    category: "🔍  Arama & Web",
-    description: "Brave arama motoru ile web ve haber araması",
+    category: "🔍  Search & Web",
+    description: "Web and news search via the Brave search engine",
     details:
-      "Brave Search API'yi kullanarak web araması, haber araması ve yerel yer araması yapar. Reklamsız ve gizlilik odaklı.",
+      "Performs web search, news search, and local place search using the Brave Search API. Ad-free and privacy-focused.",
     tools: ["brave_web_search", "brave_news_search", "brave_local_search"],
     package: "@modelcontextprotocol/server-brave-search",
     envVars: [
@@ -139,10 +139,10 @@ const REGISTRY: McpServerEntry[] = [
   {
     id: "fetch",
     name: "Fetch",
-    category: "🔍  Arama & Web",
-    description: "Web sayfası içeriklerini çek ve dönüştür",
+    category: "🔍  Search & Web",
+    description: "Fetch web page content and convert to Markdown",
     details:
-      "Herhangi bir URL'yi çeker ve içeriğini Markdown'a dönüştürür. JavaScript gerektiren sayfalar için Playwright kullabilir.",
+      "Fetches any URL and converts its content to Markdown. Can use Playwright for JavaScript-heavy pages.",
     tools: ["fetch_url", "fetch_markdown"],
     package: "@modelcontextprotocol/server-fetch",
     stars: "★★★★★",
@@ -151,10 +151,10 @@ const REGISTRY: McpServerEntry[] = [
   {
     id: "puppeteer",
     name: "Puppeteer",
-    category: "🔍  Arama & Web",
-    description: "Tarayıcı otomasyonu — tıkla, doldur, ekran görüntüsü al",
+    category: "🔍  Search & Web",
+    description: "Browser automation — click, fill forms, take screenshots",
     details:
-      "Headless Chrome üzerinden tam tarayıcı otomasyonu sağlar. Form doldurma, tıklama, screenshot alma ve JavaScript çalıştırma destekler.",
+      "Provides full browser automation via headless Chrome. Supports form filling, clicking, taking screenshots, and running JavaScript.",
     tools: ["puppeteer_navigate", "puppeteer_click", "puppeteer_type", "puppeteer_screenshot", "puppeteer_evaluate"],
     package: "@modelcontextprotocol/server-puppeteer",
     stars: "★★★★☆",
@@ -163,10 +163,10 @@ const REGISTRY: McpServerEntry[] = [
   {
     id: "perplexity",
     name: "Perplexity",
-    category: "🔍  Arama & Web",
-    description: "Perplexity AI ile kaynaklı web araması",
+    category: "🔍  Search & Web",
+    description: "Cited web search powered by Perplexity AI",
     details:
-      "Perplexity AI API'si üzerinden alıntılı, kaynaklı web araması yapar. Güncel bilgilere erişmek için idealdir.",
+      "Performs cited, sourced web searches via the Perplexity AI API. Ideal for accessing up-to-date information.",
     tools: ["perplexity_search", "perplexity_ask"],
     package: "mcp-perplexity",
     envVars: [
@@ -175,14 +175,14 @@ const REGISTRY: McpServerEntry[] = [
     stars: "★★★★☆",
   },
 
-  // ── 💻 Geliştirme ──────────────────────────────────────────────────────────
+  // ── 💻 Development ──────────────────────────────────────────────────────────
   {
     id: "github",
     name: "GitHub",
-    category: "💻  Geliştirme",
-    description: "GitHub repo, PR, issue ve gist yönetimi",
+    category: "💻  Development",
+    description: "GitHub repo, PR, issue, and gist management",
     details:
-      "GitHub API'si üzerinden repo okuma/yazma, PR oluşturma/inceleme, issue yönetimi, kod arama ve gist işlemleri yapar.",
+      "Reads/writes repos, creates/reviews PRs, manages issues, searches code, and handles gists via the GitHub API.",
     tools: ["create_or_update_file", "search_repositories", "create_repository", "get_file_contents", "push_files", "create_issue", "create_pull_request", "search_code"],
     package: "@modelcontextprotocol/server-github",
     envVars: [
@@ -194,15 +194,15 @@ const REGISTRY: McpServerEntry[] = [
   {
     id: "gitlab",
     name: "GitLab",
-    category: "💻  Geliştirme",
-    description: "GitLab repo, MR, pipeline ve issue yönetimi",
+    category: "💻  Development",
+    description: "GitLab repo, MR, pipeline, and issue management",
     details:
-      "GitLab API'si üzerinden proje yönetimi, merge request, pipeline ve CI/CD işlemleri yapar.",
+      "Manages projects, merge requests, pipelines, and CI/CD operations via the GitLab API.",
     tools: ["get_project", "list_merge_requests", "create_merge_request", "get_pipeline", "create_issue"],
     package: "@modelcontextprotocol/server-gitlab",
     envVars: [
       { key: "GITLAB_PERSONAL_ACCESS_TOKEN", label: "GitLab Personal Access Token", required: true, example: "glpat-..." },
-      { key: "GITLAB_API_URL", label: "GitLab API URL (self-hosted için)", required: false, example: "https://gitlab.example.com/api/v4" },
+      { key: "GITLAB_API_URL", label: "GitLab API URL (for self-hosted)", required: false, example: "https://gitlab.example.com/api/v4" },
     ],
     stars: "★★★★☆",
     official: true,
@@ -210,10 +210,10 @@ const REGISTRY: McpServerEntry[] = [
   {
     id: "linear",
     name: "Linear",
-    category: "💻  Geliştirme",
-    description: "Linear'daki issue, proje ve sprint yönetimi",
+    category: "💻  Development",
+    description: "Issue, project, and sprint management in Linear",
     details:
-      "Linear'daki issue okuma/yazma, sprint planlama, proje durumu sorgulama ve yorum ekleme işlemleri yapar.",
+      "Reads/writes issues, plans sprints, queries project status, and adds comments in Linear.",
     tools: ["linear_get_issues", "linear_create_issue", "linear_update_issue", "linear_list_projects"],
     package: "mcp-linear",
     envVars: [
@@ -224,32 +224,32 @@ const REGISTRY: McpServerEntry[] = [
   {
     id: "jira",
     name: "Jira",
-    category: "💻  Geliştirme",
-    description: "Jira ticket, sprint ve proje yönetimi",
+    category: "💻  Development",
+    description: "Jira ticket, sprint, and project management",
     details:
-      "Atlassian Jira API'si üzerinden ticket oluşturma, güncelleme, sprint yönetimi ve proje durumu takibi yapar.",
+      "Creates and updates tickets, manages sprints, and tracks project status via the Atlassian Jira API.",
     tools: ["jira_get_issue", "jira_create_issue", "jira_update_issue", "jira_search_issues"],
     package: "mcp-jira",
     envVars: [
       { key: "JIRA_HOST", label: "Jira Host URL", required: true, example: "https://your-org.atlassian.net" },
-      { key: "JIRA_EMAIL", label: "Jira hesap e-postası", required: true },
+      { key: "JIRA_EMAIL", label: "Jira account email", required: true },
       { key: "JIRA_API_TOKEN", label: "Jira API Token", required: true },
     ],
     stars: "★★★☆☆",
   },
 
-  // ── 🗄 Veritabanları ───────────────────────────────────────────────────────
+  // ── 🗄 Databases ───────────────────────────────────────────────────────────
   {
     id: "sqlite",
     name: "SQLite",
-    category: "🗄  Veritabanları",
-    description: "SQLite veritabanında sorgu çalıştır",
+    category: "🗄  Databases",
+    description: "Run queries against a SQLite database",
     details:
-      "Yerel SQLite dosyalarında SELECT, INSERT, UPDATE, DELETE sorguları çalıştırır. Tablo şeması ve istatistiklerini gösterir.",
+      "Runs SELECT, INSERT, UPDATE, DELETE queries against local SQLite files. Shows table schemas and statistics.",
     tools: ["read_query", "write_query", "create_table", "list_tables", "describe_table"],
     package: "@modelcontextprotocol/server-sqlite",
     configArgs: [
-      { key: "DB_PATH", label: "SQLite veritabanı dosya yolu", default: "./db.sqlite", required: true },
+      { key: "DB_PATH", label: "SQLite database file path", default: "./db.sqlite", required: true },
     ],
     args: ["--db-path", "{{DB_PATH}}"],
     stars: "★★★★★",
@@ -258,14 +258,14 @@ const REGISTRY: McpServerEntry[] = [
   {
     id: "postgres",
     name: "PostgreSQL",
-    category: "🗄  Veritabanları",
-    description: "PostgreSQL veritabanında sorgu çalıştır",
+    category: "🗄  Databases",
+    description: "Run queries against a PostgreSQL database",
     details:
-      "PostgreSQL veritabanına bağlanır, tablo listesi ve şema bilgisi alır, güvenli read-only sorgular çalıştırır.",
+      "Connects to a PostgreSQL database, retrieves table lists and schema info, and runs safe read-only queries.",
     tools: ["query", "list_tables", "describe_table"],
     package: "@modelcontextprotocol/server-postgres",
     envVars: [
-      { key: "POSTGRES_CONNECTION_STRING", label: "PostgreSQL bağlantı dizesi", required: true, example: "postgresql://user:pass@localhost/dbname" },
+      { key: "POSTGRES_CONNECTION_STRING", label: "PostgreSQL connection string", required: true, example: "postgresql://user:pass@localhost/dbname" },
     ],
     stars: "★★★★★",
     official: true,
@@ -273,29 +273,29 @@ const REGISTRY: McpServerEntry[] = [
   {
     id: "mysql",
     name: "MySQL / MariaDB",
-    category: "🗄  Veritabanları",
-    description: "MySQL veritabanında sorgu çalıştır",
+    category: "🗄  Databases",
+    description: "Run queries against a MySQL database",
     details:
-      "MySQL veya MariaDB veritabanına bağlanır ve sorgu çalıştırır. Read-only modda güvenli çalışır.",
+      "Connects to a MySQL or MariaDB database and runs queries. Works safely in read-only mode.",
     tools: ["query", "list_tables", "describe_table"],
     package: "mcp-server-mysql",
     envVars: [
       { key: "MYSQL_HOST", label: "MySQL Host", required: true, example: "localhost" },
-      { key: "MYSQL_USER", label: "MySQL Kullanıcı Adı", required: true },
-      { key: "MYSQL_PASSWORD", label: "MySQL Şifresi", required: true },
-      { key: "MYSQL_DATABASE", label: "Veritabanı Adı", required: true },
+      { key: "MYSQL_USER", label: "MySQL Username", required: true },
+      { key: "MYSQL_PASSWORD", label: "MySQL Password", required: true },
+      { key: "MYSQL_DATABASE", label: "Database Name", required: true },
     ],
     stars: "★★★☆☆",
   },
 
-  // ── 💬 İletişim ────────────────────────────────────────────────────────────
+  // ── 💬 Messaging ────────────────────────────────────────────────────────────
   {
     id: "slack",
     name: "Slack",
-    category: "💬  İletişim",
-    description: "Slack mesajları gönder, oku ve kanal yönet",
+    category: "💬  Messaging",
+    description: "Send, read, and manage Slack messages and channels",
     details:
-      "Slack workspace'ine bağlanır. Mesaj gönderme/okuma, kanal listeleme, kullanıcı bilgisi ve dosya paylaşımı yapar.",
+      "Connects to a Slack workspace. Sends/reads messages, lists channels, retrieves user info, and shares files.",
     tools: ["slack_post_message", "slack_get_channel_history", "slack_list_channels", "slack_get_users"],
     package: "@modelcontextprotocol/server-slack",
     envVars: [
@@ -308,10 +308,10 @@ const REGISTRY: McpServerEntry[] = [
   {
     id: "gmail",
     name: "Gmail",
-    category: "💬  İletişim",
-    description: "Gmail üzerinden e-posta oku ve gönder",
+    category: "💬  Messaging",
+    description: "Read and send emails via Gmail",
     details:
-      "Gmail API'si üzerinden e-posta okuma, gönderme, arama ve etiket yönetimi yapar. OAuth2 kimlik doğrulaması gerektirir.",
+      "Reads, sends, searches emails, and manages labels via the Gmail API. Requires OAuth2 authentication.",
     tools: ["gmail_search", "gmail_read", "gmail_send", "gmail_reply", "gmail_list_labels"],
     package: "mcp-gmail",
     envVars: [
@@ -321,14 +321,14 @@ const REGISTRY: McpServerEntry[] = [
     stars: "★★★★☆",
   },
 
-  // ── 🧠 AI & Bellek ─────────────────────────────────────────────────────────
+  // ── 🧠 AI & Memory ─────────────────────────────────────────────────────────
   {
     id: "memory",
-    name: "Memory (Bilgi Grafiği)",
-    category: "🧠  AI & Bellek",
-    description: "Kalıcı bilgi grafiği — varlık ve ilişki yönetimi",
+    name: "Memory (Knowledge Graph)",
+    category: "🧠  AI & Memory",
+    description: "Persistent knowledge graph — entity and relation management",
     details:
-      "Oturumlar arası kalıcı bellek sağlar. Varlık (entity), ilişki (relation) ve gözlem (observation) tabanlı bilgi grafiği kullanır. Kullanıcı tercihlerini ve projesini hatırlar.",
+      "Provides persistent memory across sessions. Uses an entity, relation, and observation-based knowledge graph. Remembers user preferences and project context.",
     tools: ["create_entities", "create_relations", "add_observations", "search_nodes", "open_nodes"],
     package: "@modelcontextprotocol/server-memory",
     stars: "★★★★★",
@@ -337,10 +337,10 @@ const REGISTRY: McpServerEntry[] = [
   {
     id: "sequential-thinking",
     name: "Sequential Thinking",
-    category: "🧠  AI & Bellek",
-    description: "Adım adım yapılandırılmış düşünme aracı",
+    category: "🧠  AI & Memory",
+    description: "Structured step-by-step reasoning tool",
     details:
-      "Karmaşık problemleri yapılandırılmış düşünme adımlarına böler. Revizyona ve dallanmaya izin verir. Zor görevlerde düşünme kalitesini artırır.",
+      "Breaks complex problems into structured thinking steps. Allows revision and branching. Improves reasoning quality on difficult tasks.",
     tools: ["sequentialthinking"],
     package: "@modelcontextprotocol/server-sequential-thinking",
     stars: "★★★★★",
@@ -349,27 +349,27 @@ const REGISTRY: McpServerEntry[] = [
   {
     id: "obsidian",
     name: "Obsidian",
-    category: "🧠  AI & Bellek",
-    description: "Obsidian vault notlarını oku ve yaz",
+    category: "🧠  AI & Memory",
+    description: "Read and write notes in your Obsidian vault",
     details:
-      "Obsidian not deposuna erişir. Not okuma, yazma, arama ve bağlantı takibi yapar. Kişisel bilgi tabanıyla entegrasyon için idealdir.",
+      "Accesses an Obsidian vault. Reads, writes, searches notes, and tracks backlinks. Ideal for integrating with a personal knowledge base.",
     tools: ["read_note", "write_note", "search_notes", "list_notes", "get_backlinks"],
     package: "mcp-obsidian",
     configArgs: [
-      { key: "VAULT_PATH", label: "Obsidian vault dizin yolu", required: true },
+      { key: "VAULT_PATH", label: "Obsidian vault directory path", required: true },
     ],
     args: ["{{VAULT_PATH}}"],
     stars: "★★★★☆",
   },
 
-  // ── 📝 Üretkenlik ──────────────────────────────────────────────────────────
+  // ── 📝 Productivity ──────────────────────────────────────────────────────────
   {
     id: "notion",
     name: "Notion",
-    category: "📝  Üretkenlik",
-    description: "Notion sayfaları, veritabanları ve blokları yönet",
+    category: "📝  Productivity",
+    description: "Manage Notion pages, databases, and blocks",
     details:
-      "Notion API'si üzerinden sayfa okuma/yazma, veritabanı sorgulama, blok ekleme ve arama işlemleri yapar.",
+      "Reads/writes pages, queries databases, adds blocks, and searches via the Notion API.",
     tools: ["notion_get_page", "notion_create_page", "notion_update_page", "notion_query_database", "notion_search"],
     package: "mcp-notion-server",
     envVars: [
@@ -380,10 +380,10 @@ const REGISTRY: McpServerEntry[] = [
   {
     id: "google-calendar",
     name: "Google Calendar",
-    category: "📝  Üretkenlik",
-    description: "Takvim etkinliklerini oku, oluştur ve güncelle",
+    category: "📝  Productivity",
+    description: "Read, create, and update calendar events",
     details:
-      "Google Calendar API'si üzerinden etkinlik okuma, oluşturma, güncelleme ve silme işlemleri yapar. Birden fazla takvim desteklenir.",
+      "Reads, creates, updates, and deletes events via the Google Calendar API. Multiple calendars are supported.",
     tools: ["list_events", "create_event", "update_event", "delete_event", "list_calendars"],
     package: "mcp-google-calendar",
     envVars: [
@@ -395,10 +395,10 @@ const REGISTRY: McpServerEntry[] = [
   {
     id: "todoist",
     name: "Todoist",
-    category: "📝  Üretkenlik",
-    description: "Todoist görev ve proje yönetimi",
+    category: "📝  Productivity",
+    description: "Todoist task and project management",
     details:
-      "Todoist API'si üzerinden görev oluşturma, tamamlama, proje ve etiket yönetimi yapar.",
+      "Creates and completes tasks, and manages projects and labels via the Todoist API.",
     tools: ["get_tasks", "create_task", "complete_task", "get_projects"],
     package: "mcp-todoist",
     envVars: [
@@ -409,7 +409,7 @@ const REGISTRY: McpServerEntry[] = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Config Yardımcıları
+// Config Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
 function loadConfig(): any {
@@ -432,7 +432,7 @@ function isInstalled(serverId: string): boolean {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Terminal Boyutu
+// Terminal Size
 // ─────────────────────────────────────────────────────────────────────────────
 
 function termSize(): { cols: number; rows: number } {
@@ -468,12 +468,12 @@ function renderScreen(
   const { cols, rows } = termSize();
   const { selectedCategory, selectedIndex, scrollOffset } = state;
 
-  // Ekranı temizle
+  // Clear screen
   process.stdout.write("\x1b[2J\x1b[H");
 
   const lines: string[] = [];
 
-  // ── Başlık ──────────────────────────────────────────────────────────────
+  // ── Title ───────────────────────────────────────────────────────────────
   const title = " ◆ Co-Wrangler MCP Marketplace ";
   const titlePad = Math.max(0, Math.floor((cols - title.length) / 2));
   lines.push(
@@ -481,10 +481,10 @@ function renderScreen(
   );
   lines.push(chalk.dim("─".repeat(cols)));
 
-  // ── Kategori sekmeleri ───────────────────────────────────────────────────
+  // ── Category tabs ────────────────────────────────────────────────────────
   const tabLine = CATEGORIES.map((cat, i) => {
     const isActive = !searchMode && i === selectedCategory;
-    const short = cat.split("  ")[0]; // sadece emoji + boşluk
+    const short = cat.split("  ")[0]; // emoji + space only
     const label = ` ${short} `;
     return isActive
       ? chalk.hex(ACCENT).bold(`[${label}]`)
@@ -493,11 +493,11 @@ function renderScreen(
   lines.push(" " + tabLine);
   lines.push(chalk.dim("─".repeat(cols)));
 
-  // ── İçerik alanı: sol liste + sağ detay ─────────────────────────────────
+  // ── Content area: left list + right detail ───────────────────────────────
   const LIST_W = Math.floor(cols * 0.4);
   const DETAIL_W = cols - LIST_W - 3;
 
-  // Gösterilecek server'lar
+  // Servers to display
   const displayList = searchMode
     ? REGISTRY.filter(
         (s) =>
@@ -509,7 +509,7 @@ function renderScreen(
 
   const selected = displayList[selectedIndex];
 
-  // Sol: liste satırları
+  // Left: list rows
   const VISIBLE_ROWS = rows - 10;
   const windowStart = Math.max(
     0,
@@ -517,16 +517,16 @@ function renderScreen(
   );
   const visibleItems = displayList.slice(windowStart, windowStart + VISIBLE_ROWS);
 
-  // Sağ: detay satırları
+  // Right: detail rows
   const detailLines: string[] = [];
   if (selected) {
     const installed = isInstalled(selected.id);
 
-    detailLines.push(chalk.hex(ACCENT).bold(`  ${selected.name}`) + (selected.official ? chalk.hex("#34C759")(" ✦ resmi") : "") + (installed ? chalk.hex("#34C759")("  ✓ kurulu") : ""));
+    detailLines.push(chalk.hex(ACCENT).bold(`  ${selected.name}`) + (selected.official ? chalk.hex("#34C759")(" ✦ official") : "") + (installed ? chalk.hex("#34C759")("  ✓ installed") : ""));
     detailLines.push(chalk.dim("  " + "─".repeat(DETAIL_W - 4)));
     detailLines.push("");
 
-    // Açıklama
+    // Description
     const descWords = selected.details.split(" ");
     let line = "  ";
     for (const word of descWords) {
@@ -545,9 +545,9 @@ function renderScreen(
       detailLines.push(`  ${chalk.yellow(selected.stars)}`);
     }
 
-    // Araçlar
+    // Tools
     detailLines.push("");
-    detailLines.push(chalk.bold("  Araçlar:"));
+    detailLines.push(chalk.bold("  Tools:"));
     const toolChunks: string[] = [];
     let toolLine = "  ";
     for (const tool of selected.tools) {
@@ -565,36 +565,36 @@ function renderScreen(
     // Env vars
     if (selected.envVars && selected.envVars.length > 0) {
       detailLines.push("");
-      detailLines.push(chalk.bold("  Gerekli env değişkenleri:"));
+      detailLines.push(chalk.bold("  Required env variables:"));
       for (const ev of selected.envVars) {
         const req = ev.required ? chalk.red(" *") : chalk.dim(" ?");
-        const example = ev.example ? chalk.dim(`  (örn: ${ev.example})`) : "";
+        const example = ev.example ? chalk.dim(`  (e.g. ${ev.example})`) : "";
         const hasKey = !!process.env[ev.key];
         const keyIcon = hasKey ? chalk.green("✓") : chalk.dim("○");
         detailLines.push(`  ${keyIcon} ${chalk.bold(ev.key)}${req}  ${chalk.dim(ev.label)}${example}`);
       }
     }
 
-    // Paket
+    // Package
     if (selected.package) {
       detailLines.push("");
-      detailLines.push(chalk.bold("  Paket:"));
+      detailLines.push(chalk.bold("  Package:"));
       detailLines.push(`  ${chalk.dim("npx -y")} ${chalk.cyan(selected.package)}`);
     }
 
     detailLines.push("");
     detailLines.push(chalk.dim("─".repeat(DETAIL_W - 2)));
     if (installed) {
-      detailLines.push(chalk.hex("#34C759")("  ✓ Zaten yapılandırılmış"));
-      detailLines.push(chalk.dim("  Tekrar kurmak için Enter'a bas"));
+      detailLines.push(chalk.hex("#34C759")("  ✓ Already configured"));
+      detailLines.push(chalk.dim("  Press Enter to reconfigure"));
     } else {
-      detailLines.push(chalk.hex(ACCENT).bold("  Enter / i  →  Kur ve yapılandır"));
+      detailLines.push(chalk.hex(ACCENT).bold("  Enter / i  →  Install & configure"));
     }
   } else {
-    detailLines.push(chalk.dim("  Bir sunucu seç"));
+    detailLines.push(chalk.dim("  Select a server"));
   }
 
-  // Satırları yan yana birleştir
+  // Merge rows side-by-side
   const maxRows = Math.max(visibleItems.length, detailLines.length, VISIBLE_ROWS);
 
   for (let i = 0; i < maxRows; i++) {
@@ -624,28 +624,28 @@ function renderScreen(
     lines.push(leftPadded + sep + " " + rightStr);
   }
 
-  // ── Alt bar ──────────────────────────────────────────────────────────────
+  // ── Bottom bar ───────────────────────────────────────────────────────────
   lines.push(chalk.dim("─".repeat(cols)));
 
   if (searchMode) {
     lines.push(
-      chalk.cyan("  🔍 Arama: ") +
+      chalk.cyan("  🔍 Search: ") +
       chalk.white(searchQuery) +
       chalk.hex(ACCENT)("█") +
-      chalk.dim("   Esc → normal mod"),
+      chalk.dim("   Esc → normal mode"),
     );
   } else {
     const count = displayList.length;
     const installed = REGISTRY.filter((s) => isInstalled(s.id)).length;
     lines.push(
-      chalk.dim("  ↑↓ gez  ·  ←→ kategori  ·  ") +
+      chalk.dim("  ↑↓ navigate  ·  ←→ category  ·  ") +
       chalk.hex(ACCENT).bold("Enter") +
-      chalk.dim(" kur  ·  ") +
+      chalk.dim(" install  ·  ") +
       chalk.hex(ACCENT).bold("/") +
-      chalk.dim(" ara  ·  ") +
+      chalk.dim(" search  ·  ") +
       chalk.hex(ACCENT).bold("q") +
-      chalk.dim(" çık") +
-      chalk.dim(`   ${count} server · ${installed} kurulu`),
+      chalk.dim(" quit") +
+      chalk.dim(`   ${count} servers · ${installed} installed`),
     );
   }
 
@@ -653,11 +653,11 @@ function renderScreen(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Kurulum Akışı
+// Install Flow
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function installServer(server: McpServerEntry): Promise<void> {
-  // Raw mod'dan çık
+  // Exit raw mode
   process.stdin.setRawMode(false);
   process.stdin.pause();
   process.stdout.write("\x1b[2J\x1b[H");
@@ -670,50 +670,50 @@ async function installServer(server: McpServerEntry): Promise<void> {
       rl.question(prompt, (a) => resolve(a.trim() || def || ""));
     });
 
-  console.log(chalk.hex(ACCENT).bold(`\n  ◆ ${server.name} Kurulumu\n`));
-  if (server.official) console.log(chalk.hex("#34C759")("  ✦ Resmi Anthropic/MCP paketi\n"));
+  console.log(chalk.hex(ACCENT).bold(`\n  ◆ Install ${server.name}\n`));
+  if (server.official) console.log(chalk.hex("#34C759")("  ✦ Official Anthropic/MCP package\n"));
   console.log(chalk.dim(`  ${server.description}\n`));
 
   const envValues: Record<string, string> = {};
   const argValues: Record<string, string> = {};
 
-  // Env var'ları topla
+  // Collect env vars
   if (server.envVars && server.envVars.length > 0) {
-    console.log(chalk.bold("  API Anahtarları ve Ortam Değişkenleri:\n"));
+    console.log(chalk.bold("  API Keys & Environment Variables:\n"));
     for (const ev of server.envVars) {
       const existing = process.env[ev.key];
       if (existing) {
-        console.log(chalk.green(`  ✓ ${ev.key} zaten mevcut`));
+        console.log(chalk.green(`  ✓ ${ev.key} already set`));
         envValues[ev.key] = existing;
         continue;
       }
-      const hint = ev.example ? chalk.dim(` (örn: ${ev.example})`) : "";
-      const req = ev.required ? chalk.red(" *zorunlu") : chalk.dim(" (opsiyonel)");
+      const hint = ev.example ? chalk.dim(` (e.g. ${ev.example})`) : "";
+      const req = ev.required ? chalk.red(" *required") : chalk.dim(" (optional)");
       console.log(`  ${chalk.bold(ev.key)}${req}${hint}`);
       console.log(chalk.dim(`  ${ev.label}`));
-      const val = await ask("  Değer");
+      const val = await ask("  Value");
       if (val) envValues[ev.key] = val;
       console.log();
     }
   }
 
-  // Ek argümanları topla
+  // Collect config args
   if (server.configArgs && server.configArgs.length > 0) {
-    console.log(chalk.bold("  Yapılandırma Parametreleri:\n"));
+    console.log(chalk.bold("  Configuration Parameters:\n"));
     for (const ca of server.configArgs) {
       console.log(chalk.dim(`  ${ca.label}:`));
-      const val = await ask("  Değer", ca.default);
+      const val = await ask("  Value", ca.default);
       argValues[ca.key] = val;
       console.log();
     }
   }
 
-  // Args'taki şablonları doldur
+  // Fill in template placeholders in args
   const resolvedArgs = (server.args || []).map((arg) =>
     arg.replace(/\{\{(\w+)\}\}/g, (_, key) => argValues[key] || arg),
   );
 
-  // Config nesnesi oluştur
+  // Build config object
   const serverConfig: any = {};
   if (server.package) {
     serverConfig.command = "npx";
@@ -727,8 +727,8 @@ async function installServer(server: McpServerEntry): Promise<void> {
   }
   serverConfig.timeout = 120;
 
-  // Bağlantı testi (opsiyonel — package yüklemesi gerekebilir)
-  console.log(chalk.cyan("  Bağlantı testi yapılıyor..."));
+  // Connection test (optional — package may need to be downloaded first)
+  console.log(chalk.cyan("  Testing connection..."));
   let testOk = false;
   try {
     const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
@@ -745,19 +745,19 @@ async function installServer(server: McpServerEntry): Promise<void> {
       await Promise.race([connectPromise, timeout]);
       const toolsList = await client.listTools();
       await client.close();
-      console.log(chalk.green(`  ✓ Bağlantı başarılı — ${toolsList.tools.length} araç bulundu`));
+      console.log(chalk.green(`  ✓ Connection successful — ${toolsList.tools.length} tools found`));
       testOk = true;
     }
   } catch {
-    console.log(chalk.yellow("  ⚠ Bağlantı testi başarısız (paket henüz indirilmemiş olabilir, ilk çalıştırmada indirilecek)"));
+    console.log(chalk.yellow("  ⚠ Connection test failed (package may not be downloaded yet — it will be fetched on first run)"));
   }
 
-  // Config'e kaydet
+  // Save to config
   const cfg = loadConfig();
   if (!cfg.mcp_servers) cfg.mcp_servers = {};
   cfg.mcp_servers[server.id] = serverConfig;
 
-  // Env var'ları credentials.env'e de yaz
+  // Also write env vars to credentials.env
   if (Object.keys(envValues).length > 0) {
     const credPath = DIRS.global.credentials;
     let existing = "";
@@ -770,19 +770,19 @@ async function installServer(server: McpServerEntry): Promise<void> {
     }
     if (newLines.length > 0) {
       fs.appendFileSync(credPath, "\n" + newLines.join("\n") + "\n");
-      console.log(chalk.green(`  ✓ API anahtarları ~/.cowrangler/credentials.env'e eklendi`));
+      console.log(chalk.green(`  ✓ API keys added to ~/.cowrangler/credentials.env`));
     }
   }
 
   saveConfig(cfg);
 
-  console.log(chalk.green(`\n  ✓ '${server.name}' başarıyla yapılandırıldı!\n`));
-  console.log(chalk.dim("  Bir sonraki cowrangler oturumunda otomatik olarak bağlanır."));
-  console.log(chalk.dim("  Durum kontrolü: /mcp (oturum içi)\n"));
+  console.log(chalk.green(`\n  ✓ '${server.name}' configured successfully!\n`));
+  console.log(chalk.dim("  It will connect automatically on the next cowrangler session."));
+  console.log(chalk.dim("  Check status: /mcp (inside a session)\n"));
 
   rl.close();
 
-  // Raw moda geri dön — browse'a devam et
+  // Return to raw mode — continue browsing
   process.stdin.setRawMode(true);
   process.stdin.resume();
 
@@ -790,7 +790,7 @@ async function installServer(server: McpServerEntry): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// State ve Ana Döngü
+// State & Main Loop
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface BrowseState {
@@ -801,7 +801,7 @@ interface BrowseState {
 
 export async function runMcpBrowse(): Promise<void> {
   if (!process.stdin.isTTY) {
-    console.error(chalk.red("\n  ✗ Bu komut interaktif terminal gerektirir.\n"));
+    console.error(chalk.red("\n  ✗ This command requires an interactive terminal.\n"));
     return;
   }
 
@@ -827,7 +827,7 @@ export async function runMcpBrowse(): Promise<void> {
 
   return new Promise((resolve) => {
     const handleKey = async (str: string, key: any) => {
-      // Çıkış
+      // Quit
       if ((!searchMode && (str === "q" || str === "Q")) || (key.ctrl && key.name === "c")) {
         process.stdin.removeListener("keypress", handleKey);
         process.stdin.setRawMode(false);
@@ -839,9 +839,9 @@ export async function runMcpBrowse(): Promise<void> {
 
       if (!searchMode) {
         if (key.name === "escape") {
-          // Zaten normal mod
+          // Already in normal mode
         } else if (str === "/") {
-          // Arama moduna gir
+          // Enter search mode
           searchMode = true;
           searchQuery = "";
           state.selectedIndex = 0;
@@ -872,14 +872,14 @@ export async function runMcpBrowse(): Promise<void> {
           if (server) {
             process.stdin.removeListener("keypress", handleKey);
             await installServer(server);
-            // Geri ekle
+            // Re-attach listener
             process.stdin.on("keypress", handleKey);
             renderScreen(state, searchMode, searchQuery);
           }
           return;
         }
       } else {
-        // Arama modu
+        // Search mode
         if (key.name === "escape") {
           searchMode = false;
           searchQuery = "";
@@ -887,7 +887,7 @@ export async function runMcpBrowse(): Promise<void> {
           renderScreen(state, searchMode, searchQuery);
           return;
         } else if (key.name === "return") {
-          // Arama modundan çık, seçiyi kur
+          // Exit search mode and install selection
           const list = currentList();
           const server = list[state.selectedIndex];
           if (server) {
@@ -923,7 +923,7 @@ export async function runMcpBrowse(): Promise<void> {
 
     process.stdin.on("keypress", handleKey);
 
-    // Resize desteği
+    // Resize support
     process.stdout.on("resize", () => {
       renderScreen(state, searchMode, searchQuery);
     });
