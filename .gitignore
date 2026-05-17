@@ -17,16 +17,31 @@ build/
 credentials.env
 .npmrc
 
+CLAUDE.md
+PROGRESS.md
+
 # 4. Co-Wrangler runtime files
 # These are machine-local and session-specific.
 # .cowrangler/skills/ is intentionally NOT ignored — project skills
 # are worth tracking so the whole team benefits from them.
+# .cowrangler/agents/ is intentionally NOT ignored — custom agent definitions are worth tracking.
 .cowrangler/*
 !.cowrangler/agents
+!.cowrangler/agents/**
 !.cowrangler/skills
+!.cowrangler/skills/**
 
+# SQLite databases (sessions, kanban, cron) — never commit
+*.db
+*.db-shm
+*.db-wal
 
+# REPL history (may contain sensitive prompts)
+.cowrangler_history
+*.repl_history
 
+# Audit log (can contain user prompt data)
+audit.log
 
 # 5. OS & editor artifacts
 .DS_Store
@@ -46,3 +61,15 @@ yarn-error.log*
 # package-lock.json is intentionally tracked (CLI app — reproducible installs matter).
 yarn.lock
 pnpm-lock.yaml
+
+# 8. Test / coverage output
+coverage/
+.nyc_output/
+
+# 9. macOS extended attributes
+.AppleDouble
+.LSOverride
+
+# 10. Trajectories (can contain full session transcripts)
+trajectories/
+*.trajectory.json

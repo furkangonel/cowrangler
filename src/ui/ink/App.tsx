@@ -24,6 +24,7 @@ import { CompletionMenu } from "./CompletionMenu.js";
 import { AgentTurn } from "./AgentTurn.js";
 import { ActiveSpinner, TraceLine } from "./Trace.js";
 import { ShortcutOverlay } from "./ShortcutOverlay.js";
+import { StatusBar } from "./StatusBar.js";
 import { DIRS } from "../../core/init.js";
 
 interface AppProps {
@@ -121,7 +122,6 @@ export const App: React.FC<AppProps> = ({ agent }) => {
   const [spinnerMode, setSpinnerMode] = useState<SpinnerMode>("thinking");
   const [liveTrace, setLiveTrace] = useState<TraceEntry[]>([]);
   const [stepCount, setStepCount] = useState<number>(0);
-  const [streamingText, setStreamingText] = useState<string>(""); // live token stream
   const [activeTodoItem, setActiveTodoItem] = useState<string | null>(null); // current pending TODO
   const stepStartRef = useRef<number>(0);
   const runStartRef = useRef<number>(0);   // wall-clock start of the whole run
@@ -217,7 +217,6 @@ export const App: React.FC<AppProps> = ({ agent }) => {
       setSpinnerLabel("Thinking...");
       setSpinnerMode("thinking");
       setLiveTrace([]);
-      setStreamingText("");
       setStepCount(0);
       agent.briefBuffer.clear();
       runStartRef.current = Date.now();
@@ -232,9 +231,6 @@ export const App: React.FC<AppProps> = ({ agent }) => {
           (toolName, args) => {
             toolCallCount++;
             const elapsed = Date.now() - stepStartRef.current;
-
-            // Reset streaming text on each tool call — model is done talking
-            setStreamingText("");
 
             if (toolName === "send_message" && args?.message) {
               const briefEntry: TraceEntry = {
@@ -272,15 +268,8 @@ export const App: React.FC<AppProps> = ({ agent }) => {
             setSpinnerMode("thinking");
             stepStartRef.current = Date.now();
           },
-          // onToken (streaming final reply token by token)
-          (token) => {
-            setStreamingText((prev) => prev + token);
-            setSpinnerLabel("Writing...");
-            setSpinnerMode("waiting");
-          },
         );
 
-        setStreamingText(""); // clear before committing
         const rendered = await UI.renderMarkdown(reply);
         commitTurn({
           id: `t-${Date.now()}`,
@@ -293,7 +282,6 @@ export const App: React.FC<AppProps> = ({ agent }) => {
           viewMode,
         });
       } catch (e: any) {
-        setStreamingText("");
         commitTurn({
           id: `t-${Date.now()}`,
           userInput,
@@ -660,30 +648,20 @@ export const App: React.FC<AppProps> = ({ agent }) => {
                   .map((entry, i) => <TraceLine key={i} entry={entry} />)}
 
             {/* ── Active TODO item — shows current task being worked on ── */}
-            {activeTodoItem && !streamingText && (
+            {activeTodoItem && (
               <Box paddingLeft={2} marginTop={0}>
                 <Text dimColor>{"  ◎ "}</Text>
                 <Text color="#FF9500">{activeTodoItem}</Text>
               </Box>
             )}
 
-            {/* ── Streaming reply — live token output ── */}
-            {streamingText ? (
-              <Box marginTop={1} flexDirection="row" paddingLeft={2}>
-                <Text dimColor>{"⎿  "}</Text>
-                <Box flexShrink={1} flexGrow={1}>
-                  <Text>{streamingText}</Text>
-                </Box>
-              </Box>
-            ) : (
-              <ActiveSpinner
-                label={spinnerLabel}
-                stepCount={stepCount}
-                mode={spinnerMode}
-                startTime={runStartRef.current}
-                verbose={viewMode === "transcript"}
-              />
-            )}
+            <ActiveSpinner
+              label={spinnerLabel}
+              stepCount={stepCount}
+              mode={spinnerMode}
+              startTime={runStartRef.current}
+              verbose={viewMode === "transcript"}
+            />
           </Box>
         ) : (
           <Prompt value={input} cursor={cursor} active={!busy} />
@@ -723,6 +701,14 @@ export const App: React.FC<AppProps> = ({ agent }) => {
           ) : input === "" && !viewModeToast ? (
             <PromptHint />
           ) : null)}
+
+        {/* ── Status bar: sadece busy'de görünür, anlık istek süresi sayar ── */}
+        <StatusBar
+          agent={agent}
+          termCols={termCols}
+          busy={busy}
+          runStartMs={runStartRef.current}
+        />
       </Box>
     </>
   );

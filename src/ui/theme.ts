@@ -11,7 +11,7 @@ import { getConfig } from "../core/init.js";
 
 marked.use(markedTerminal() as unknown as any);
 
-const VERSION = "1.1.2";
+const VERSION = "2.0.0";
 
 // ── Color Palettes ────────────────────────────────────────────────────────────
 const palettes = {

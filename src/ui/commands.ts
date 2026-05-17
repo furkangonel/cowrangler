@@ -17,6 +17,10 @@ import { missingKeyHint, showSetupGuide } from "./setup.js";
 import { SUB_AGENTS } from "../core/subagents.js";
 import { getSandboxConfig, configureSandbox } from "../core/sandbox.js";
 import { PermissionMode } from "../core/permissions.js";
+import {
+  getCredentialPool,
+  reloadCredentialPool,
+} from "../core/credential_pool.js";
 
 export interface CommandContext {
   agent: Agent;
@@ -127,7 +131,7 @@ export class CommandRouter {
     this.commands.set("/version", {
       description: "Show Co-Wrangler version.",
       execute: () => {
-        UI.info("Co-Wrangler v1.1.2");
+        UI.info("Co-Wrangler v2.0.0");
       },
     });
 
@@ -338,6 +342,81 @@ export class CommandRouter {
       execute: (args: string[], ctx: CommandContext) => {
         const action = args[0];
 
+        // ── /key pool — credential pool yönetimi ─────────────────────────
+        if (action === "pool") {
+          const subAction = args[1]; // list | add | remove | reload
+
+          if (!subAction || subAction === "list") {
+            const pool = getCredentialPool();
+            const statuses = pool.getStatus();
+            if (statuses.length === 0) {
+              return UI.info(
+                "No credential pools configured.\n" +
+                  "Add pool keys with: /key pool add <provider> <key>",
+              );
+            }
+            const lines: string[] = [];
+            for (const s of statuses) {
+              const providerLine = `${Theme.accent.bold(s.provider.padEnd(14))} ${Theme.dim(`${s.total} key(s)`)} — ${Theme.success(`${s.healthy} healthy`)}${s.rateLimited > 0 ? Theme.fail(`, ${s.rateLimited} rate-limited`) : ""}`;
+              lines.push(providerLine);
+              for (const k of s.keys) {
+                const now = Date.now();
+                const statusIcon =
+                  k.status === "healthy"
+                    ? Theme.success("●")
+                    : k.status === "rate_limited"
+                      ? Theme.fail("●")
+                      : Theme.main("●");
+                const cooldownStr =
+                  k.rateLimitedUntil && k.rateLimitedUntil > now
+                    ? Theme.dim(
+                        ` (ready in ${Math.ceil((k.rateLimitedUntil - now) / 1000)}s)`,
+                      )
+                    : "";
+                const usageStr = Theme.dim(`uses:${k.useCount} errs:${k.errorCount}`);
+                lines.push(
+                  `  ${statusIcon} ${Theme.main(k.masked.padEnd(28))} ${usageStr}${cooldownStr}`,
+                );
+              }
+            }
+            return UI.box(lines.join("\n"), "Credential Pool");
+          }
+
+          if (subAction === "add" && args[2] && args[3]) {
+            const provider = args[2].toLowerCase();
+            const key = args[3];
+            const pool = getCredentialPool();
+            pool.addKey(provider, key);
+            return UI.success(
+              `Key added to pool for ${Theme.accent.bold(provider)} (${pool.keyCount(provider)} total).`,
+            );
+          }
+
+          if (subAction === "remove" && args[2] && args[3]) {
+            const provider = args[2].toLowerCase();
+            const key = args[3];
+            const pool = getCredentialPool();
+            const removed = pool.removeKey(provider, key);
+            if (removed) {
+              return UI.success(`Key removed from ${Theme.accent.bold(provider)} pool.`);
+            }
+            return UI.warn(`Key not found in ${provider} pool.`);
+          }
+
+          if (subAction === "reload") {
+            reloadCredentialPool();
+            return UI.success("Credential pool reloaded from environment.");
+          }
+
+          return UI.error(
+            "Usage:\n" +
+              "  /key pool                       ← list all pool keys\n" +
+              "  /key pool add <provider> <key>  ← add key to pool\n" +
+              "  /key pool remove <provider> <key>\n" +
+              "  /key pool reload                ← reload from ENV",
+          );
+        }
+
         if (action === "list") {
           if (!fs.existsSync(DIRS.global.credentials))
             return UI.warn(
@@ -449,7 +528,8 @@ export class CommandRouter {
             "  /key list\n" +
             "  /key set <KEY_NAME> <value>\n" +
             "  /key set VERTEX          ← Vertex AI setup guide\n" +
-            "  /key delete <KEY_NAME>",
+            "  /key delete <KEY_NAME>\n" +
+            "  /key pool                ← manage credential pool (multi-key rotation)",
         );
       },
     });
@@ -886,6 +966,389 @@ After writing, reply: "✓ COWRNGLR.md written. Agent context is now active."
         fs.writeFileSync(cfgPath, yaml.dump(cfg), "utf-8");
 
         UI.success(`Permission mode: ${Theme.accent.bold(requested)}`);
+      },
+    });
+
+    // ── /sessions ─────────────────────────────────────────────────────────────
+    this.commands.set("/sessions", {
+      description: "List recent conversation sessions from the session database.",
+      execute: async (args: string[], ctx: CommandContext) => {
+        try {
+          const { getSessionDB } = await import("../core/session_db.js");
+          const db = getSessionDB();
+          const limit = args[0] ? parseInt(args[0]) : 10;
+          const sessions = db.listSessions({ limit });
+          if (!sessions.length) return UI.info("No sessions recorded yet.");
+
+          const lines = [`  ${Theme.dim(`${sessions.length} most recent sessions`)}\n`];
+          for (const s of sessions) {
+            const date = new Date(s.started_at).toLocaleString();
+            const tokens = s.input_tokens + s.output_tokens;
+            const title = s.title ?? "(untitled)";
+            const model = s.model.split("/").pop() ?? s.model;
+            lines.push(
+              `  ${Theme.accent(s.id.slice(0, 8))}  ${Theme.dim(date)}`,
+            );
+            lines.push(
+              `    ${Theme.success(model.padEnd(24))} ${Theme.dim(`${tokens.toLocaleString()} tokens · ${s.message_count} msgs`)}`,
+            );
+            lines.push(`    ${Theme.dim(title)}\n`);
+          }
+          UI.box(lines.join("\n"), "Session History");
+        } catch (e: any) {
+          UI.error(`Session DB error: ${e.message}`);
+        }
+      },
+    });
+
+    // ── /search ───────────────────────────────────────────────────────────────
+    this.commands.set("/search", {
+      description: "Full-text search across all session history. /search <query>",
+      execute: async (args: string[], ctx: CommandContext) => {
+        const query = args.join(" ").trim();
+        if (!query) return UI.warn("Usage: /search <query>");
+
+        try {
+          const { getSessionDB } = await import("../core/session_db.js");
+          const db = getSessionDB();
+          const results = db.searchSessions(query, { limit: 15 });
+
+          if (!results.length) {
+            return UI.info(`No results found for: "${query}"`);
+          }
+
+          const lines = [`  ${Theme.dim(`${results.length} results for "${query}"`)}\n`];
+          for (const r of results) {
+            const date = new Date(r.timestamp).toLocaleString();
+            const sessionInfo = r.session_title ?? r.session_id.slice(0, 8);
+            lines.push(
+              `  ${Theme.accent(`[${r.role}]`)} ${Theme.dim(date)} — ${Theme.main(sessionInfo)}`,
+            );
+            lines.push(`    ${Theme.dim(r.content_snippet.replace(/\n/g, " ").slice(0, 100))}\n`);
+          }
+          UI.box(lines.join("\n"), "Search Results");
+        } catch (e: any) {
+          UI.error(`Search error: ${e.message}`);
+        }
+      },
+    });
+
+    // ── /usage ────────────────────────────────────────────────────────────────
+    this.commands.set("/usage", {
+      description: "Show current session's token and cost summary.",
+      execute: async (args: string[], ctx: CommandContext) => {
+        try {
+          const { getInsightsEngine } = await import("../core/insights.js");
+          const { estimateCost } = await import("../core/model_metadata.js");
+          const engine = getInsightsEngine();
+          const snap = ctx.agent.getContextSnapshot();
+
+          const costUsd = estimateCost(
+            ctx.agent.llm.model,
+            snap.sessionInputTokens,
+            snap.sessionOutputTokens,
+          );
+
+          const summary = {
+            sessionId: ctx.agent.currentSessionId ?? "current",
+            model: ctx.agent.llm.model,
+            inputTokens: snap.sessionInputTokens,
+            outputTokens: snap.sessionOutputTokens,
+            totalTokens: snap.sessionTotalTokens,
+            toolCallCount: 0,
+            estimatedCostUsd: costUsd,
+            durationMs: snap.sessionDurationMs,
+            compressionCount: snap.compressionCount,
+          };
+
+          console.log("\n" + engine.formatUsageSummary(summary));
+        } catch (e: any) {
+          UI.error(`Usage error: ${e.message}`);
+        }
+      },
+    });
+
+    // ── /insights ─────────────────────────────────────────────────────────────
+    this.commands.set("/insights", {
+      description: "Show usage analytics dashboard. /insights [days]",
+      execute: async (args: string[], ctx: CommandContext) => {
+        try {
+          const { getInsightsEngine } = await import("../core/insights.js");
+          const engine = getInsightsEngine();
+          const days = args[0] ? parseInt(args[0]) : 7;
+          const dashboard = engine.getDashboard(days);
+          console.log("\n" + engine.formatDashboard(dashboard));
+        } catch (e: any) {
+          UI.error(`Insights error: ${e.message}`);
+        }
+      },
+    });
+
+    // ── /plugins ──────────────────────────────────────────────────────────────
+    this.commands.set("/plugins", {
+      description: "List loaded plugins and their status.",
+      execute: async () => {
+        try {
+          const { getPluginManager } = await import("../core/plugins.js");
+          const pm = getPluginManager();
+          const plugins = pm.getPlugins();
+
+          if (!plugins.length) {
+            return UI.info(
+              `No plugins loaded. Add to ~/.cowrangler/plugins/ or .cowrangler/plugins/\n  ${Theme.dim(pm.summary())}`,
+            );
+          }
+
+          const lines = [`  ${Theme.dim(pm.summary())}\n`];
+          for (const p of plugins) {
+            const icon = p.active ? Theme.success("✓") : Theme.fail("✗");
+            lines.push(
+              `  ${icon} ${Theme.accent.bold(p.name.padEnd(20))} ${Theme.dim(`[${p.source}]`)}`,
+            );
+            if (p.error) lines.push(`    ${Theme.fail(p.error)}`);
+          }
+          UI.box(lines.join("\n"), "Plugins");
+        } catch (e: any) {
+          UI.error(`Plugin error: ${e.message}`);
+        }
+      },
+    });
+
+    // ── /mcp ──────────────────────────────────────────────────────────────────
+    this.commands.set("/mcp", {
+      description: "List connected MCP servers and their tools.",
+      execute: async () => {
+        try {
+          const { getMCPManager } = await import("../core/mcp_client.js");
+          const manager = getMCPManager();
+          const statuses = manager.getStatuses();
+
+          if (!statuses.length) {
+            return UI.info(
+              "No MCP servers configured.\n  Add mcp_servers to ~/.cowrangler/config.yaml",
+            );
+          }
+
+          const lines = [`  ${Theme.dim(manager.summary())}\n`];
+          for (const s of statuses) {
+            const icon = s.connected ? Theme.success("✓") : Theme.fail("✗");
+            lines.push(
+              `  ${icon} ${Theme.accent.bold(s.name.padEnd(20))} ${Theme.dim(`[${s.type}]`)} ${Theme.main(`${s.toolCount} tools`)}`,
+            );
+            if (s.error) lines.push(`    ${Theme.fail(s.error)}`);
+          }
+          UI.box(lines.join("\n"), "MCP Servers");
+        } catch (e: any) {
+          UI.error(`MCP error: ${e.message}`);
+        }
+      },
+    });
+
+    // ── /curator ──────────────────────────────────────────────────────────────
+    this.commands.set("/curator", {
+      description: "Skill lifecycle management. /curator [status|archive <id>|restore <id>|pin <id>]",
+      execute: async (args: string[], ctx: CommandContext) => {
+        try {
+          const { getCurator } = await import("../core/curator.js");
+          const curator = getCurator();
+          const action = args[0]?.toLowerCase() ?? "status";
+
+          if (action === "status") {
+            const report = curator.getStatus();
+            const lines = [
+              `  ${Theme.dim("Active:   ")} ${Theme.accent(String(report.active_count))}`,
+              `  ${Theme.dim("Pinned:   ")} ${Theme.main(String(report.pinned_count))}`,
+              `  ${Theme.dim("Archived: ")} ${Theme.dim(String(report.archived_count))}`,
+            ];
+            if (report.stale_candidates.length > 0) {
+              lines.push(
+                `\n  ${Theme.main("Stale candidates (agent-created, rarely used):")}`,
+              );
+              report.stale_candidates.forEach((id) =>
+                lines.push(`    ${Theme.dim("• ")}${Theme.accent(id)}`),
+              );
+              lines.push(
+                `\n  ${Theme.dim("Run ")}${Theme.accent("/curator archive <id>")}${Theme.dim(" to archive.")}`,
+              );
+            }
+            UI.box(lines.join("\n"), "Skill Curator");
+
+          } else if (action === "archive" && args[1]) {
+            const ok = curator.archiveSkill(args[1]);
+            ok ? UI.success(`Archived skill: ${args[1]}`) : UI.error(`Skill '${args[1]}' not found`);
+
+          } else if (action === "restore" && args[1]) {
+            const ok = curator.restoreSkill(args[1]);
+            ok ? UI.success(`Restored skill: ${args[1]}`) : UI.error(`Skill '${args[1]}' not found in archive`);
+
+          } else if (action === "pin" && args[1]) {
+            curator.pinSkill(args[1]);
+            UI.success(`Pinned skill: ${args[1]} (exempt from auto-archiving)`);
+
+          } else if (action === "unpin" && args[1]) {
+            curator.unpinSkill(args[1]);
+            UI.success(`Unpinned skill: ${args[1]}`);
+
+          } else {
+            UI.info("Usage: /curator [status|archive <id>|restore <id>|pin <id>|unpin <id>]");
+          }
+        } catch (e: any) {
+          UI.error(`Curator error: ${e.message}`);
+        }
+      },
+    });
+
+    // ── /profile ──────────────────────────────────────────────────────────────
+    this.commands.set("/profile", {
+      description: "Show active profile. cowrangler -p <name> to switch.",
+      execute: async () => {
+        const { getActiveProfile, listProfiles } = await import("../core/profile.js");
+        const active = getActiveProfile();
+        const profiles = listProfiles();
+
+        const lines = [
+          `  ${Theme.dim("Active: ")} ${active ? Theme.accent.bold(active) : Theme.dim("(default)")}`,
+          ``,
+          `  ${Theme.dim(`${profiles.length} profile(s) available:`)}`,
+        ];
+        for (const p of profiles) {
+          const marker = p.name === active ? Theme.success("▶") : Theme.dim("•");
+          lines.push(`  ${marker} ${Theme.accent(p.name)} ${Theme.dim(`model: ${p.model ?? "default"}`)}`);
+        }
+        if (!profiles.length) {
+          lines.push(`  ${Theme.dim("None. Use: cowrangler profile create <name>")}`);
+        }
+        lines.push(
+          `\n  ${Theme.dim("Switch with: ")}${Theme.accent("cowrangler -p <name>")}`,
+        );
+        UI.box(lines.join("\n"), "Profiles");
+      },
+    });
+
+    // ── /skin ─────────────────────────────────────────────────────────────────
+    this.commands.set("/skin", {
+      description: "Switch visual skin. /skin [name] — list or apply. Built-in: default, mono, slate, matrix",
+      execute: async (args: string[]) => {
+        const { loadSkin, listSkins, getActiveSkinName, getActiveSkin } = await import("../core/skin.js");
+
+        const name = args[0];
+
+        // Listeleme modu
+        if (!name) {
+          const active = getActiveSkinName();
+          const all = listSkins();
+          const skin = getActiveSkin();
+          const lines = [
+            `  ${Theme.dim("Active: ")} ${Theme.accent.bold(active)} ${Theme.dim(skin.description ? `— ${skin.description}` : "")}`,
+            ``,
+            `  ${Theme.dim("Available skins:")}`,
+          ];
+          for (const s of all) {
+            const marker = s === active ? Theme.success("▶") : Theme.dim("•");
+            lines.push(`  ${marker} ${Theme.accent(s)}`);
+          }
+          lines.push(
+            ``,
+            `  ${Theme.dim("Custom skins: ")}${Theme.dim("~/.cowrangler/skins/<name>.yaml")}`,
+            `  ${Theme.dim("Apply: ")}${Theme.accent("/skin <name>")}`,
+          );
+          UI.box(lines.join("\n"), "Skins");
+          return;
+        }
+
+        // Uygula
+        const result = loadSkin(name);
+        if (result.ok) {
+          const skin = getActiveSkin();
+          UI.success(`Skin '${name}' applied${skin.description ? ` — ${skin.description}` : ""}. Restart for full effect.`);
+        } else {
+          UI.error(result.error ?? "Unknown error");
+        }
+      },
+    });
+
+    // ── /logs ─────────────────────────────────────────────────────────────────
+    this.commands.set("/logs", {
+      description: "Show recent log entries. /logs [agent|errors|gateway|cron] [lines]",
+      execute: async (args: string[]) => {
+        const { getLogger } = await import("../core/logger.js");
+        const validChannels = ["agent", "errors", "gateway", "cron", "kanban"] as const;
+        type Chan = typeof validChannels[number];
+
+        const channelArg = args[0] as Chan | undefined;
+        const linesArg   = parseInt(args[1] ?? args[0] ?? "30", 10);
+        const channel: Chan = validChannels.includes(channelArg as Chan) ? channelArg as Chan : "agent";
+        const lines = isNaN(linesArg) || linesArg <= 0 ? 30 : Math.min(linesArg, 500);
+
+        const log = getLogger();
+        const entries = log.tail(channel, lines);
+
+        if (!entries.length) {
+          UI.info(`No entries in ${channel}.log yet.`);
+          return;
+        }
+
+        // Renklendirme: ERROR → kırmızı, WARN → sarı, INFO → normal, DEBUG → dim
+        const coloured = entries.map((line) => {
+          if (line.includes("[ERROR]")) return Theme.fail(line);
+          if (line.includes("[WARN ]")) return Theme.main(line);
+          if (line.includes("[DEBUG]")) return Theme.dim(line);
+          return Theme.dim(line.slice(0, 32)) + line.slice(32);
+        });
+
+        const stats = log.stats();
+        const size  = stats[channel]?.sizeBytes ?? 0;
+        const header = `${channel}.log — ${entries.length} entries (${(size / 1024).toFixed(1)} KB)`;
+        UI.box(coloured.join("\n"), header);
+      },
+    });
+
+    // ── /trajectory ───────────────────────────────────────────────────────────
+    this.commands.set("/trajectory", {
+      description: "Record conversation trajectory: /trajectory [start|stop|status]",
+      execute: async (args: string[], ctx: CommandContext) => {
+        const { TrajectoryRecorder } = await import("../core/trajectory.js");
+        const action = args[0] ?? "status";
+
+        if (action === "start") {
+          if (ctx.agent.trajectoryRecorder) {
+            return UI.warn("Trajectory recording already active.");
+          }
+          ctx.agent.trajectoryRecorder = new TrajectoryRecorder(
+            null,
+            ctx.agent.llm.model,
+            "cli",
+          );
+          return UI.success("Trajectory recording started.");
+        }
+
+        if (action === "stop") {
+          if (!ctx.agent.trajectoryRecorder) {
+            return UI.warn("No active trajectory recording.");
+          }
+          const recorder = ctx.agent.trajectoryRecorder;
+          const savedPath = args[1] ? recorder.save(args[1]) : recorder.save();
+          ctx.agent.trajectoryRecorder = null;
+          return UI.success(
+            `Trajectory saved: ${Theme.accent(savedPath)} (${recorder.turnCount} turn(s))`,
+          );
+        }
+
+        if (action === "status") {
+          if (!ctx.agent.trajectoryRecorder) {
+            return UI.info("No active trajectory recording. Use /trajectory start to begin.");
+          }
+          return UI.info(
+            `Recording active — ${ctx.agent.trajectoryRecorder.turnCount} turn(s) so far.`,
+          );
+        }
+
+        UI.error(
+          "Usage:\n" +
+            "  /trajectory start          ← begin recording\n" +
+            "  /trajectory stop [file]    ← save to file (default: ~/.cowrangler/trajectories/)\n" +
+            "  /trajectory status         ← show recording status",
+        );
       },
     });
 

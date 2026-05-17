@@ -253,7 +253,7 @@ registerTool(
         url,
         headers: {
           "Content-Type": "application/json",
-          "User-Agent": "cowrangler/1.1.2",
+          "User-Agent": "cowrangler/2.0.0",
           ...headers,
         },
         data: body !== undefined ? body : undefined,

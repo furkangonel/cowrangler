@@ -1,0 +1,8 @@
+node_modules
+dist
+.cowrangler
+*.log
+.env
+.git
+coverage
+tests

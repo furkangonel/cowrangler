@@ -1,10 +1,34 @@
-import { streamText, generateText, CoreMessage } from "ai";
+/**
+ * Agent — Ana konuşma döngüsü.
+ *
+ * v2 değişiklikleri:
+ * - Token tabanlı context compression (mesaj sayısı değil)
+ * - DefaultContextEngine entegrasyonu
+ * - Session DB entegrasyonu (opsiyonel)
+ * - Plugin hook sistemi
+ * - Tool call count takibi
+ * - Context snapshot API (status bar için)
+ */
+
+import { generateText, CoreMessage } from "ai";
 import fs from "fs";
 import { LLM } from "./llm.js";
 import { SkillManager } from "./skills.js";
 import { TOOL_SCHEMAS } from "../tools/registry.js";
 import { BriefBuffer, createSendMessageTool } from "../tools/brief_tool.js";
 import { DIRS, COWRNGLR_MD } from "./init.js";
+import { DefaultContextEngine, ContextSnapshot } from "./context_engine.js";
+import { getSessionDB } from "./session_db.js";
+import { getPluginManager } from "./plugins.js";
+import { modelSupportsThinking } from "./model_metadata.js";
+import { getLogger } from "./logger.js";
+import { rotateCredentialPoolKey } from "./credential_pool.js";
+import { TrajectoryRecorder } from "./trajectory.js";
+
+/** Extended thinking destekleyen modeller için hızlı kontrol */
+function _supportsThinking(model: string): boolean {
+  return modelSupportsThinking(model);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // RETRY — exponential backoff for transient API errors (429 / 500 / 503)
@@ -16,92 +40,45 @@ const BASE_BACKOFF_MS = 1000;
 function isRetryable(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const e = error as any;
-  // Vercel AI SDK wraps HTTP errors with statusCode or status
   const code = e.statusCode ?? e.status ?? e.code;
   if (typeof code === "number" && RETRYABLE_CODES.has(code)) return true;
-  // Also catch rate-limit strings (some providers surface them differently)
   const msg: string = (e.message ?? "").toLowerCase();
-  return msg.includes("rate limit") || msg.includes("too many requests") || msg.includes("service unavailable");
-}
-
-async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      lastError = err;
-      if (attempt < MAX_RETRIES && isRetryable(err)) {
-        const delayMs = BASE_BACKOFF_MS * Math.pow(2, attempt); // 1s, 2s, 4s
-        await new Promise((r) => setTimeout(r, delayMs));
-        continue;
-      }
-      throw err;
-    }
-  }
-  throw lastError;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// CONTEXT COMPRESSION — summarise old messages when context grows too large
-// ─────────────────────────────────────────────────────────────────────────────
-const CONTEXT_COMPRESS_THRESHOLD = 40; // messages before compression
-const CONTEXT_KEEP_RECENT = 10;        // always keep the N most-recent messages
-
-async function compressContext(
-  messages: CoreMessage[],
-  llm: LLM,
-  systemPrompt: string,
-): Promise<CoreMessage[]> {
-  const toSummarise = messages.slice(0, messages.length - CONTEXT_KEEP_RECENT);
-  const recent = messages.slice(messages.length - CONTEXT_KEEP_RECENT);
-
-  if (toSummarise.length === 0) return messages;
-
-  try {
-    const summaryResult = await generateText({
-      model: llm.getModel(),
-      system:
-        "You are a conversation summarizer. Produce a concise factual summary " +
-        "of the conversation history below. Preserve: decisions made, files changed, " +
-        "errors encountered, and any open tasks. Omit pleasantries and repeated content. " +
-        "Reply with plain prose, no headers.",
-      messages: [
-        {
-          role: "user",
-          content:
-            "Summarize this conversation history:\n\n" +
-            toSummarise
-              .map((m) => `[${m.role}]: ${JSON.stringify(m.content).slice(0, 500)}`)
-              .join("\n"),
-        },
-      ],
-      maxTokens: 600,
-    });
-
-    const summaryMessage: CoreMessage = {
-      role: "user",
-      content: `[CONVERSATION SUMMARY — earlier messages compressed]\n${summaryResult.text}`,
-    };
-
-    return [summaryMessage, ...recent];
-  } catch {
-    // If compression fails, just drop the oldest messages rather than crashing
-    return recent;
-  }
+  return (
+    msg.includes("rate limit") ||
+    msg.includes("too many requests") ||
+    msg.includes("service unavailable")
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AGENT
 // ─────────────────────────────────────────────────────────────────────────────
+
+export interface AgentChatResult {
+  text: string;
+  tokenCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  toolCallCount: number;
+  durationMs: number;
+}
+
 export class Agent {
   public llm: LLM;
   public maxIterations: number;
+
   /** CLI görünüm modu — /mode komutu veya Ctrl+O ile değiştirilir */
   public viewMode: "brief" | "default" | "transcript" = "default";
 
-  /** Per-instance brief message buffer — no shared global state */
+  /** Per-instance brief message buffer */
   public readonly briefBuffer: BriefBuffer;
+
+  /** Context engine — token tabanlı sıkıştırma + istatistikler */
+  private contextEngine: DefaultContextEngine;
+
+  /** Session DB kimliği — null ise kayıt yapılmaz */
+  private sessionId: string | null = null;
+  private sessionToolCallCount = 0;
 
   private skillManager: SkillManager;
   private originalPrompt: string;
@@ -109,11 +86,18 @@ export class Agent {
   private messages: CoreMessage[] = [];
   private allowedTools?: string[];
 
+  /** Interrupt flag — /stop veya Ctrl+C */
+  private _interruptRequested = false;
+
+  /** Trajectory recorder — null ise kayıt yapılmaz */
+  public trajectoryRecorder: TrajectoryRecorder | null = null;
+
   constructor(
     llm: LLM,
     systemPrompt: string,
     maxIterations: number = 25,
     allowedTools?: string[],
+    sessionSource: string = "cli",
   ) {
     this.llm = llm;
     this.maxIterations = maxIterations;
@@ -122,6 +106,29 @@ export class Agent {
     this.originalPrompt = systemPrompt;
     this.baseSystemPrompt = this._buildSystemPrompt(systemPrompt);
     this.briefBuffer = new BriefBuffer();
+
+    // Context engine — modele göre ayarlanır
+    this.contextEngine = new DefaultContextEngine(llm.model);
+
+    // Session başlat
+    this._startSession(sessionSource);
+
+    // Plugin hook
+    getPluginManager().emit("on_session_start", this.sessionId);
+  }
+
+  private _startSession(source: string): void {
+    try {
+      const db = getSessionDB();
+      this.sessionId = db.createSession({
+        source,
+        model: this.llm.model,
+        workdir: process.cwd(),
+      });
+    } catch {
+      // Session DB kullanılamıyorsa sessizce devam et
+      this.sessionId = null;
+    }
   }
 
   private _buildSystemPrompt(basePrompt: string): string {
@@ -130,14 +137,18 @@ export class Agent {
     if (fs.existsSync(COWRNGLR_MD)) {
       const cowrnglrContent = fs.readFileSync(COWRNGLR_MD, "utf-8").trim();
       if (cowrnglrContent) {
-        finalPrompt += `\n\n[COWRNGLR.md — PROJECT CONTEXT]\nThis file was generated by /init and may have been manually edited. Treat it as the authoritative source of truth for this project:\n---\n${cowrnglrContent}\n---`;
+        finalPrompt +=
+          `\n\n[COWRNGLR.md — PROJECT CONTEXT]\nThis file was generated by /init and may have been ` +
+          `manually edited. Treat it as the authoritative source of truth for this project:\n---\n${cowrnglrContent}\n---`;
       }
     }
 
     if (fs.existsSync(DIRS.local.memory)) {
       const memoryContent = fs.readFileSync(DIRS.local.memory, "utf-8").trim();
       if (memoryContent) {
-        finalPrompt += `\n\n[PROJECT MEMORY]\nThe following contains authoritative facts about the project. Always respect these:\n---\n${memoryContent}\n---`;
+        finalPrompt +=
+          `\n\n[PROJECT MEMORY]\nThe following contains authoritative facts about the project. ` +
+          `Always respect these:\n---\n${memoryContent}\n---`;
       }
     }
 
@@ -146,7 +157,9 @@ export class Agent {
       const skillsText = skills
         .map((s) => `- **${s.id}**: ${s.description}`)
         .join("\n");
-      finalPrompt += `\n\n[AVAILABLE SKILLS]\nYou have the following Standard Operating Procedures (SOPs). When a user request matches one, load it with \`utilize_skill\` before starting:\n${skillsText}`;
+      finalPrompt +=
+        `\n\n[AVAILABLE SKILLS]\nYou have the following Standard Operating Procedures (SOPs). ` +
+        `When a user request matches one, load it with \`utilize_skill\` before starting:\n${skillsText}`;
     }
 
     return finalPrompt;
@@ -162,107 +175,236 @@ export class Agent {
         if (this.allowedTools.includes(key)) base[key] = value;
       }
     }
-    // Inject instance-specific send_message — overrides any global registration
+    // Instance'a özgü send_message — global kaydı override eder
     base["send_message"] = createSendMessageTool(this.briefBuffer);
     return base;
   }
 
   setModel(newLlm: LLM) {
     this.llm = newLlm;
+    // Context engine'i yeni model için yeniden oluştur
+    this.contextEngine = new DefaultContextEngine(newLlm.model);
   }
 
   refreshSystemPrompt() {
     this.baseSystemPrompt = this._buildSystemPrompt(this.originalPrompt);
   }
 
+  requestInterrupt(): void {
+    this._interruptRequested = true;
+  }
+
+  clearInterrupt(): void {
+    this._interruptRequested = false;
+  }
+
   /**
-   * Main chat loop.
+   * Ana chat döngüsü.
    *
    * Callbacks:
-   *   onToolCall(name, args)  — fired when a tool is invoked
-   *   onStepText(text)        — fired when the model emits intermediate narrative
-   *   onToken(token)          — fired for every streamed text token in the final reply
+   *   onToolCall(name, args)  — araç çağrıldığında
+   *   onStepText(text)        — model ara metin ürettiğinde
    *
-   * Returns: { text, tokenCount }
+   * Returns: AgentChatResult
    */
   async chat(
     userMessage: string,
     onToolCall?: (name: string, args: any) => void,
     onStepText?: (text: string) => void,
-    onToken?: (token: string) => void,
-  ): Promise<{ text: string; tokenCount: number }> {
-    // Compress context if it's grown too large
-    if (this.messages.length >= CONTEXT_COMPRESS_THRESHOLD) {
-      this.messages = await compressContext(
+  ): Promise<AgentChatResult> {
+    const roundStart = Date.now();
+    this._interruptRequested = false;
+
+    const log = getLogger();
+    log.info("agent", "Chat round started", {
+      model: this.llm.model,
+      messageCount: this.messages.length,
+      userMessageLength: userMessage.length,
+    });
+
+    // Plugin: pre_llm_call
+    const plugins = getPluginManager();
+    await plugins.emitAsync("pre_llm_call", { messages: this.messages, model: this.llm.model });
+
+    // Token tabanlı context sıkıştırma kontrolü
+    const snap = this.contextEngine.getSnapshot();
+    if (this.contextEngine.shouldCompress(snap.contextTokens)) {
+      this.messages = await this.contextEngine.compress(
         this.messages,
         this.llm,
         this.baseSystemPrompt,
       );
     }
 
+    // Kullanıcı mesajını ekle
     this.messages.push({ role: "user", content: userMessage });
 
+    // Session DB'ye yaz
+    if (this.sessionId) {
+      try {
+        getSessionDB().appendMessage({
+          sessionId: this.sessionId,
+          role: "user",
+          content: userMessage,
+        });
+      } catch { /* sessizce devam */ }
+    }
+
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    let totalTokens = 0;
+    let totalCacheReadTokens = 0;
+    let totalCacheWriteTokens = 0;
+    let finalText = "";
+    let responseMessages: CoreMessage[] = [];
+    let roundToolCallCount = 0;
+
     try {
-      let totalTokens = 0;
-      let finalText = "";
-      let responseMessages: CoreMessage[] = [];
-
-      // Retry loop — each attempt initiates a fresh HTTP request.
-      // We use `for await` to actively pull from the stream, which prevents
-      // backpressure deadlocks (the main cause of "stuck on thinking" with
-      // providers like OpenRouter that don't always resolve sr.usage).
       let lastError: unknown;
-      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-        if (attempt > 0) {
-          await new Promise((r) => setTimeout(r, BASE_BACKOFF_MS * Math.pow(2, attempt - 1)));
-        }
-        try {
-          let stepTokens = 0;
-          let accumulated = "";
 
-          const sr = streamText({
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        if (this._interruptRequested) break;
+
+        if (attempt > 0) {
+          await new Promise((r) =>
+            setTimeout(r, BASE_BACKOFF_MS * Math.pow(2, attempt - 1)),
+          );
+        }
+
+        try {
+          let stepInputTokens = 0;
+          let stepOutputTokens = 0;
+          let stepCacheReadTokens = 0;
+          let stepCacheWriteTokens = 0;
+
+          // ── Provider options ────────────────────────────────────────────────
+          // Anthropic: prompt caching + extended thinking (config ile kontrol edilir)
+          const isAnthropic = this.llm.model.startsWith("claude-");
+          const thinkingEnabled =
+            isAnthropic &&
+            process.env.COWRANGLER_THINKING === "1" &&
+            _supportsThinking(this.llm.model);
+          const thinkingBudget = parseInt(
+            process.env.COWRANGLER_THINKING_BUDGET ?? "8000",
+            10,
+          );
+
+          // Sistem mesajını mesaj listesine alarak cache_control uygula.
+          // Anthropic SDK 1.2+ cache_control varsayılan açık; biz sistem
+          // mesajını açıkça ephemeral olarak işaretleyerek ilk cache
+          // breakpoint'ini garanti altına alıyoruz.
+          const systemMessage = isAnthropic
+            ? {
+                role: "system" as const,
+                content: this.baseSystemPrompt,
+                providerOptions: {
+                  anthropic: { cacheControl: { type: "ephemeral" as const } },
+                },
+              }
+            : null;
+
+          const messagesWithSystem = systemMessage
+            ? [systemMessage, ...this.messages.filter((m) => m.role !== "system")]
+            : this.messages.filter((m) => m.role !== "system");
+
+          const callOptions: Parameters<typeof generateText>[0] = {
             model: this.llm.getModel(),
-            system: this.baseSystemPrompt,
-            messages: this.messages.filter((m) => m.role !== "system"),
+            ...(isAnthropic ? {} : { system: this.baseSystemPrompt }),
+            messages: messagesWithSystem,
             tools: this.getTools(),
             maxSteps: this.maxIterations,
-            onStepFinish: ({ text, toolCalls, usage }) => {
+            ...(thinkingEnabled
+              ? {
+                  providerOptions: {
+                    anthropic: {
+                      thinking: { type: "enabled" as const, budgetTokens: thinkingBudget },
+                    },
+                  },
+                }
+              : {}),
+            onStepFinish: async ({ text, toolCalls, usage, providerMetadata }: any) => {
+              if (this._interruptRequested) return;
+
               if (text?.trim() && onStepText) {
                 onStepText(text.trim());
               }
-              if (toolCalls && onToolCall) {
+
+              if (toolCalls && toolCalls.length > 0) {
                 for (const call of toolCalls) {
-                  onToolCall(call.toolName, call.args);
+                  roundToolCallCount++;
+
+                  // Plugin: pre_tool_call
+                  await plugins.emitAsync("pre_tool_call", {
+                    toolName: call.toolName,
+                    args: call.args,
+                  });
+
+                  if (onToolCall) {
+                    onToolCall(call.toolName, call.args);
+                  }
                 }
               }
-              if (usage) stepTokens += usage.totalTokens ?? 0;
-            },
-          });
 
-          // Actively pull the stream — this is the key fix.
-          // Promise.all([sr.text, sr.usage, sr.response]) can deadlock with
-          // providers (e.g. OpenRouter) that don't always emit a final usage chunk.
-          // for-await guarantees the stream is fully consumed before we move on.
-          for await (const chunk of sr.textStream) {
-            accumulated += chunk;
-            if (onToken) onToken(chunk);
+              if (usage) {
+                stepInputTokens += usage.promptTokens ?? 0;
+                stepOutputTokens += usage.completionTokens ?? 0;
+
+                // Plugin: post_llm_call
+                await plugins.emitAsync("post_llm_call", { usage });
+              }
+
+              // Anthropic cache istatistikleri (providerMetadata üzerinden)
+              if (providerMetadata?.anthropic?.usage) {
+                const au = providerMetadata.anthropic.usage as any;
+                stepCacheReadTokens += au.cacheReadInputTokens ?? 0;
+                stepCacheWriteTokens += au.cacheCreationInputTokens ?? 0;
+              }
+            },
+          };
+
+          const result = await generateText(callOptions);
+
+          finalText = result.text;
+          totalInputTokens = stepInputTokens > 0 ? stepInputTokens : (result.usage?.promptTokens ?? 0);
+          totalOutputTokens = stepOutputTokens > 0 ? stepOutputTokens : (result.usage?.completionTokens ?? 0);
+          totalTokens = totalInputTokens + totalOutputTokens;
+
+          // Sonuç düzeyinde cache istatistikleri (tek adımlı yanıtlar için)
+          if (result.providerMetadata?.anthropic) {
+            const au = (result.providerMetadata.anthropic as any).usage;
+            if (au) {
+              stepCacheReadTokens += au.cacheReadInputTokens ?? 0;
+              stepCacheWriteTokens += au.cacheCreationInputTokens ?? 0;
+            }
           }
 
-          // Stream fully consumed — these resolve immediately now.
-          const response = await sr.response;
+          responseMessages = result.response.messages as CoreMessage[];
+          lastError = undefined;
 
-          // Usage is optional — some providers omit it; don't block on it.
-          const usage = await Promise.race([
-            sr.usage,
-            new Promise<undefined>((r) => setTimeout(() => r(undefined), 2000)),
-          ]);
-
-          finalText = accumulated;
-          totalTokens = stepTokens > 0 ? stepTokens : (usage?.totalTokens ?? 0);
-          responseMessages = response.messages as CoreMessage[];
-          break; // success — exit retry loop
+          // Cache tokenlarını geçici değişkende sakla (döngü dışında kullanacağız)
+          totalCacheReadTokens += stepCacheReadTokens;
+          totalCacheWriteTokens += stepCacheWriteTokens;
+          break;
         } catch (err) {
           lastError = err;
+
+          // 429 rate limit → credential pool'dan farklı anahtar dene
+          const e = err as any;
+          const statusCode = e?.statusCode ?? e?.status ?? e?.code;
+          const isRateLimit =
+            statusCode === 429 ||
+            (e?.message ?? "").toLowerCase().includes("rate limit") ||
+            (e?.message ?? "").toLowerCase().includes("too many requests");
+
+          if (isRateLimit && rotateCredentialPoolKey(this.llm.model)) {
+            // Pool rotasyonu başarılı — backoff olmadan hemen tekrar dene
+            getLogger().info(
+              "agent",
+              "Rate limit hit — rotated to next credential pool key",
+            );
+            continue;
+          }
+
           if (attempt < MAX_RETRIES && isRetryable(err)) continue;
           throw err;
         }
@@ -274,17 +416,124 @@ export class Agent {
         this.messages.push(msg as CoreMessage);
       }
 
-      return { text: finalText, tokenCount: totalTokens };
+      // Context engine güncelle
+      const durationMs = Date.now() - roundStart;
+      this.contextEngine.updateFromResponse({
+        inputTokens: totalInputTokens,
+        outputTokens: totalOutputTokens,
+        cacheReadTokens: totalCacheReadTokens,
+        cacheWriteTokens: totalCacheWriteTokens,
+      });
+      this.contextEngine.setLastRoundDuration(durationMs);
+
+      // Session istatistiklerini güncelle
+      this.sessionToolCallCount += roundToolCallCount;
+      if (this.sessionId) {
+        try {
+          const db = getSessionDB();
+          db.appendMessage({
+            sessionId: this.sessionId,
+            role: "assistant",
+            content: finalText,
+            tokenCount: totalOutputTokens,
+          });
+          db.updateSession(this.sessionId, {
+            input_tokens: this.contextEngine.getSnapshot().sessionInputTokens,
+            output_tokens: this.contextEngine.getSnapshot().sessionOutputTokens,
+            tool_call_count: this.sessionToolCallCount,
+          });
+        } catch { /* sessizce devam */ }
+      }
+
+      // Plugin: post_tool_call (toplu)
+      if (roundToolCallCount > 0) {
+        await plugins.emitAsync("post_tool_call", {
+          count: roundToolCallCount,
+        });
+      }
+
+      const durationMs2 = Date.now() - roundStart;
+      log.info("agent", "Chat round completed", {
+        model: this.llm.model,
+        inputTokens: totalInputTokens,
+        outputTokens: totalOutputTokens,
+        cacheReadTokens: totalCacheReadTokens,
+        cacheWriteTokens: totalCacheWriteTokens,
+        toolCalls: roundToolCallCount,
+        durationMs: durationMs2,
+      });
+
+      // Trajectory kaydı
+      if (this.trajectoryRecorder) {
+        this.trajectoryRecorder.recordTurn({
+          userMessage,
+          assistantResponse: finalText,
+          toolCalls: [], // tool call isimlerini onStepFinish'ten almak için geliştirilecek
+          inputTokens: totalInputTokens,
+          outputTokens: totalOutputTokens,
+          tokenCount: totalTokens,
+          durationMs: durationMs2,
+        });
+      }
+
+      return {
+        text: finalText,
+        tokenCount: totalTokens,
+        inputTokens: totalInputTokens,
+        outputTokens: totalOutputTokens,
+        toolCallCount: roundToolCallCount,
+        durationMs: durationMs2,
+      };
     } catch (error) {
+      getLogger().error("agent", "Chat round failed", error, { model: this.llm.model });
       this.messages.pop();
       throw error;
     }
   }
 
+  /** Context snapshot — status bar için */
+  getContextSnapshot(): ContextSnapshot {
+    return this.contextEngine.getSnapshot();
+  }
+
+  /** Kısa model adı — status bar için */
+  get modelShortName(): string {
+    return this.llm.model
+      .replace("openrouter/", "")
+      .replace("google/", "")
+      .replace("anthropic/", "")
+      .split("/")
+      .pop()
+      ?.replace("claude-", "")
+      ?.replace("gemini-", "gem-") ?? this.llm.model;
+  }
+
   reset(): void {
-    this.baseSystemPrompt = this._buildSystemPrompt(this.originalPrompt);
+    // Mevcut oturumu kapat
+    if (this.sessionId) {
+      try {
+        const snap = this.contextEngine.getSnapshot();
+        getSessionDB().closeSession(this.sessionId, {
+          input_tokens: snap.sessionInputTokens,
+          output_tokens: snap.sessionOutputTokens,
+          tool_call_count: this.sessionToolCallCount,
+        });
+        getPluginManager().emit("on_session_end", this.sessionId);
+      } catch { /* sessizce */ }
+    }
+
+    // Yeni oturum başlat
     this.messages = [];
     this.briefBuffer.clear();
+    this.contextEngine.reset();
+    this.sessionToolCallCount = 0;
+    this.baseSystemPrompt = this._buildSystemPrompt(this.originalPrompt);
+    this._startSession("cli");
+  }
+
+  /** Oturum kimliği */
+  get currentSessionId(): string | null {
+    return this.sessionId;
   }
 
   get contextLength(): number {

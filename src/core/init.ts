@@ -14,16 +14,16 @@ export const DIRS = {
   local: {
     base: LOCAL_DIR,
     skills: path.join(LOCAL_DIR, "skills"),
-    agents: path.join(LOCAL_DIR, "agents"),        // Custom agent tanımları
+    agents: path.join(LOCAL_DIR, "agents"), // Custom agent tanımları
     config: path.join(LOCAL_DIR, "config.yaml"),
     memory: path.join(LOCAL_DIR, "memory.md"),
     todo: path.join(LOCAL_DIR, "AGENT_TODO.md"),
-    auditLog: path.join(LOCAL_DIR, "audit.log"),   // Sandbox audit log
+    auditLog: path.join(LOCAL_DIR, "audit.log"), // Sandbox audit log
   },
   global: {
     base: GLOBAL_DIR,
     skills: path.join(GLOBAL_DIR, "skills"),
-    agents: path.join(GLOBAL_DIR, "agents"),       // Global custom agents
+    agents: path.join(GLOBAL_DIR, "agents"), // Global custom agents
     config: path.join(GLOBAL_DIR, "config.yaml"),
     credentials: path.join(GLOBAL_DIR, "credentials.env"),
   },
@@ -99,7 +99,7 @@ After any task that takes more than ~30 seconds, call notify so the user knows i
 For up-to-date information, use web_search first to discover relevant pages, then fetch_webpage to read specific content. Always cite your sources.
 
 ### 10. Language & tone
-- Always respond in English, regardless of the language the user writes in.
+- Always respond in user language, regardless of the language the user writes in.
 - Be direct, precise, and actionable. Avoid filler phrases like "Certainly!" or "Of course!".
 - When uncertain about something, say so explicitly rather than guessing.
 - Never apologize excessively — acknowledge mistakes once and fix them.
@@ -233,7 +233,7 @@ export function initEnvironment() {
         "# OPENROUTER_API_KEY=sk-or-...",
         "",
       ].join("\n"),
-      "utf-8"
+      "utf-8",
     );
   }
 
@@ -268,7 +268,7 @@ export function ensureLocalMemory(): void {
         "## Conventions & Rules",
         "",
       ].join("\n"),
-      "utf-8"
+      "utf-8",
     );
   }
 }
@@ -279,11 +279,7 @@ export function ensureLocalMemory(): void {
 export function ensureAgentTodo(): void {
   fs.mkdirSync(DIRS.local.base, { recursive: true });
   if (!fs.existsSync(DIRS.local.todo)) {
-    fs.writeFileSync(
-      DIRS.local.todo,
-      "# Active Agent Tasks\n",
-      "utf-8"
-    );
+    fs.writeFileSync(DIRS.local.todo, "# Active Agent Tasks\n", "utf-8");
   }
 }
 
@@ -316,7 +312,9 @@ export function getConfig() {
   // Users who want to customise the prompt should set `custom_system_prompt` in their
   // config.yaml — that value is appended after the default, never replacing it.
   config.system_prompt = config.custom_system_prompt
-    ? DEFAULT_SYSTEM_PROMPT + "\n\n---\n\n## USER CUSTOMIZATIONS\n\n" + config.custom_system_prompt
+    ? DEFAULT_SYSTEM_PROMPT +
+      "\n\n---\n\n## USER CUSTOMIZATIONS\n\n" +
+      config.custom_system_prompt
     : DEFAULT_SYSTEM_PROMPT;
   config.temperature = config.temperature ?? 0.7;
   config.max_iterations = config.max_iterations ?? 25;

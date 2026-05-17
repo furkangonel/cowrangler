@@ -73,7 +73,8 @@ export class LLM {
     }
 
     // 2. OFFICIAL ANTHROPIC KONTROLÜ (claude-...)
-
+    // @ai-sdk/anthropic 1.2+ → cacheControl varsayılan açık, thinking ayrıca
+    // generateText providerOptions üzerinden aktarılır (model-level değil).
     if (modelName.startsWith("claude-")) {
       if (!process.env.ANTHROPIC_API_KEY)
         throw new Error("MISSING_KEY:ANTHROPIC_API_KEY");
