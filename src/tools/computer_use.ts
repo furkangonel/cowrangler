@@ -689,7 +689,9 @@ ardından güvenilirlik için element index ile tıkla. macOS zorunlu; cua-drive
       .optional()
       .describe("Son capture(mode='som') çağrısından 1-tabanlı SOM index'i. Koordinatlardan daha güvenilir."),
     coordinate: z
-      .tuple([z.number().int(), z.number().int()])
+      .array(z.number().int())
+      .min(2)
+      .max(2)
       .optional()
       .describe("Mantıksal ekran uzayında piksel koordinatları [x, y]. Element index yoksa kullanın."),
     button: z
@@ -703,11 +705,15 @@ ardından güvenilirlik için element index ile tıkla. macOS zorunlu; cua-drive
     from_element: z.number().int().optional().describe("Kaynak element index'i (drag)."),
     to_element: z.number().int().optional().describe("Hedef element index'i (drag)."),
     from_coordinate: z
-      .tuple([z.number().int(), z.number().int()])
+      .array(z.number().int())
+      .min(2)
+      .max(2)
       .optional()
       .describe("Kaynak [x,y] (drag)."),
     to_coordinate: z
-      .tuple([z.number().int(), z.number().int()])
+      .array(z.number().int())
+      .min(2)
+      .max(2)
       .optional()
       .describe("Hedef [x,y] (drag)."),
     direction: z
