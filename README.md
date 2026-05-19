@@ -11,7 +11,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript&logoColor=white" alt="TypeScript">
   <img src="https://img.shields.io/badge/Node.js-339933?style=flat&logo=node.js&logoColor=white" alt="Node.js">
-  <img src="https://img.shields.io/badge/Version-2.0.0-orange?style=flat" alt="Version">
+  <img src="https://img.shields.io/badge/Version-2.0.1-orange?style=flat" alt="Version">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/furkangonel/co-wrangler?style=flat" alt="License"></a>
 </p>
 
@@ -23,6 +23,7 @@
   <a href="#tools">Tools</a> •
   <a href="#subagents">Subagents</a> •
   <a href="#skills--agents">Skills & Agents</a> •
+  <a href="#mcp-servers">MCP Servers</a> •
   <a href="#commands">Commands</a>
 </p>
 
@@ -40,7 +41,9 @@ Co-Wrangler is not just another chat wrapper. It's a terminal-native AI agent bu
 - Delegate complex tasks to specialized subagents
 - Maintain project memory and context across sessions
 - Enforce your team's Standard Operating Procedures (SOPs) via Skills
+- Connect to any MCP server (filesystem, GitHub, databases, custom tools)
 - Plan and execute multi-step tasks autonomously
+- Run in your preferred language (6 languages supported)
 
 **Why should you use it?**
 - Truly understands your codebase (not just text, but structure)
@@ -139,6 +142,19 @@ cowrangler
 
 ## Features
 
+### Internationalization
+
+Co-Wrangler supports 6 languages out of the box. The language is auto-detected from your system locale on startup, or set explicitly:
+
+```bash
+cowrangler --lang tr   # Turkish
+cowrangler --lang en   # English (default)
+cowrangler --lang de   # German
+cowrangler --lang es   # Spanish
+cowrangler --lang fr   # French
+cowrangler --lang it   # Italian
+```
+
 ### Tools (25+ Built-in)
 
 Co-Wrangler ships with 25+ built-in tools organized into categories.
@@ -175,6 +191,22 @@ Supported actions:
 > /skill macos-computer-use Take a screenshot and open Finder
 ```
 
+### Model Picker
+
+Switch models interactively without restarting:
+
+```bash
+cowrangler model          # Standalone arrow-key picker (outside session)
+```
+
+Or inside a running session:
+```
+> /model                  # Opens overlay picker — navigate with ↑↓, Enter to select
+> /model set gpt-4o       # Direct hot-swap by name
+```
+
+The picker shows all registered models, highlights which API keys are configured, and persists the selection to `config.yaml`. Supports `provider/model_name` format (e.g. `anthropic/claude-sonnet-4-6`, `openai/gpt-4o`, `google/gemini-2.5-pro`) alongside short prefixes.
+
 ### Subagents
 
 Long-running or specialized tasks can be delegated to focused subagents. Each has a distinct system prompt and restricted tool set.
@@ -201,33 +233,69 @@ Long-running or specialized tasks can be delegated to focused subagents. Each ha
 
 Skills are Markdown files that encode Standard Operating Procedures. When loaded, the agent follows the SOP step by step.
 
-**Bundled Skills (23):**
+**Bundled Skills (32):**
+
+*Apple*
+
+| Skill | Description |
+|---|---|
+| `apple-notes` | Create, search, and export Apple Notes via the `memo` CLI |
+| `apple-reminders` | Manage Apple Reminders (today/week/overdue) via `remindctl` |
+| `findmy` | Track AirTags and devices via Find My (AppleScript + screenshots) |
+| `imessage` | List chats, read history, and send iMessages via `imsg` CLI |
+| `macos-computer-use` | Automate macOS UI using the `computer_use` tool |
+
+*Creative*
+
+| Skill | Description |
+|---|---|
+| `architecture-diagram` | Generate system architecture diagrams from descriptions |
+| `creative-ideation` | Structured brainstorming and idea generation workflows |
+| `design-system` | Create and document design system components |
+| `excalidraw` | Draw and export diagrams using Excalidraw |
+
+*Data Science*
+
+| Skill | Description |
+|---|---|
+| `data-analysis` | Data analysis, cleaning, and visualization workflows |
+| `jupyter-notebook` | Create, run, and manage Jupyter notebooks |
+
+*DevOps*
+
+| Skill | Description |
+|---|---|
+| `ci-cd-pipeline` | Set up and manage CI/CD pipelines |
+| `docker-management` | Docker container, image, and compose management |
+| `webhook-subscriptions` | Webhook integration setup and event management |
+
+*Development*
 
 | Skill | Description |
 |---|---|
 | `api-design` | RESTful API design principles |
-| `apple-notes` | Create, search, and export Apple Notes via the `memo` CLI |
-| `apple-reminders` | Manage Apple Reminders (today/week/overdue) via `remindctl` |
 | `code-review` | Systematic code review |
-| `copy-editor` | Polish text — grammar, flow, clarity |
 | `debugging` | Systematic bug investigation |
 | `documentation` | Code documentation standards |
-| `executive-summarizer` | C-level executive summaries |
-| `findmy` | Track AirTags and devices via Find My (AppleScript + screenshots) |
 | `git-workflow` | Professional Git branching and PR workflow |
 | `github-code-review` | Review PRs — diff, inline comments, approve/request-changes |
 | `github-issues` | Create, triage, label, and manage GitHub Issues |
 | `github-pr-workflow` | Full PR lifecycle — branch, commit, open, monitor CI, merge |
-| `imessage` | List chats, read history, and send iMessages via `imsg` CLI |
-| `localization` | Localize text to feel native in the target culture |
-| `macos-computer-use` | Automate macOS UI using the `computer_use` tool |
-| `professional-communicator` | Transform thoughts into professional emails and messages |
-| `prompt-engineer` | Turn vague instructions into precision prompts |
-| `qa-testing` | 5-phase web QA: plan, explore, collect evidence, categorize, report |
 | `refactoring` | Safe, incremental refactoring techniques |
 | `simplify` | Audit code for reuse, quality, and efficiency |
 | `skillify` | Create new skills from conversation patterns |
 | `testing` | Test writing with TDD approach |
+
+*Writing & Communication*
+
+| Skill | Description |
+|---|---|
+| `copy-editor` | Polish text — grammar, flow, clarity |
+| `executive-summarizer` | C-level executive summaries |
+| `localization` | Localize text to feel native in the target culture |
+| `professional-communicator` | Transform thoughts into professional emails and messages |
+| `prompt-engineer` | Turn vague instructions into precision prompts |
+| `qa-testing` | 5-phase web QA: plan, explore, collect evidence, categorize, report |
 
 **Create Custom Skills:**
 
@@ -251,6 +319,15 @@ Usage:
 > /skill deploy-process Deploy the auth service to production
 ```
 
+You can also invoke skills directly by their ID — no `/skill` prefix needed. Unknown slash commands are automatically matched against skill IDs:
+
+```
+> /deploy-process Deploy the auth service to production
+> /git-workflow Open a PR for the current branch
+```
+
+Extra arguments after the skill ID are passed as the task description. Skill content is injected as a user message (not into the system prompt), so prompt caching is always preserved.
+
 #### Custom Agents
 
 Create a folder in `.cowrangler/agents/` or `~/.cowrangler/agents/` with an `AGENT.md` file:
@@ -271,6 +348,48 @@ You are a specialized frontend code reviewer focusing on:
 ```
 
 The agent is automatically discovered and listed alongside bundled agents.
+
+## MCP Servers
+
+Co-Wrangler supports [Model Context Protocol (MCP)](https://modelcontextprotocol.io) servers, letting you connect any external tool — databases, APIs, local services — directly into the agent's tool set.
+
+### Browse the Marketplace
+
+```bash
+cowrangler mcp browse
+```
+
+Opens an interactive two-panel TUI with 21 curated MCP servers across 7 categories (Filesystem, Git, Databases, Web, Productivity, DevOps, AI). Navigate with ←→ (categories) and ↑↓ (servers), press `/` to search, Enter to install.
+
+### Add a Server
+
+```bash
+cowrangler mcp add
+```
+
+Guided wizard that walks you through transport selection (stdio, HTTP, SSE), collects required parameters, tests the connection, and writes the config to `~/.cowrangler/config.yaml` and `credentials.env`.
+
+### Manual Configuration
+
+Add to `~/.cowrangler/config.yaml`:
+
+```yaml
+mcp_servers:
+  filesystem:
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+  github:
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-github"]
+    env:
+      GITHUB_PERSONAL_ACCESS_TOKEN: "ghp_..."
+  remote:
+    url: "https://my-mcp-server.example.com/mcp"
+    headers:
+      Authorization: "Bearer sk-..."
+```
+
+Once configured, MCP tools appear automatically in the agent's tool set alongside the built-in tools.
 
 ### REPL Features
 
@@ -311,8 +430,14 @@ Disable with `cowrangler --no-sandbox` (not recommended).
 ```bash
 cowrangler                     # Start interactive REPL
 cowrangler setup               # Interactive provider setup wizard (run this first!)
+cowrangler model               # Interactive model picker (arrow keys, persists to config)
 cowrangler -p <profile>        # Run with a named profile
-cowrangler gateway start       # Start Telegram/Discord gateway
+cowrangler --lang <code>       # Set language (en, tr, de, es, fr, it)
+cowrangler gateway setup       # Configure Telegram/Discord gateway (interactive wizard)
+cowrangler gateway start       # Start the messaging gateway
+cowrangler mcp add             # Add an MCP server (interactive wizard)
+cowrangler mcp browse          # Browse the MCP server marketplace
+cowrangler mcp list            # List configured MCP servers
 cowrangler cron list           # List scheduled jobs
 cowrangler cron create         # Create a scheduled job
 cowrangler cron daemon         # Start the cron scheduler daemon
@@ -335,6 +460,7 @@ cowrangler --help              # Show help
 |---|---|
 | `/help` | List all commands with descriptions |
 | `/status` | Show active model, context size, memory state, loaded tools and skills |
+| `/model` | Open interactive model picker (arrow-key overlay) |
 | `/model list` | List registered models |
 | `/model set <name> [global\|local]` | Hot-swap the active model without restarting |
 | `/model add <name>` | Register a new model name |
@@ -404,17 +530,20 @@ cowrangler --help              # Show help
 ```
 co-wrangler/
 ├── src/
-│   ├── core/              # Agent core, LLM, sandbox, permissions
+│   ├── core/              # Agent core, LLM, sandbox, permissions, skin, i18n
+│   ├── cli/               # CLI wizards (model picker, MCP, gateway)
 │   ├── tools/             # 25+ tool implementations
 │   │   └── computer_use.ts  # macOS desktop automation
 │   ├── ui/                # CLI, commands, theme, setup wizard
-│   │   └── ink/           # React Ink components
+│   │   └── ink/           # React Ink components (ModelPicker, etc.)
+│   ├── i18n/              # Internationalization (en, tr, de, es, fr, it)
 │   ├── utils/             # Helper functions
-│   ├── bundled_skills/    # 23 bundled SOPs
-│   │   ├── macos-computer-use/
-│   │   ├── github-pr-workflow/
-│   │   ├── qa-testing/
-│   │   └── ...            # 20 more skills
+│   ├── bundled_skills/    # 32 bundled SOPs, organized by category
+│   │   ├── apple/         # apple-notes, apple-reminders, findmy, imessage, macos-computer-use
+│   │   ├── creative/      # architecture-diagram, creative-ideation, design-system, excalidraw
+│   │   ├── data-science/  # data-analysis, jupyter-notebook
+│   │   ├── devops/        # ci-cd-pipeline, docker-management, webhook-subscriptions
+│   │   └── ...            # development, writing & communication skills
 │   └── types.d.ts         # TypeScript declarations
 ├── dist/                  # Compiled JavaScript (npm run build)
 ├── .cowrangler/           # Project-local settings
