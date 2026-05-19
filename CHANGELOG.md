@@ -6,6 +6,39 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.0.1] — 2026-05-19
+
+### Added
+- **Internationalization / i18n** (`src/i18n/`) — 6 languages: Turkish (`tr`), English (`en`), German (`de`), Spanish (`es`), French (`fr`), Italian (`it`); runtime language switching via `cowrangler --lang <code>`; automatic language detection on startup via `src/core/init.ts`
+- **Interactive model picker** (`src/cli/model_picker_cli.ts`, `src/ui/ink/ModelPicker.tsx`) — `/model` (no args) opens arrow-key picker overlay inside TUI; `cowrangler model` standalone ANSI picker; filters by name/provider, shows installed API key status, hot-swaps model and persists to `config.yaml` without restart
+- **MCP marketplace browser** (`src/cli/mcp_browse.ts`) — `cowrangler mcp browse`; curated 21 MCP servers across 7 categories; two-panel TUI (category tabs ←→, server list ↑↓, detail panel); `/` to search, Enter to launch install wizard
+- **MCP setup wizard** (`src/cli/mcp_wizard.ts`) — `cowrangler mcp add`; guided stdio / HTTP / SSE transport selection; tests connection, writes to `config.yaml` and `credentials.env`
+- **Gateway setup wizard** (`src/cli/gateway_wizard.ts`) — `cowrangler gateway setup`; Telegram (validates token via Telegram API, optional user whitelist) and Discord (token + optional guild ID) guided configuration
+- **Skill slash injection** — unknown `/slash-commands` now auto-match against skill IDs; skill content is injected as a user message (not system prompt) to preserve prompt caching; supports extra args: `/git-workflow open a PR`
+- **9 new bundled skills** added under categorized directories:
+  - `creative/architecture-diagram` — system architecture diagram generation
+  - `creative/creative-ideation` — structured brainstorming and idea generation
+  - `creative/design-system` — design system component creation
+  - `creative/excalidraw` — diagram drawing with Excalidraw
+  - `data-science/data-analysis` — data analysis and visualization workflows
+  - `data-science/jupyter-notebook` — Jupyter notebook management
+  - `devops/ci-cd-pipeline` — CI/CD pipeline setup and management
+  - `devops/docker-management` — Docker container and image management
+  - `devops/webhook-subscriptions` — webhook integration and subscription management
+- Apple skills reorganized into `apple/` subdirectory: `apple-notes`, `apple-reminders`, `findmy`, `imessage`, `macos-computer-use`
+
+### Changed
+- **StatusBar** is now always visible — idle: shows total session duration and last round time; busy: shows current request duration (unchanged)
+- **LLM provider/model format** — `anthropic/claude-sonnet-4-6`, `openai/gpt-4o`, `google/gemini-2.5-pro` and similar `provider/model_name` strings now resolve correctly alongside existing short prefixes (`claude-*`, `gpt-*`, `gemini-*`); Hermes-compatible; fully backward compatible
+- MCP marketplace UI translated from Turkish to English
+- URL and documentation fields updated in `README.md` and `src/main.ts`
+
+### Fixed
+- **`computer_use` tool schema** (`src/tools/computer_use.ts`, `src/core/agent.ts`, `src/core/llm.ts`) — replaced `z.tuple()` with `z.array()` to fix tool call failures with OpenRouter and other providers
+- **`send_message` tool** (`src/tools/brief_tool.ts`) — added `.default("normal")` to the `status` field; prevents Zod validation errors (`[object Object]` in logs) when weaker/free LLM models omit the required field
+
+---
+
 ## [2.0.0] — 2026-05-17
 
 ### Added
