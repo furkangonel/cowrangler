@@ -7,17 +7,29 @@ process.on("unhandledRejection", (reason: any) => {
   console.error(chalk.red("\n  ✗ UNHANDLED REJECTION:"));
   console.log(util.inspect(reason, { depth: null, colors: true }));
   // Log dosyalarını kapat
-  try { require("./core/logger.js").closeLogger?.(); } catch { /* yok say */ }
+  try {
+    require("./core/logger.js").closeLogger?.();
+  } catch {
+    /* yok say */
+  }
   process.exit(1);
 });
 process.on("uncaughtException", (err) => {
   console.error(chalk.red("\n  ✗ UNCAUGHT EXCEPTION:"));
   console.log(util.inspect(err, { depth: null, colors: true }));
-  try { require("./core/logger.js").closeLogger?.(); } catch { /* yok say */ }
+  try {
+    require("./core/logger.js").closeLogger?.();
+  } catch {
+    /* yok say */
+  }
   process.exit(1);
 });
 process.on("SIGTERM", () => {
-  try { require("./core/logger.js").closeLogger?.(); } catch { /* yok say */ }
+  try {
+    require("./core/logger.js").closeLogger?.();
+  } catch {
+    /* yok say */
+  }
   process.exit(0);
 });
 
@@ -40,11 +52,11 @@ if (args.includes("--help") || args.includes("-h")) {
       "    cowrangler setup               Interactive provider setup wizard",
       "    cowrangler -p <profile>        Run with a named profile",
       "    cowrangler model               Interactive model picker (arrow keys)",
-    "    cowrangler gateway setup       Configure Telegram/Discord bot (wizard)",
-    "    cowrangler gateway start       Start Telegram/Discord gateway",
-    "    cowrangler mcp browse          MCP marketplace — browse & install servers",
-    "    cowrangler mcp add             Add an MCP server (interactive wizard)",
-    "    cowrangler mcp list            List configured MCP servers",
+      "    cowrangler gateway setup       Configure Telegram/Discord bot (wizard)",
+      "    cowrangler gateway start       Start Telegram/Discord gateway",
+      "    cowrangler mcp browse          MCP marketplace — browse & install servers",
+      "    cowrangler mcp add             Add an MCP server (interactive wizard)",
+      "    cowrangler mcp list            List configured MCP servers",
       "    cowrangler cron list           List scheduled jobs",
       "    cowrangler cron create         Create a scheduled job",
       "    cowrangler cron daemon         Start the cron scheduler daemon",
@@ -104,7 +116,7 @@ if (args.includes("--help") || args.includes("-h")) {
       "    Groq        (groq/*)                 → GROQ_API_KEY",
       "    OpenRouter  (openrouter/* or x/y)    → OPENROUTER_API_KEY",
       "",
-      chalk.dim("  https://github.com/furkangonel/co-wrangler"),
+      chalk.dim("  https://github.com/furkangonel/cowrangler"),
       "",
     ].join("\n"),
   );
@@ -143,11 +155,17 @@ if (args[0] === "update") {
   try {
     // Mevcut sürümü göster
     const pkgPath = new URL("../package.json", import.meta.url);
-    const pkg = JSON.parse(await import("fs").then((fs) => fs.default.readFileSync(pkgPath, "utf-8")));
+    const pkg = JSON.parse(
+      await import("fs").then((fs) =>
+        fs.default.readFileSync(pkgPath, "utf-8"),
+      ),
+    );
     console.log(`  Current: ${chalk.dim(pkg.version)}`);
 
     // npm'den latest sürümü al
-    const latest = execSync("npm view co-wrangler version 2>/dev/null", { encoding: "utf-8" }).trim();
+    const latest = execSync("npm view co-wrangler version 2>/dev/null", {
+      encoding: "utf-8",
+    }).trim();
     if (latest) console.log(`  Latest : ${chalk.green(latest)}`);
 
     if (latest && pkg.version === latest) {
@@ -157,9 +175,16 @@ if (args[0] === "update") {
 
     console.log(chalk.cyan("\n  Updating via npm...\n"));
     execSync("npm install -g co-wrangler@latest", { stdio: "inherit" });
-    console.log(chalk.green("\n  ✓ Update complete! Restart cowrangler to use the new version.\n"));
+    console.log(
+      chalk.green(
+        "\n  ✓ Update complete! Restart cowrangler to use the new version.\n",
+      ),
+    );
   } catch (err: any) {
-    console.error(chalk.red("\n  ✗ Update failed:"), err.message ?? String(err));
+    console.error(
+      chalk.red("\n  ✗ Update failed:"),
+      err.message ?? String(err),
+    );
     console.log(chalk.dim("  Try: npm install -g co-wrangler@latest\n"));
     process.exit(1);
   }
@@ -168,7 +193,8 @@ if (args[0] === "update") {
 
 // ── cowrangler gateway setup — Telegram/Discord kurulum sihirbazı ────
 if (args[0] === "gateway" && args[1] === "setup") {
-  const { initEnvironment, loadEnvironmentVariables } = await import("./core/init.js");
+  const { initEnvironment, loadEnvironmentVariables } =
+    await import("./core/init.js");
   initEnvironment();
   loadEnvironmentVariables();
   const { runGatewaySetupWizard } = await import("./cli/gateway_wizard.js");
@@ -178,7 +204,8 @@ if (args[0] === "gateway" && args[1] === "setup") {
 
 // ── cowrangler gateway start ──────────────────────────────────────────
 if (args[0] === "gateway" && args[1] === "start") {
-  const { initEnvironment, loadEnvironmentVariables } = await import("./core/init.js");
+  const { initEnvironment, loadEnvironmentVariables } =
+    await import("./core/init.js");
   initEnvironment();
   loadEnvironmentVariables();
   const { gatewayMain } = await import("./gateway/run.js");
@@ -188,7 +215,8 @@ if (args[0] === "gateway" && args[1] === "start") {
 
 // ── cowrangler mcp add — interaktif MCP sunucu kurulum sihirbazı ─────
 if (args[0] === "mcp" && args[1] === "add") {
-  const { initEnvironment, loadEnvironmentVariables } = await import("./core/init.js");
+  const { initEnvironment, loadEnvironmentVariables } =
+    await import("./core/init.js");
   initEnvironment();
   loadEnvironmentVariables();
   const { runMcpAddWizard } = await import("./cli/mcp_wizard.js");
@@ -198,7 +226,8 @@ if (args[0] === "mcp" && args[1] === "add") {
 
 // ── cowrangler mcp browse — MCP marketplace ──────────────────────────
 if (args[0] === "mcp" && args[1] === "browse") {
-  const { initEnvironment, loadEnvironmentVariables } = await import("./core/init.js");
+  const { initEnvironment, loadEnvironmentVariables } =
+    await import("./core/init.js");
   initEnvironment();
   loadEnvironmentVariables();
   const { runMcpBrowse } = await import("./cli/mcp_browse.js");
@@ -208,7 +237,8 @@ if (args[0] === "mcp" && args[1] === "browse") {
 
 // ── cowrangler mcp list — MCP sunucu listesi ─────────────────────────
 if (args[0] === "mcp" && args[1] === "list") {
-  const { initEnvironment, loadEnvironmentVariables } = await import("./core/init.js");
+  const { initEnvironment, loadEnvironmentVariables } =
+    await import("./core/init.js");
   initEnvironment();
   loadEnvironmentVariables();
   const { runMcpAddWizard } = await import("./cli/mcp_wizard.js");
@@ -217,18 +247,27 @@ if (args[0] === "mcp" && args[1] === "list") {
   const { DIRS } = await import("./core/init.js");
   let cfg: any = {};
   if (fs.existsSync(DIRS.global.config)) {
-    cfg = (yaml.load(fs.readFileSync(DIRS.global.config, "utf-8")) as any) || {};
+    cfg =
+      (yaml.load(fs.readFileSync(DIRS.global.config, "utf-8")) as any) || {};
   }
   const servers = cfg.mcp_servers || {};
   const names = Object.keys(servers);
   if (names.length === 0) {
-    console.log(chalk.dim("  No MCP servers configured. Run: cowrangler mcp add"));
+    console.log(
+      chalk.dim("  No MCP servers configured. Run: cowrangler mcp add"),
+    );
   } else {
     console.log(chalk.bold("\n  Configured MCP Servers\n"));
     for (const name of names) {
       const s = servers[name];
-      const transport = s.command ? `stdio  (${s.command})` : s.transport === "sse" ? "SSE" : `HTTP (${s.url})`;
-      console.log(`  ${chalk.hex("#FF4C00").bold("◆")} ${chalk.bold(name.padEnd(20))} ${chalk.dim(transport)}`);
+      const transport = s.command
+        ? `stdio  (${s.command})`
+        : s.transport === "sse"
+          ? "SSE"
+          : `HTTP (${s.url})`;
+      console.log(
+        `  ${chalk.hex("#FF4C00").bold("◆")} ${chalk.bold(name.padEnd(20))} ${chalk.dim(transport)}`,
+      );
     }
     console.log();
   }
@@ -237,7 +276,8 @@ if (args[0] === "mcp" && args[1] === "list") {
 
 // ── cowrangler model — interaktif model seçici (standalone) ──────────
 if (args[0] === "model") {
-  const { initEnvironment, loadEnvironmentVariables } = await import("./core/init.js");
+  const { initEnvironment, loadEnvironmentVariables } =
+    await import("./core/init.js");
   initEnvironment();
   loadEnvironmentVariables();
   const { runModelPicker } = await import("./cli/model_picker_cli.js");
@@ -247,7 +287,8 @@ if (args[0] === "model") {
 
 // ── cowrangler cron ───────────────────────────────────────────────────
 if (args[0] === "cron") {
-  const { initEnvironment, loadEnvironmentVariables } = await import("./core/init.js");
+  const { initEnvironment, loadEnvironmentVariables } =
+    await import("./core/init.js");
   initEnvironment();
   loadEnvironmentVariables();
   const { getCronJobStore } = await import("./cron/jobs.js");
@@ -261,7 +302,9 @@ if (args[0] === "cron") {
       for (const j of jobs) {
         const status = j.enabled ? "✓" : "✗";
         const next = new Date(j.next_run).toLocaleString();
-        console.log(`  ${status} [${j.id.slice(0, 8)}] ${j.name} — ${j.schedule} → next: ${next}`);
+        console.log(
+          `  ${status} [${j.id.slice(0, 8)}] ${j.name} — ${j.schedule} → next: ${next}`,
+        );
       }
     }
     process.exit(0);
@@ -273,7 +316,9 @@ if (args[0] === "cron") {
     const schedIdx = args.indexOf("--schedule");
     const promptIdx = args.indexOf("--prompt");
     if (nameIdx < 0 || schedIdx < 0 || promptIdx < 0) {
-      console.error("  Usage: cowrangler cron create --name <name> --schedule <schedule> --prompt <prompt>");
+      console.error(
+        "  Usage: cowrangler cron create --name <name> --schedule <schedule> --prompt <prompt>",
+      );
       process.exit(1);
     }
     const job = store.create({
@@ -304,7 +349,13 @@ if (args[0] === "cron") {
       const config = getConfig();
       const model = job.model ?? config.model;
       const llm = new LLM(model, config.temperature);
-      const agent = new Agent(llm, config.system_prompt, config.max_iterations, undefined, "cron");
+      const agent = new Agent(
+        llm,
+        config.system_prompt,
+        config.max_iterations,
+        undefined,
+        "cron",
+      );
       const result = await agent.chat(job.prompt);
       return result.text;
     });
@@ -317,7 +368,8 @@ if (args[0] === "cron") {
 
 // ── cowrangler kanban ─────────────────────────────────────────────────
 if (args[0] === "kanban") {
-  const { initEnvironment, loadEnvironmentVariables } = await import("./core/init.js");
+  const { initEnvironment, loadEnvironmentVariables } =
+    await import("./core/init.js");
   initEnvironment();
   loadEnvironmentVariables();
   const { getKanbanDB } = await import("./kanban/db.js");
@@ -329,8 +381,18 @@ if (args[0] === "kanban") {
       console.log("  No tasks.");
     } else {
       for (const t of tasks) {
-        const icon = { pending: "⏳", claimed: "🔵", running: "🟡", done: "✅", failed: "❌", blocked: "🚫" }[t.status] ?? "?";
-        console.log(`  ${icon} [${t.id.slice(0, 8)}] ${t.title} (${t.priority})`);
+        const icon =
+          {
+            pending: "⏳",
+            claimed: "🔵",
+            running: "🟡",
+            done: "✅",
+            failed: "❌",
+            blocked: "🚫",
+          }[t.status] ?? "?";
+        console.log(
+          `  ${icon} [${t.id.slice(0, 8)}] ${t.title} (${t.priority})`,
+        );
       }
     }
     process.exit(0);
@@ -339,7 +401,9 @@ if (args[0] === "kanban") {
   if (args[1] === "create") {
     const titleIdx = args.indexOf("--title");
     if (titleIdx < 0) {
-      console.error("  Usage: cowrangler kanban create --title <title> [--description <desc>]");
+      console.error(
+        "  Usage: cowrangler kanban create --title <title> [--description <desc>]",
+      );
       process.exit(1);
     }
     const descIdx = args.indexOf("--description");
@@ -353,7 +417,9 @@ if (args[0] === "kanban") {
 
   if (args[1] === "stats") {
     const stats = db.stats();
-    console.log(`  Total: ${stats.total}  Pending: ${stats.pending}  Running: ${stats.running}  Done: ${stats.done}  Blocked: ${stats.blocked}`);
+    console.log(
+      `  Total: ${stats.total}  Pending: ${stats.pending}  Running: ${stats.running}  Done: ${stats.done}  Blocked: ${stats.blocked}`,
+    );
     process.exit(0);
   }
 
@@ -382,11 +448,13 @@ if (args[0] === "replay") {
   const doAssert = args.includes("--assert");
   const verbose = args.includes("--verbose");
   const turnsIdx = args.indexOf("--turns");
-  const turns = turnsIdx >= 0 && args[turnsIdx + 1]
-    ? args[turnsIdx + 1].split(",").map(Number)
-    : undefined;
+  const turns =
+    turnsIdx >= 0 && args[turnsIdx + 1]
+      ? args[turnsIdx + 1].split(",").map(Number)
+      : undefined;
 
-  const { loadTrajectory, replayTrajectory, runAssertions } = await import("./core/trajectory.js");
+  const { loadTrajectory, replayTrajectory, runAssertions } =
+    await import("./core/trajectory.js");
 
   const traj = loadTrajectory(file);
 
@@ -407,10 +475,13 @@ if (args[0] === "replay") {
     }
     console.log();
     for (const t of traj.turns) {
-      const toolSummary = t.toolCalls.length > 0
-        ? `  [${t.toolCalls.map((c) => c.name).join(", ")}]`
-        : "";
-      console.log(`  Turn ${t.index}: ${t.userMessage.slice(0, 80)}...${toolSummary}`);
+      const toolSummary =
+        t.toolCalls.length > 0
+          ? `  [${t.toolCalls.map((c) => c.name).join(", ")}]`
+          : "";
+      console.log(
+        `  Turn ${t.index}: ${t.userMessage.slice(0, 80)}...${toolSummary}`,
+      );
       console.log(`           → ${t.assistantResponse.slice(0, 120)}...`);
       console.log(`           tokens:${t.tokenCount} time:${t.durationMs}ms`);
     }
@@ -418,9 +489,12 @@ if (args[0] === "replay") {
   }
 
   // ── replay modu ────────────────────────────────────────────────────
-  console.log(`\n  Replaying: ${file}  (${traj.meta.totalTurns} turns, model: ${traj.meta.model})\n`);
+  console.log(
+    `\n  Replaying: ${file}  (${traj.meta.totalTurns} turns, model: ${traj.meta.model})\n`,
+  );
 
-  const { initEnvironment, loadEnvironmentVariables } = await import("./core/init.js");
+  const { initEnvironment, loadEnvironmentVariables } =
+    await import("./core/init.js");
   initEnvironment();
   loadEnvironmentVariables();
 
@@ -438,7 +512,9 @@ if (args[0] === "replay") {
       console.log("\n  Assertions:");
       for (const r of assertResults) {
         const icon = r.passed ? "✓" : "✗";
-        console.log(`  ${icon} ${r.description}${r.reason ? ` (${r.reason})` : ""}`);
+        console.log(
+          `  ${icon} ${r.description}${r.reason ? ` (${r.reason})` : ""}`,
+        );
         if (!r.passed) failed++;
       }
       process.exit(failed > 0 ? 1 : 0);
@@ -467,16 +543,19 @@ if (args[0] === "batch") {
     const summary = await runBatch({
       file: args[fileIdx + 1],
       outputFile: outputIdx >= 0 ? args[outputIdx + 1] : undefined,
-      concurrency: concurrencyIdx >= 0 ? parseInt(args[concurrencyIdx + 1] ?? "3", 10) : 3,
-      maxRetries: retriesIdx >= 0 ? parseInt(args[retriesIdx + 1] ?? "1", 10) : 1,
+      concurrency:
+        concurrencyIdx >= 0 ? parseInt(args[concurrencyIdx + 1] ?? "3", 10) : 3,
+      maxRetries:
+        retriesIdx >= 0 ? parseInt(args[retriesIdx + 1] ?? "1", 10) : 1,
       verbose: args.includes("--verbose"),
     });
 
     // Özet çıktısı
     const totalSec = (summary.totalDurationMs / 1000).toFixed(1);
-    const successRate = summary.total > 0
-      ? Math.round((summary.succeeded / summary.total) * 100)
-      : 0;
+    const successRate =
+      summary.total > 0
+        ? Math.round((summary.succeeded / summary.total) * 100)
+        : 0;
     console.log(`\n  ┌─ Batch Run Complete ─────────────────────────────`);
     console.log(`  │  Total tasks  : ${summary.total}`);
     console.log(`  │  Succeeded    : ${summary.succeeded}  (${successRate}%)`);
@@ -490,13 +569,16 @@ if (args[0] === "batch") {
     process.exit(summary.failed > 0 ? 1 : 0);
   }
 
-  console.error("  Usage: cowrangler batch run --file tasks.jsonl [--output results.jsonl] [--concurrency 3] [--retries 1] [--verbose]");
+  console.error(
+    "  Usage: cowrangler batch run --file tasks.jsonl [--output results.jsonl] [--concurrency 3] [--retries 1] [--verbose]",
+  );
   process.exit(1);
 }
 
 // ── cowrangler profile ────────────────────────────────────────────────
 if (args[0] === "profile") {
-  const { listProfiles, createProfile, deleteProfile } = await import("./core/profile.js");
+  const { listProfiles, createProfile, deleteProfile } =
+    await import("./core/profile.js");
 
   if (args[1] === "list") {
     const profiles = listProfiles();
@@ -504,7 +586,9 @@ if (args[0] === "profile") {
       console.log("  No profiles. Use: cowrangler profile create <name>");
     } else {
       for (const p of profiles) {
-        console.log(`  • ${p.name}  model: ${p.model ?? "default"}  dir: ${p.dir}`);
+        console.log(
+          `  • ${p.name}  model: ${p.model ?? "default"}  dir: ${p.dir}`,
+        );
       }
     }
     process.exit(0);
@@ -522,7 +606,9 @@ if (args[0] === "profile") {
     process.exit(0);
   }
 
-  console.error("  Usage: cowrangler profile [list|create <name>|delete <name>]");
+  console.error(
+    "  Usage: cowrangler profile [list|create <name>|delete <name>]",
+  );
   process.exit(1);
 }
 
@@ -588,7 +674,8 @@ async function main() {
   initSkin();
 
   // ── Credential pool — ENV'den çoklu anahtar yükle ───────────────────────
-  const { getCredentialPool: _initPool } = await import("./core/credential_pool.js");
+  const { getCredentialPool: _initPool } =
+    await import("./core/credential_pool.js");
   _initPool(); // Singleton'ı başlat — lazy load yerine startup'ta yükle
 
   // ── Plugin sistemi ────────────────────────────────────────────────────────
@@ -596,7 +683,10 @@ async function main() {
   await initPlugins();
 
   // ── MCP sunucuları ────────────────────────────────────────────────────────
-  if (configuration.mcp_servers && Object.keys(configuration.mcp_servers).length > 0) {
+  if (
+    configuration.mcp_servers &&
+    Object.keys(configuration.mcp_servers).length > 0
+  ) {
     try {
       const { getMCPManager } = await import("./core/mcp_client.js");
       await getMCPManager().init(configuration.mcp_servers);

@@ -108,7 +108,7 @@ irm https://cowrangler.com/install.ps1 | iex
 
 ```bash
 # 1. Clone and install globally
-git clone https://github.com/furkangonel/co-wrangler.git
+git clone https://github.com/furkangonel/cowrangler.git
 cd co-wrangler
 npm run setup
 
@@ -530,8 +530,8 @@ MIT — free to use, modify, and distribute.
 ---
 
 <p align="center">
-  <a href="https://github.com/furkangonel/co-wrangler">GitHub</a> •
-  <a href="https://github.com/furkangonel/co-wrangler/issues">Issues</a> •
-  <a href="https://github.com/furkangonel/co-wrangler/discussions">Discussions</a> •
-  <a href="https://github.com/furkangonel/co-wrangler/blob/main/LICENSE">License</a>
+  <a href="https://github.com/furkangonel/cowrangler">GitHub</a> •
+  <a href="https://github.com/furkangonel/cowrangler/issues">Issues</a> •
+  <a href="https://github.com/furkangonel/cowrangler/discussions">Discussions</a> •
+  <a href="https://github.com/furkangonel/cowrangler/blob/main/LICENSE">License</a>
 </p>
