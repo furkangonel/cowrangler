@@ -43,21 +43,40 @@ export class SkillManager {
 
     const items = fs.readdirSync(dirPath);
     for (const item of items) {
-      const skillPath = path.join(dirPath, item);
+      const itemPath = path.join(dirPath, item);
       try {
-        if (!fs.statSync(skillPath).isDirectory()) continue;
-        const skillFile = path.join(skillPath, "SKILL.md");
-        if (!fs.existsSync(skillFile)) continue;
+        if (!fs.statSync(itemPath).isDirectory()) continue;
 
-        const content = fs.readFileSync(skillFile, "utf-8");
-        const { metadata, body } = this._parseFrontmatter(content);
+        const skillFile = path.join(itemPath, "SKILL.md");
+        if (fs.existsSync(skillFile)) {
+          // Direct skill folder (flat structure)
+          const content = fs.readFileSync(skillFile, "utf-8");
+          const { metadata, body } = this._parseFrontmatter(content);
+          const id = item;
+          const name = metadata.name || id;
+          const description = metadata.description || "No description.";
+          map.set(id, { id, name, description, source, content: body });
+        } else {
+          // Category folder — recurse one level deeper
+          const subItems = fs.readdirSync(itemPath);
+          for (const subItem of subItems) {
+            const subSkillPath = path.join(itemPath, subItem);
+            try {
+              if (!fs.statSync(subSkillPath).isDirectory()) continue;
+              const subSkillFile = path.join(subSkillPath, "SKILL.md");
+              if (!fs.existsSync(subSkillFile)) continue;
 
-        // Use folder name as fallback id if frontmatter name is missing
-        const id = item;
-        const name = metadata.name || id;
-        const description = metadata.description || "No description.";
-
-        map.set(id, { id, name, description, source, content: body });
+              const content = fs.readFileSync(subSkillFile, "utf-8");
+              const { metadata, body } = this._parseFrontmatter(content);
+              const id = subItem;
+              const name = metadata.name || id;
+              const description = metadata.description || "No description.";
+              map.set(id, { id, name, description, source, content: body });
+            } catch {
+              // Skip malformed nested skill directories silently
+            }
+          }
+        }
       } catch {
         // Skip malformed skill directories silently
       }

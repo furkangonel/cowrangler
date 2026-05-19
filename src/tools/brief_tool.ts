@@ -72,6 +72,7 @@ Best practices:
         ),
       status: z
         .enum(["normal", "proactive"])
+        .default("normal")
         .describe(
           'Use "proactive" when surfacing something the user did not ask for. Use "normal" when replying to what they just said.',
         ),
