@@ -1,0 +1,96 @@
+{
+  "prompt": {
+    "hint": "? für Tastenkürzel"
+  },
+  "spinner": {
+    "thinking": "Nachdenken...",
+    "step": "Schritt",
+    "steps": "Schritte"
+  },
+  "commands": {
+    "help_desc": "Alle verfügbaren Befehle anzeigen.",
+    "exit_desc": "Co-Wrangler beenden.",
+    "reset_desc": "Gesprächsverlauf löschen und Projektgedächtnis vom Datenträger neu laden.",
+    "status_desc": "Aktuelle Sitzung anzeigen: Modell, Kontext, Gedächtnis, Skills, Werkzeuge.",
+    "version_desc": "Co-Wrangler-Version anzeigen.",
+    "tools_desc": "Alle verfügbaren Werkzeuge (Fähigkeiten) auflisten.",
+    "skills_desc": "Alle geladenen Skills (SOPs) auflisten.",
+    "skill_desc": "Einen Skill verwenden: /skill <id> [Aufgabe]  oder nur /skill <id>",
+    "model_desc": "Das aktive Modell interaktiv wechseln.",
+    "unknown": "Unbekannter Befehl: {cmd}. Tippe /help für die vollständige Liste.",
+    "tip_autocomplete": "+ TAB für Autovervollständigung",
+    "tip_history": "zum Durchsuchen des Verlaufs",
+    "tip_type": "Tippe",
+    "tip_press": "Drücke",
+    "box_title": "Co-Wrangler Befehle"
+  },
+  "status": {
+    "context_cleared": "Kontext gelöscht. Gedächtnis neu geladen.",
+    "skill_not_found": "Skill '{id}' nicht gefunden. Tippe /skills für die Liste.",
+    "no_skills": "Keine Skills gefunden. Füge welche in ~/.cowrangler/skills/ oder .cowrangler/skills/ hinzu.",
+    "tools_loaded": "{n} Werkzeuge verfügbar",
+    "skills_loaded_count": "Skills ({n} geladen)",
+    "run_skill": "Ausführen:",
+    "read_skill": "Lesen:",
+    "session_status_title": "Sitzungsstatus",
+    "available_tools_title": "Verfügbare Werkzeuge",
+    "model_label": "Modell         ",
+    "context_label": "Kontext        ",
+    "iterations_label": "Max. Iterationen",
+    "memory_label": "Projektgedächtnis",
+    "skills_label": "Geladene Skills",
+    "tools_label": "Verf. Werkzeuge",
+    "workdir_label": "Arbeitsverz.   ",
+    "memory_empty": "leer",
+    "skills_summary": "gebündelt + global + lokal"
+  },
+  "ui": {
+    "agent": "Agent",
+    "proactive_label": "[proaktiv]  ",
+    "message_label": "[Nachricht] ",
+    "session_terminated": "Sitzung beendet. Auf Wiedersehen!"
+  },
+  "shortcuts": {
+    "commands": "/ für Befehle",
+    "file_paths": "@ für Dateipfade",
+    "shortcuts": "? für Tastenkürzel",
+    "side_note": "/btw für eine Randnotiz",
+    "scan_project": "/init  Projekt scannen",
+    "clear_context": "/reset  Kontext löschen",
+    "line_start": "ctrl+a  Zeilenanfang",
+    "line_end": "ctrl+e  Zeilenende",
+    "kill_start": "ctrl+u  bis zum Anfang löschen",
+    "kill_end": "ctrl+k  bis zum Ende löschen",
+    "clear_screen": "ctrl+l  Bildschirm löschen",
+    "exit": "ctrl+c  Beenden",
+    "delete_word": "ctrl+w  Wort rückwärts löschen",
+    "autocomplete": "TAB  Autovervollständigung",
+    "newline": "shift+↵ / opt+↵  neue Zeile",
+    "history": "↑↓  Verlauf durchsuchen",
+    "dismiss": "ESC  Menü schließen",
+    "customize": "/keybindings anpassen"
+  },
+  "dashboard": {
+    "tagline": "Dein persönlicher KI-Agent",
+    "tips_title": "Tipps für den Einstieg",
+    "context_found": "COWRNGLR.md gefunden",
+    "agent_has_context": "Agent hat Projektkontext.",
+    "run_init": "Führe /init aus, um zu beginnen",
+    "init_description": "Erstellt COWRNGLR.md mit Projektkontext für den Agenten.",
+    "whats_new": "Neuigkeiten",
+    "feature_init": "+ /init  Projekt scannen & indizieren",
+    "feature_skills": "+ /skills  geladene SOPs auflisten",
+    "feature_tools": "+ /tools  Fähigkeiten auflisten",
+    "feature_memory": "+ /memory  Projektgedächtnis",
+    "feature_file": "+ @Datei  Pfadvervollständigung",
+    "feature_shortcuts": "+ ?  Live-Tastenkürzel-Referenz"
+  },
+  "setup": {
+    "api_key_empty": "API-Schlüssel darf nicht leer sein",
+    "anthropic_key_invalid": "Anthropic-Schlüssel müssen mit 'sk-ant-' beginnen",
+    "key_saved": "{key} gespeichert.",
+    "anthropic_key_prompt": "Anthropic API-Schlüssel:",
+    "openai_key_prompt": "OpenAI API-Schlüssel:",
+    "google_key_prompt": "Google Generative AI API-Schlüssel:"
+  }
+}

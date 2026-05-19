@@ -24,14 +24,15 @@ process.on("SIGTERM", () => {
 // ── CLI flags ──────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
 if (args.includes("--version") || args.includes("-v")) {
-  console.log("Co-Wrangler v2.0.0");
+  const { getVersion: gv } = await import("./core/init.js");
+  console.log(`Co-Wrangler v${gv()}`);
   process.exit(0);
 }
 if (args.includes("--help") || args.includes("-h")) {
   console.log(
     [
       "",
-      chalk.hex("#FF4C00").bold("  Co-Wrangler v2.0.0") +
+      chalk.hex("#FF4C00").bold(`  Co-Wrangler v${getVersion()}`) +
         chalk.dim(" — Enterprise AI Agent for the terminal"),
       "",
       chalk.bold("  Usage:"),
@@ -118,6 +119,17 @@ if (args[0] === "setup") {
   loadEnvironmentVariables();
   const { runSetupWizard } = await import("./ui/setup.js");
   await runSetupWizard();
+  process.exit(0);
+}
+
+// ── cowrangler language — change UI language ──────────────────────────
+if (args[0] === "language" || args[0] === "lang") {
+  const { initEnvironment, loadEnvironmentVariables } =
+    await import("./core/init.js");
+  initEnvironment();
+  loadEnvironmentVariables();
+  const { runLanguageWizard } = await import("./ui/setup.js");
+  await runLanguageWizard(true);
   process.exit(0);
 }
 
@@ -539,6 +551,7 @@ import {
   initEnvironment,
   getConfig,
   loadEnvironmentVariables,
+  getVersion,
   PROJECT_ROOT,
 } from "./core/init.js";
 
@@ -565,6 +578,10 @@ async function main() {
   initEnvironment();
   const configuration = getConfig();
   setWorkspace(PROJECT_ROOT);
+
+  // ── i18n — load locale from config ──────────────────────────────────────
+  const { initI18n } = await import("./i18n/index.js");
+  initI18n(configuration.language ?? "en");
 
   // ── Skin motoru — stored choice'ı yükle ─────────────────────────────────
   const { initSkin } = await import("./core/skin.js");

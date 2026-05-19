@@ -12,7 +12,9 @@ import {
   COWRNGLR_MD,
   PROJECT_ROOT,
   ensureLocalMemory,
+  getVersion,
 } from "../core/init.js";
+import { t } from "../i18n/index.js";
 import { missingKeyHint, showSetupGuide } from "./setup.js";
 import { SUB_AGENTS } from "../core/subagents.js";
 import { getSandboxConfig, configureSandbox } from "../core/sandbox.js";
@@ -60,14 +62,14 @@ export class CommandRouter {
       await command.execute(args, ctx);
       return true;
     }
-    UI.error(`Unknown command: ${cmdName}. Type /help for the full list.`);
+    UI.error(t("commands.unknown", { cmd: cmdName }));
     return false;
   }
 
   private _registerCoreCommands() {
     // ── /help ─────────────────────────────────────────────────────────────────
     this.commands.set("/help", {
-      description: "Show all available commands.",
+      description: t("commands.help_desc"),
       execute: () => {
         const lines = Array.from(this.commands.entries())
           .sort((a, b) => a[0].localeCompare(b[0]))
@@ -88,27 +90,25 @@ export class CommandRouter {
 
     // ── /exit ─────────────────────────────────────────────────────────────────
     this.commands.set("/exit", {
-      description: "Exit Co-Wrangler.",
+      description: t("commands.exit_desc"),
       execute: () => {
-        UI.warn("Session terminated. Goodbye!");
+        UI.warn(t("ui.session_terminated"));
         process.exit(0);
       },
     });
 
     // ── /reset ────────────────────────────────────────────────────────────────
     this.commands.set("/reset", {
-      description:
-        "Clear conversation history and reload project memory from disk.",
+      description: t("commands.reset_desc"),
       execute: (args: string[], ctx: CommandContext) => {
         ctx.agent.reset();
-        UI.success("Context cleared. Memory reloaded.");
+        UI.success(t("status.context_cleared"));
       },
     });
 
     // ── /status ───────────────────────────────────────────────────────────────
     this.commands.set("/status", {
-      description:
-        "Show current session: model, context, memory, skills, tools.",
+      description: t("commands.status_desc"),
       execute: (args: string[], ctx: CommandContext) => {
         const skills = ctx.skillManager.getAvailableSkills();
         const memExists = fs.existsSync(DIRS.local.memory);
@@ -123,46 +123,44 @@ export class CommandRouter {
           `  ${Theme.dim("Tools Available")} ${Theme.accent(`${toolCount}`)}`,
           `  ${Theme.dim("Working Dir    ")} ${Theme.accent(process.cwd())}`,
         ];
-        UI.box(lines.join("\n"), "Session Status");
+        UI.box(lines.join("\n"), t("status.session_status_title"));
       },
     });
 
     // ── /version ──────────────────────────────────────────────────────────────
     this.commands.set("/version", {
-      description: "Show Co-Wrangler version.",
+      description: t("commands.version_desc"),
       execute: () => {
-        UI.info("Co-Wrangler v2.0.0");
+        UI.info(`Co-Wrangler v${getVersion()}`);
       },
     });
 
     // ── /tools ────────────────────────────────────────────────────────────────
     this.commands.set("/tools", {
-      description: "List all available tools (capabilities).",
+      description: t("commands.tools_desc"),
       execute: () => {
         const entries = Object.entries(TOOL_SCHEMAS).sort(([a], [b]) =>
           a.localeCompare(b),
         );
         const lines: string[] = [
-          `  ${Theme.dim(`${entries.length} tools available`)}\n`,
+          `  ${Theme.dim(t("status.tools_loaded", { n: String(entries.length) }))}\n`,
         ];
         entries.forEach(([name, schema]) =>
           lines.push(
             `  ${Theme.success(`• ${name.padEnd(22)}`)} ${Theme.dim(schema.description.split("\n")[0].slice(0, 58))}`,
           ),
         );
-        UI.box(lines.join("\n"), "Available Tools");
+        UI.box(lines.join("\n"), t("status.available_tools_title"));
       },
     });
 
     // ── /skills ───────────────────────────────────────────────────────────────
     this.commands.set("/skills", {
-      description: "List all loaded skills (SOPs).",
+      description: t("commands.skills_desc"),
       execute: (args: string[], ctx: CommandContext) => {
         const skills = ctx.skillManager.getAvailableSkills();
         if (!skills.length) {
-          return UI.warn(
-            "No skills found. Add to ~/.cowrangler/skills/ or .cowrangler/skills/",
-          );
+          return UI.warn(t("status.no_skills"));
         }
         const bySource: Record<string, any[]> = {
           bundled: [],
@@ -184,14 +182,13 @@ export class CommandRouter {
         lines.push(
           `  ${Theme.dim("Run:")} ${Theme.accent("/skill <id> <task>")}  ${Theme.dim("Read:")} ${Theme.accent("/skill <id>")}`,
         );
-        UI.box(lines.join("\n"), `Skills (${skills.length} loaded)`);
+        UI.box(lines.join("\n"), t("status.skills_loaded_count", { n: String(skills.length) }));
       },
     });
 
     // ── /skill ────────────────────────────────────────────────────────────────
     this.commands.set("/skill", {
-      description:
-        "Use a skill: /skill <id> [task]  or just /skill <id> to stage it",
+      description: t("commands.skill_desc"),
       execute: async (args: string[], ctx: CommandContext) => {
         if (!args.length)
           return UI.error("Usage: /skill <skill_id> [task description]");
@@ -245,6 +242,34 @@ export class CommandRouter {
           );
         }
         UI.error("Usage: /memory [show|clear]");
+      },
+    });
+
+    // ── /language ─────────────────────────────────────────────────────────────
+    this.commands.set("/language", {
+      description: "Change the interface language (tr, en, fr, de, it, es).",
+      execute: async (args: string[]) => {
+        const LANGS: Record<string, string> = {
+          en: "English", tr: "Türkçe", fr: "Français",
+          de: "Deutsch", it: "Italiano", es: "Español",
+        };
+        // cowrangler /language tr  — direct set
+        if (args[0] && LANGS[args[0]]) {
+          const { saveLanguage } = await import("./setup.js");
+          const { initI18n } = await import("../i18n/index.js");
+          saveLanguage(args[0]);
+          initI18n(args[0]);
+          UI.success(`Language switched to ${LANGS[args[0]]}. Restart for full effect.`);
+          return;
+        }
+        // /language with no arg — show picker hint (wizard needs terminal outside Ink)
+        const options = Object.entries(LANGS)
+          .map(([code, label]) => `    ${Theme.accent(code.padEnd(4))} ${Theme.dim(label)}`)
+          .join("\n");
+        UI.box(
+          `  To change language run outside Co-Wrangler:\n\n    cowrangler language\n\n  Or set directly: /language <code>\n\n${options}`,
+          "Interface Language",
+        );
       },
     });
 

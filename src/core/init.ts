@@ -3,6 +3,20 @@ import path from "path";
 import os from "os";
 import yaml from "js-yaml";
 import dotenv from "dotenv";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/** Single source of truth for the app version — reads from package.json. */
+export function getVersion(): string {
+  try {
+    const pkgPath = path.resolve(__dirname, "../../package.json");
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+    return pkg.version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
 
 export const PROJECT_ROOT = process.cwd();
 export const LOCAL_DIR = path.join(PROJECT_ROOT, ".cowrangler");
@@ -320,6 +334,7 @@ export function getConfig() {
   config.max_iterations = config.max_iterations ?? 25;
   config.view_mode = config.view_mode ?? "default";
   config.permission_mode = config.permission_mode ?? "default";
+  config.language = config.language ?? "en";
   config.sandbox = {
     enabled: true,
     max_timeout_ms: 30000,

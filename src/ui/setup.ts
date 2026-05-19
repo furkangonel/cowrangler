@@ -75,6 +75,52 @@ function saveActiveModel(modelName: string): void {
   fs.writeFileSync(DIRS.global.config, yaml.dump(cfg), "utf-8");
 }
 
+/** Saves the selected language to global config (~/.cowrangler/config.yaml). */
+export function saveLanguage(lang: string): void {
+  let cfg: any = {};
+  if (fs.existsSync(DIRS.global.config)) {
+    cfg = (yaml.load(fs.readFileSync(DIRS.global.config, "utf-8")) as any) || {};
+  }
+  cfg.language = lang;
+  fs.writeFileSync(DIRS.global.config, yaml.dump(cfg), "utf-8");
+}
+
+const LANGUAGE_OPTIONS = [
+  { value: "en", label: "English",  hint: "default" },
+  { value: "tr", label: "Türkçe",   hint: "Turkish" },
+  { value: "fr", label: "Français", hint: "French" },
+  { value: "de", label: "Deutsch",  hint: "German" },
+  { value: "it", label: "Italiano", hint: "Italian" },
+  { value: "es", label: "Español",  hint: "Spanish" },
+];
+
+/** Standalone interactive language picker — callable from setup wizard or `cowrangler language`. */
+export async function runLanguageWizard(standalone = true): Promise<void> {
+  if (standalone) {
+    console.log();
+    intro(" Co-Wrangler — Language / Dil / Langue / Sprache ");
+  }
+
+  const lang = await select({
+    message: "Select your preferred interface language:",
+    options: LANGUAGE_OPTIONS,
+  });
+
+  if (isCancel(lang)) {
+    cancel("Language selection cancelled.");
+    return;
+  }
+
+  saveLanguage(lang as string);
+  const chosen = LANGUAGE_OPTIONS.find((o) => o.value === lang);
+
+  if (standalone) {
+    outro(`✓ Language set to ${chosen?.label ?? lang}  (change anytime: cowrangler language)`);
+  } else {
+    log.success(`Interface language → ${chosen?.label ?? lang}`);
+  }
+}
+
 // ── Provider setup functions ───────────────────────────────────────────────
 
 async function setupAnthropic(): Promise<string | null> {
@@ -477,6 +523,16 @@ export async function runSetupWizard(): Promise<string | null> {
   if (!isCancel(setActive) && setActive) {
     saveActiveModel(defaultModel);
     log.success(`Active model → ${defaultModel}`);
+  }
+
+  // ── Language selection ──────────────────────────────────────────────────
+  const chooseLang = await confirm({
+    message: "Would you like to set your interface language? (default: English)",
+    initialValue: true,
+  });
+
+  if (!isCancel(chooseLang) && chooseLang) {
+    await runLanguageWizard(false);
   }
 
   outro(

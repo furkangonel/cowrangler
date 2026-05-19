@@ -1,0 +1,96 @@
+{
+  "prompt": {
+    "hint": "? pour les raccourcis"
+  },
+  "spinner": {
+    "thinking": "En train de réfléchir...",
+    "step": "étape",
+    "steps": "étapes"
+  },
+  "commands": {
+    "help_desc": "Afficher toutes les commandes disponibles.",
+    "exit_desc": "Quitter Co-Wrangler.",
+    "reset_desc": "Effacer l'historique et recharger la mémoire du projet depuis le disque.",
+    "status_desc": "Afficher la session actuelle : modèle, contexte, mémoire, skills, outils.",
+    "version_desc": "Afficher la version de Co-Wrangler.",
+    "tools_desc": "Lister tous les outils disponibles (capacités).",
+    "skills_desc": "Lister tous les skills chargés (SOP).",
+    "skill_desc": "Utiliser un skill : /skill <id> [tâche]  ou juste /skill <id>",
+    "model_desc": "Changer le modèle actif de manière interactive.",
+    "unknown": "Commande inconnue : {cmd}. Tapez /help pour la liste complète.",
+    "tip_autocomplete": "+ TAB pour l'autocomplétion",
+    "tip_history": "pour parcourir l'historique",
+    "tip_type": "Tapez",
+    "tip_press": "Appuyez sur",
+    "box_title": "Commandes Co-Wrangler"
+  },
+  "status": {
+    "context_cleared": "Contexte effacé. Mémoire rechargée.",
+    "skill_not_found": "Skill '{id}' introuvable. Tapez /skills pour voir la liste.",
+    "no_skills": "Aucun skill trouvé. Ajoutez-en dans ~/.cowrangler/skills/ ou .cowrangler/skills/",
+    "tools_loaded": "{n} outils disponibles",
+    "skills_loaded_count": "Skills ({n} chargés)",
+    "run_skill": "Exécuter :",
+    "read_skill": "Lire :",
+    "session_status_title": "État de la session",
+    "available_tools_title": "Outils disponibles",
+    "model_label": "Modèle         ",
+    "context_label": "Contexte       ",
+    "iterations_label": "Max. Itérations",
+    "memory_label": "Mémoire projet ",
+    "skills_label": "Skills chargés ",
+    "tools_label": "Outils dispo.  ",
+    "workdir_label": "Répertoire     ",
+    "memory_empty": "vide",
+    "skills_summary": "intégrés + global + local"
+  },
+  "ui": {
+    "agent": "Agent",
+    "proactive_label": "[proactif]  ",
+    "message_label": "[message]   ",
+    "session_terminated": "Session terminée. Au revoir !"
+  },
+  "shortcuts": {
+    "commands": "/ pour les commandes",
+    "file_paths": "@ pour les chemins de fichiers",
+    "shortcuts": "? pour les raccourcis",
+    "side_note": "/btw pour une note latérale",
+    "scan_project": "/init  analyser le projet",
+    "clear_context": "/reset  effacer le contexte",
+    "line_start": "ctrl+a  début de ligne",
+    "line_end": "ctrl+e  fin de ligne",
+    "kill_start": "ctrl+u  supprimer jusqu'au début",
+    "kill_end": "ctrl+k  supprimer jusqu'à la fin",
+    "clear_screen": "ctrl+l  effacer l'écran",
+    "exit": "ctrl+c  quitter",
+    "delete_word": "ctrl+w  supprimer mot arrière",
+    "autocomplete": "TAB  autocomplétion",
+    "newline": "shift+↵ / opt+↵  nouvelle ligne",
+    "history": "↑↓  parcourir l'historique",
+    "dismiss": "ESC  fermer le menu",
+    "customize": "/keybindings personnaliser"
+  },
+  "dashboard": {
+    "tagline": "Votre agent IA personnel",
+    "tips_title": "Conseils pour démarrer",
+    "context_found": "COWRNGLR.md trouvé",
+    "agent_has_context": "L'agent a le contexte du projet.",
+    "run_init": "Lancez /init pour commencer",
+    "init_description": "Crée COWRNGLR.md avec le contexte du projet pour l'agent.",
+    "whats_new": "Nouveautés",
+    "feature_init": "+ /init  analyser et indexer le projet",
+    "feature_skills": "+ /skills  lister les SOP chargés",
+    "feature_tools": "+ /tools  lister les capacités",
+    "feature_memory": "+ /memory  mémoire du projet",
+    "feature_file": "+ @fichier  complétion de chemin",
+    "feature_shortcuts": "+ ?  référence raccourcis en direct"
+  },
+  "setup": {
+    "api_key_empty": "La clé API ne peut pas être vide",
+    "anthropic_key_invalid": "Les clés Anthropic doivent commencer par 'sk-ant-'",
+    "key_saved": "{key} sauvegardé.",
+    "anthropic_key_prompt": "Clé API Anthropic :",
+    "openai_key_prompt": "Clé API OpenAI :",
+    "google_key_prompt": "Clé API Google Generative AI :"
+  }
+}

@@ -1,0 +1,96 @@
+{
+  "prompt": {
+    "hint": "? kısayollar için"
+  },
+  "spinner": {
+    "thinking": "Düşünüyor...",
+    "step": "adım",
+    "steps": "adım"
+  },
+  "commands": {
+    "help_desc": "Tüm mevcut komutları göster.",
+    "exit_desc": "Co-Wrangler'dan çık.",
+    "reset_desc": "Konuşma geçmişini temizle ve proje belleğini diskten yeniden yükle.",
+    "status_desc": "Mevcut oturumu göster: model, bağlam, bellek, skill'ler, araçlar.",
+    "version_desc": "Co-Wrangler sürümünü göster.",
+    "tools_desc": "Tüm mevcut araçları (yetenekleri) listele.",
+    "skills_desc": "Yüklü tüm skill'leri (SOP) listele.",
+    "skill_desc": "Bir skill kullan: /skill <id> [görev]  veya sadece /skill <id>",
+    "model_desc": "Aktif modeli etkileşimli olarak değiştir.",
+    "unknown": "Bilinmeyen komut: {cmd}. Tam liste için /help yazın.",
+    "tip_autocomplete": "+ TAB ile otomatik tamamlama",
+    "tip_history": "geçmişe göz atmak için",
+    "tip_type": "Yaz",
+    "tip_press": "Bas",
+    "box_title": "Co-Wrangler Komutları"
+  },
+  "status": {
+    "context_cleared": "Bağlam temizlendi. Bellek yeniden yüklendi.",
+    "skill_not_found": "Skill '{id}' bulunamadı. Listeyi görmek için /skills yazın.",
+    "no_skills": "Skill bulunamadı. ~/.cowrangler/skills/ veya .cowrangler/skills/ yoluna ekleyin.",
+    "tools_loaded": "{n} araç mevcut",
+    "skills_loaded_count": "Skill'ler ({n} yüklü)",
+    "run_skill": "Çalıştır:",
+    "read_skill": "Oku:",
+    "session_status_title": "Oturum Durumu",
+    "available_tools_title": "Mevcut Araçlar",
+    "model_label": "Model          ",
+    "context_label": "Bağlam         ",
+    "iterations_label": "Maks. Döngü    ",
+    "memory_label": "Proje Belleği  ",
+    "skills_label": "Yüklü Skill'ler",
+    "tools_label": "Mevcut Araçlar ",
+    "workdir_label": "Çalışma Dizini ",
+    "memory_empty": "boş",
+    "skills_summary": "paketlenmiş + global + yerel"
+  },
+  "ui": {
+    "agent": "Ajan",
+    "proactive_label": "[proaktif]  ",
+    "message_label": "[mesaj]     ",
+    "session_terminated": "Oturum sonlandırıldı. Güle güle!"
+  },
+  "shortcuts": {
+    "commands": "/ komutlar için",
+    "file_paths": "@ dosya yolları için",
+    "shortcuts": "? kısayollar için",
+    "side_note": "/btw yan not için",
+    "scan_project": "/init  proje tara",
+    "clear_context": "/reset  bağlamı temizle",
+    "line_start": "ctrl+a  satır başına git",
+    "line_end": "ctrl+e  satır sonuna git",
+    "kill_start": "ctrl+u  başa kadar sil",
+    "kill_end": "ctrl+k  sona kadar sil",
+    "clear_screen": "ctrl+l  ekranı temizle",
+    "exit": "ctrl+c  çık",
+    "delete_word": "ctrl+w  kelimeyi geri sil",
+    "autocomplete": "TAB  otomatik tamamla",
+    "newline": "shift+↵ / opt+↵  yeni satır",
+    "history": "↑↓  geçmişe göz at",
+    "dismiss": "ESC  menüyü kapat",
+    "customize": "/keybindings özelleştir"
+  },
+  "dashboard": {
+    "tagline": "Kişisel yapay zeka ajanınız",
+    "tips_title": "Başlamak için ipuçları",
+    "context_found": "COWRNGLR.md bulundu",
+    "agent_has_context": "Ajanın proje bağlamı var.",
+    "run_init": "Başlamak için /init çalıştırın",
+    "init_description": "Ajan için proje bağlamını içeren COWRNGLR.md oluşturur.",
+    "whats_new": "Yenilikler",
+    "feature_init": "+ /init  projeyi tara ve indeksle",
+    "feature_skills": "+ /skills  yüklü SOP'ları listele",
+    "feature_tools": "+ /tools  yetenekleri listele",
+    "feature_memory": "+ /memory  proje belleği",
+    "feature_file": "+ @dosya  yol tamamlama",
+    "feature_shortcuts": "+ ?  canlı kısayol referansı"
+  },
+  "setup": {
+    "api_key_empty": "API anahtarı boş olamaz",
+    "anthropic_key_invalid": "Anthropic anahtarları 'sk-ant-' ile başlamalıdır",
+    "key_saved": "{key} kaydedildi.",
+    "anthropic_key_prompt": "Anthropic API anahtarı:",
+    "openai_key_prompt": "OpenAI API anahtarı:",
+    "google_key_prompt": "Google Generative AI API anahtarı:"
+  }
+}

@@ -1,0 +1,96 @@
+{
+  "prompt": {
+    "hint": "? for shortcuts"
+  },
+  "spinner": {
+    "thinking": "Thinking...",
+    "step": "step",
+    "steps": "steps"
+  },
+  "commands": {
+    "help_desc": "Show all available commands.",
+    "exit_desc": "Exit Co-Wrangler.",
+    "reset_desc": "Clear conversation history and reload project memory from disk.",
+    "status_desc": "Show current session: model, context, memory, skills, tools.",
+    "version_desc": "Show Co-Wrangler version.",
+    "tools_desc": "List all available tools (capabilities).",
+    "skills_desc": "List all loaded skills (SOPs).",
+    "skill_desc": "Use a skill: /skill <id> [task]  or just /skill <id> to stage it",
+    "model_desc": "Switch the active model interactively.",
+    "unknown": "Unknown command: {cmd}. Type /help for the full list.",
+    "tip_autocomplete": "+ TAB to autocomplete",
+    "tip_history": "to browse history",
+    "tip_type": "Type",
+    "tip_press": "Press",
+    "box_title": "Co-Wrangler Commands"
+  },
+  "status": {
+    "context_cleared": "Context cleared. Memory reloaded.",
+    "skill_not_found": "Skill '{id}' not found. Type /skills to see the list.",
+    "no_skills": "No skills found. Add to ~/.cowrangler/skills/ or .cowrangler/skills/",
+    "tools_loaded": "{n} tools available",
+    "skills_loaded_count": "Skills ({n} loaded)",
+    "run_skill": "Run:",
+    "read_skill": "Read:",
+    "session_status_title": "Session Status",
+    "available_tools_title": "Available Tools",
+    "model_label": "Model          ",
+    "context_label": "Context        ",
+    "iterations_label": "Max Iterations ",
+    "memory_label": "Project Memory ",
+    "skills_label": "Skills Loaded  ",
+    "tools_label": "Tools Available",
+    "workdir_label": "Working Dir    ",
+    "memory_empty": "empty",
+    "skills_summary": "bundled + global + local"
+  },
+  "ui": {
+    "agent": "Agent",
+    "proactive_label": "[proactive] ",
+    "message_label": "[message]   ",
+    "session_terminated": "Session terminated. Goodbye!"
+  },
+  "shortcuts": {
+    "commands": "/ for commands",
+    "file_paths": "@ for file paths",
+    "shortcuts": "? for shortcuts",
+    "side_note": "/btw for side note",
+    "scan_project": "/init  scan project",
+    "clear_context": "/reset  clear context",
+    "line_start": "ctrl+a  go to line start",
+    "line_end": "ctrl+e  go to line end",
+    "kill_start": "ctrl+u  kill to start",
+    "kill_end": "ctrl+k  kill to end",
+    "clear_screen": "ctrl+l  clear screen",
+    "exit": "ctrl+c  exit",
+    "delete_word": "ctrl+w  delete word back",
+    "autocomplete": "TAB  autocomplete",
+    "newline": "shift+↵ / opt+↵  newline",
+    "history": "↑↓  browse history",
+    "dismiss": "ESC  dismiss menu",
+    "customize": "/keybindings to customize"
+  },
+  "dashboard": {
+    "tagline": "Your personal AI agent",
+    "tips_title": "Tips for getting started",
+    "context_found": "COWRNGLR.md found",
+    "agent_has_context": "Agent has project context.",
+    "run_init": "Run /init to get started",
+    "init_description": "Creates COWRNGLR.md with project context for the agent.",
+    "whats_new": "What's New",
+    "feature_init": "+ /init  scan & index project",
+    "feature_skills": "+ /skills  list loaded SOPs",
+    "feature_tools": "+ /tools  list capabilities",
+    "feature_memory": "+ /memory  project memory",
+    "feature_file": "+ @file  path completions",
+    "feature_shortcuts": "+ ?  live shortcut reference"
+  },
+  "setup": {
+    "api_key_empty": "API key cannot be empty",
+    "anthropic_key_invalid": "Anthropic keys must start with 'sk-ant-'",
+    "key_saved": "{key} saved.",
+    "anthropic_key_prompt": "Anthropic API key:",
+    "openai_key_prompt": "OpenAI API key:",
+    "google_key_prompt": "Google Generative AI API key:"
+  }
+}

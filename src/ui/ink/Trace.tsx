@@ -3,6 +3,7 @@ import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
 import { Theme } from "../theme.js";
 import { TraceEntry, SpinnerMode } from "./types.js";
+import { t } from "../../i18n/index.js";
 import {
   formatArgs,
   formatElapsed,
@@ -48,7 +49,7 @@ export const TraceLine: React.FC<{ entry: TraceEntry }> = ({ entry }) => {
     const isProactive = entry.status === "proactive";
     const icon = isProactive ? "⚡" : "◎";
     const colorHex = isProactive ? "#FF9500" : "#5CA4D4";
-    const label = isProactive ? "[proactive] " : "[message]   ";
+    const label = isProactive ? t("ui.proactive_label") : t("ui.message_label");
     return (
       <Box>
         <Text>{`  ${icon} `}</Text>
@@ -100,7 +101,7 @@ export const TraceBlock: React.FC<{ entries: TraceEntry[] }> = ({ entries }) => 
             <Box key={i}>
               <Text>{`  ${isProactive ? "⚡" : "◎"} `}</Text>
               <Text color={isProactive ? "#FF9500" : "#5CA4D4"}>
-                {isProactive ? "[proactive] " : "[message]   "}
+                {isProactive ? t("ui.proactive_label") : t("ui.message_label")}
               </Text>
               <Text>{entry.message}</Text>
             </Box>
@@ -122,7 +123,7 @@ export const TraceSummary: React.FC<{
   durationMs?: number;
 }> = ({ toolCount, durationMs }) => {
   if (toolCount === 0) return null;
-  const steps = `${toolCount} ${toolCount === 1 ? "step" : "steps"}`;
+  const steps = `${toolCount} ${toolCount === 1 ? t("spinner.step") : t("spinner.steps")}`;
   const time =
     durationMs !== undefined ? ` · ${(durationMs / 1000).toFixed(1)}s` : "";
   return <Text>{Theme.dim(`  ⊕ ${steps}${time}`)}</Text>;
@@ -147,7 +148,7 @@ export const ActiveSpinner: React.FC<{
   startTime?: number;
   verbose?: boolean;
 }> = ({
-  label = "Thinking...",
+  label,
   stepCount = 0,
   mode = "thinking",
   startTime,
@@ -164,11 +165,12 @@ export const ActiveSpinner: React.FC<{
   }, [startTime]);
 
   if (mode === "idle") return null;
+  const displayLabel = label ?? t("spinner.thinking");
 
   const shouldShowSteps = elapsed > SHOW_STEPS_AFTER_MS;
   const stepBadge =
     shouldShowSteps && stepCount > 0
-      ? Theme.dim(` [${stepCount} ${stepCount === 1 ? "step" : "steps"}]`)
+      ? Theme.dim(` [${stepCount} ${stepCount === 1 ? t("spinner.step") : t("spinner.steps")}]`)
       : stepCount > 0
       ? Theme.dim(` [${stepCount}]`)
       : "";
@@ -194,7 +196,7 @@ export const ActiveSpinner: React.FC<{
       <Text color={spinnerColor}>
         <Spinner type={spinnerType} />
       </Text>
-      {" " + Theme.dim(label) + stepBadge + durationStr}
+      {" " + Theme.dim(displayLabel) + stepBadge + durationStr}
     </Text>
   );
 };

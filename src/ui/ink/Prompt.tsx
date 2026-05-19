@@ -2,6 +2,7 @@ import React from "react";
 import { Text } from "ink";
 import chalk from "chalk";
 import { Theme } from "../theme.js";
+import { t } from "../../i18n/index.js";
 
 interface PromptProps {
   value: string;
@@ -56,5 +57,5 @@ export const SubmittedPrompt: React.FC<{ value: string }> = ({ value }) => (
  * "? for shortcuts" footer. Disappears as soon as the user starts typing.
  */
 export const PromptHint: React.FC = () => (
-  <Text>{Theme.dim("  ? for shortcuts")}</Text>
+  <Text>{Theme.dim(`  ${t("prompt.hint")}`)}</Text>
 );
