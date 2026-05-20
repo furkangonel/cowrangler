@@ -69,7 +69,7 @@ export class CommandRouter {
   private _registerCoreCommands() {
     // ── /help ─────────────────────────────────────────────────────────────────
     this.commands.set("/help", {
-      description: t("commands.help_desc"),
+      get description() { return t("commands.help_desc"); },
       execute: () => {
         const lines = Array.from(this.commands.entries())
           .sort((a, b) => a[0].localeCompare(b[0]))
@@ -90,7 +90,7 @@ export class CommandRouter {
 
     // ── /exit ─────────────────────────────────────────────────────────────────
     this.commands.set("/exit", {
-      description: t("commands.exit_desc"),
+      get description() { return t("commands.exit_desc"); },
       execute: () => {
         UI.warn(t("ui.session_terminated"));
         process.exit(0);
@@ -99,7 +99,7 @@ export class CommandRouter {
 
     // ── /reset ────────────────────────────────────────────────────────────────
     this.commands.set("/reset", {
-      description: t("commands.reset_desc"),
+      get description() { return t("commands.reset_desc"); },
       execute: (args: string[], ctx: CommandContext) => {
         ctx.agent.reset();
         UI.success(t("status.context_cleared"));
@@ -108,7 +108,7 @@ export class CommandRouter {
 
     // ── /status ───────────────────────────────────────────────────────────────
     this.commands.set("/status", {
-      description: t("commands.status_desc"),
+      get description() { return t("commands.status_desc"); },
       execute: (args: string[], ctx: CommandContext) => {
         const skills = ctx.skillManager.getAvailableSkills();
         const memExists = fs.existsSync(DIRS.local.memory);
@@ -129,7 +129,7 @@ export class CommandRouter {
 
     // ── /version ──────────────────────────────────────────────────────────────
     this.commands.set("/version", {
-      description: t("commands.version_desc"),
+      get description() { return t("commands.version_desc"); },
       execute: () => {
         UI.info(`Co-Wrangler v${getVersion()}`);
       },
@@ -137,7 +137,7 @@ export class CommandRouter {
 
     // ── /tools ────────────────────────────────────────────────────────────────
     this.commands.set("/tools", {
-      description: t("commands.tools_desc"),
+      get description() { return t("commands.tools_desc"); },
       execute: () => {
         const entries = Object.entries(TOOL_SCHEMAS).sort(([a], [b]) =>
           a.localeCompare(b),
@@ -156,7 +156,7 @@ export class CommandRouter {
 
     // ── /skills ───────────────────────────────────────────────────────────────
     this.commands.set("/skills", {
-      description: t("commands.skills_desc"),
+      get description() { return t("commands.skills_desc"); },
       execute: (args: string[], ctx: CommandContext) => {
         const skills = ctx.skillManager.getAvailableSkills();
         if (!skills.length) {
@@ -188,7 +188,7 @@ export class CommandRouter {
 
     // ── /skill ────────────────────────────────────────────────────────────────
     this.commands.set("/skill", {
-      description: t("commands.skill_desc"),
+      get description() { return t("commands.skill_desc"); },
       execute: async (args: string[], ctx: CommandContext) => {
         if (!args.length)
           return UI.error("Usage: /skill <skill_id> [task description]");
