@@ -669,6 +669,10 @@ async function main() {
   const { initI18n } = await import("./i18n/index.js");
   initI18n(configuration.language ?? "en");
 
+  // ── Model metadata — bilinmeyen modeller için OpenRouter'dan çek ─────────
+  const { prefetchModelMeta } = await import("./core/model_metadata.js");
+  await prefetchModelMeta(configuration.model).catch(() => { /* sessizce geç */ });
+
   // ── Skin motoru — stored choice'ı yükle ─────────────────────────────────
   const { initSkin } = await import("./core/skin.js");
   initSkin();

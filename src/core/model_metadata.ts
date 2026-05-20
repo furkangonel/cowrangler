@@ -3,7 +3,14 @@
  *
  * Fiyatlar USD/1M token cinsinden.
  * Son güncelleme: Mayıs 2026
+ *
+ * Bilinmeyen modeller için prefetchModelMeta() çağrısı OpenRouter API'den
+ * metadata çeker ve ~/.cowrangler/cache/model_meta.json'a 24 saatlik cache yazar.
  */
+
+import fs from "fs";
+import os from "os";
+import path from "path";
 
 export interface ModelMeta {
   contextWindow: number;       // max context tokens
@@ -163,4 +170,106 @@ export function modelSupportsThinking(model: string): boolean {
 /** Model prompt caching destekliyor mu? */
 export function modelSupportsCaching(model: string): boolean {
   return getModelMeta(model)?.supportsCaching ?? false;
+}
+
+// ── OpenRouter metadata fetcher ───────────────────────────────────────────────
+
+const CACHE_PATH = path.join(os.homedir(), ".cowrangler", "cache", "model_meta.json");
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 saat
+
+interface DiskCacheEntry extends ModelMeta {
+  fetchedAt: number;
+}
+
+function _loadDiskCache(): Record<string, DiskCacheEntry> {
+  try {
+    if (fs.existsSync(CACHE_PATH)) {
+      return JSON.parse(fs.readFileSync(CACHE_PATH, "utf-8"));
+    }
+  } catch { /* sessizce devam */ }
+  return {};
+}
+
+function _saveDiskCache(cache: Record<string, DiskCacheEntry>): void {
+  try {
+    fs.mkdirSync(path.dirname(CACHE_PATH), { recursive: true });
+    fs.writeFileSync(CACHE_PATH, JSON.stringify(cache, null, 2), "utf-8");
+  } catch { /* sessizce devam */ }
+}
+
+/**
+ * Bilinmeyen model için OpenRouter API'den metadata çeker ve yerel registry'e
+ * + disk cache'e yazar. Zaten registry'de olanlar için no-op'tur.
+ *
+ * Çağrı: await prefetchModelMeta(configuration.model)
+ *
+ * Başarısız olursa (ağ yok, model bulunamadı vb.) sessizce geçer;
+ * getContextWindow() standart 128k fallback'iyle çalışmaya devam eder.
+ */
+export async function prefetchModelMeta(modelName: string): Promise<void> {
+  // Registry'de zaten varsa atla
+  if (MODEL_REGISTRY[modelName] || MODEL_REGISTRY[normalizeModelKey(modelName)]) return;
+
+  // OpenRouter modeli mi? (openrouter/ öneki veya bilinmeyen provider/model formatı)
+  const knownPrefixes = ["anthropic/", "google/", "vertex/", "copilot/", "groq/"];
+  const isKnownProvider = knownPrefixes.some((p) => modelName.startsWith(p));
+  if (isKnownProvider) return; // Kendi registry'imizde olmayan bilinen provider → fallback yeterli
+
+  // Model ID'sini normalize et (openrouter/ önekini kaldır)
+  const cleanId = modelName.replace(/^openrouter\//, "");
+
+  // Disk cache'e bak
+  const diskCache = _loadDiskCache();
+  const cached = diskCache[cleanId];
+  if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
+    MODEL_REGISTRY[modelName] = cached;
+    return;
+  }
+
+  // OpenRouter API'den çek (auth opsiyonel — model listesi herkese açık)
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  const headers: Record<string, string> = {
+    "HTTP-Referer": "https://github.com/co-wrangler/co-wrangler",
+  };
+  if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/models", { headers });
+    if (!res.ok) return;
+
+    const json = (await res.json()) as { data: any[] };
+    // Model ID'ye göre ara (hem "owl-alpha" hem "openrouter/owl-alpha" formatını dene)
+    const found = json.data.find(
+      (m: any) => m.id === cleanId || m.id === modelName || m.id === `openrouter/${cleanId}`,
+    );
+    if (!found) return;
+
+    // OpenRouter pricing: USD/token → USD/1M token
+    const inputPrice  = parseFloat(found.pricing?.prompt      ?? "0") * 1_000_000;
+    const outputPrice = parseFloat(found.pricing?.completion  ?? "0") * 1_000_000;
+
+    // Vision desteği: mimari modality'e bakarak tespit et
+    const modality: string = found.architecture?.modality ?? "";
+    const supportsVision = modality.includes("image") || modality.startsWith("multimodal");
+
+    const entry: ModelMeta = {
+      contextWindow:        found.context_length                       ?? 128_000,
+      maxOutputTokens:      found.top_provider?.max_completion_tokens  ?? 4_096,
+      inputPricePerMToken:  inputPrice,
+      outputPricePerMToken: outputPrice,
+      supportsThinking:     false,
+      supportsVision,
+      supportsCaching:      false,
+      provider:             "openrouter",
+      displayName:          found.name ?? cleanId,
+    };
+
+    // Hem orijinal isim hem clean ID ile kaydet
+    MODEL_REGISTRY[modelName] = entry;
+    MODEL_REGISTRY[cleanId]   = entry;
+
+    // Disk cache'e yaz
+    diskCache[cleanId] = { ...entry, fetchedAt: Date.now() };
+    _saveDiskCache(diskCache);
+  } catch { /* ağ hatası vb. → sessizce geç, fallback çalışır */ }
 }
