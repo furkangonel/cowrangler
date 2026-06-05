@@ -1,13 +1,12 @@
 /**
  * Kanban DB — SQLite tabanlı çok-ajanlı iş kuyruğu.
  *
- *
  * Mimari:
  *   Kullanıcı → cowrangler kanban <fiil>
  *       ↓
- *   SQLite kanban.db
+ *   SQLite kanban.db  (WAL modu — eşzamanlı okuma/yazma)
  *       ↓
- *   Dispatcher (her 60s'de bir döngü)
+ *   Dispatcher (periyodik döngü)
  *     ↙           ↘
  *   Worker A      Worker B
  *   (profile_1)  (profile_2)
@@ -15,6 +14,11 @@
  * İzolasyon modeli:
  * - Board  — sert sınır (COWRANGLER_KANBAN_BOARD env var)
  * - Tenant — pano içinde yumuşak ad alanı
+ *
+ * Güvenlik değişmezi:
+ * - claim() atomiktir: iki worker aynı görevi alamaz
+ * - reclaim() MAX_CLAIM_AGE_MS aşan claimed/running görevleri serbest bırakır
+ * - MAX_FAIL_COUNT ardışık hata → otomatik blocked
  */
 
 import Database from "better-sqlite3";
@@ -45,8 +49,8 @@ export interface KanbanTask {
   description: string | null;
   status: TaskStatus;
   priority: TaskPriority;
-  assigned_to: string | null; // profil adı
-  parent_id: string | null; // sub-task için
+  assigned_to: string | null;
+  parent_id: string | null;
   created_at: number;
   updated_at: number;
   claimed_at: number | null;
@@ -65,6 +69,14 @@ export interface KanbanComment {
   timestamp: number;
 }
 
+export interface KanbanEvent {
+  id: number;
+  task_id: string;
+  event_type: string; // created | status_changed | assigned | commented | output_updated
+  payload: string; // JSON
+  timestamp: number;
+}
+
 export interface CreateTaskOpts {
   board?: string;
   tenant?: string;
@@ -73,10 +85,17 @@ export interface CreateTaskOpts {
   priority?: TaskPriority;
   parentId?: string;
   tags?: string[];
+  assignTo?: string;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CONSTANTS
+// ─────────────────────────────────────────────────────────────────────────────
+
 const DEFAULT_BOARD = process.env.COWRANGLER_KANBAN_BOARD ?? "default";
-const MAX_FAIL_COUNT = 5; // Bu kadar ardışık hata → otomatik engelle
+const MAX_FAIL_COUNT = 5;
+/** claimed/running durumunda bu süreden uzun kalan görevler reclaim ile serbest kalır */
+const MAX_CLAIM_AGE_MS = 10 * 60 * 1000; // 10 dakika
 
 // ─────────────────────────────────────────────────────────────────────────────
 // KANBAN DB
@@ -93,6 +112,8 @@ export class KanbanDB {
     this.db.pragma("foreign_keys = ON");
     this._migrate();
   }
+
+  // ── Schema ──────────────────────────────────────────────────────────────────
 
   private _migrate(): void {
     this.db.exec(`
@@ -130,10 +151,39 @@ export class KanbanDB {
         PRIMARY KEY (blocker_id, blocked_id)
       );
 
+      CREATE TABLE IF NOT EXISTS kanban_events (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id    TEXT NOT NULL REFERENCES kanban_tasks(id) ON DELETE CASCADE,
+        event_type TEXT NOT NULL,
+        payload    TEXT NOT NULL DEFAULT '{}',
+        timestamp  INTEGER NOT NULL
+      );
+
       CREATE INDEX IF NOT EXISTS idx_kanban_board_status ON kanban_tasks(board, status);
-      CREATE INDEX IF NOT EXISTS idx_kanban_assigned ON kanban_tasks(assigned_to);
-      CREATE INDEX IF NOT EXISTS idx_kanban_parent ON kanban_tasks(parent_id);
+      CREATE INDEX IF NOT EXISTS idx_kanban_assigned     ON kanban_tasks(assigned_to);
+      CREATE INDEX IF NOT EXISTS idx_kanban_parent       ON kanban_tasks(parent_id);
+      CREATE INDEX IF NOT EXISTS idx_kanban_events_task  ON kanban_events(task_id);
+      CREATE INDEX IF NOT EXISTS idx_kanban_events_ts    ON kanban_events(timestamp DESC);
     `);
+  }
+
+  // ── Internal helpers ────────────────────────────────────────────────────────
+
+  private _deserialize(row: any): KanbanTask {
+    return { ...row, tags: JSON.parse(row.tags ?? "[]") };
+  }
+
+  private _emit(
+    taskId: string,
+    eventType: string,
+    payload: Record<string, unknown> = {},
+  ): void {
+    this.db
+      .prepare(
+        `INSERT INTO kanban_events (task_id, event_type, payload, timestamp)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run(taskId, eventType, JSON.stringify(payload), Date.now());
   }
 
   // ── Task CRUD ────────────────────────────────────────────────────────────────
@@ -144,10 +194,9 @@ export class KanbanDB {
 
     this.db
       .prepare(
-        `
-      INSERT INTO kanban_tasks (id, board, tenant, title, description, priority, parent_id, tags, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
+        `INSERT INTO kanban_tasks
+           (id, board, tenant, title, description, priority, parent_id, tags, assigned_to, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -158,10 +207,12 @@ export class KanbanDB {
         opts.priority ?? "normal",
         opts.parentId ?? null,
         JSON.stringify(opts.tags ?? []),
+        opts.assignTo ?? null,
         now,
         now,
       );
 
+    this._emit(id, "created", { title: opts.title });
     return this.get(id)!;
   }
 
@@ -178,6 +229,7 @@ export class KanbanDB {
       tenant?: string;
       status?: TaskStatus | TaskStatus[];
       assignedTo?: string;
+      tag?: string;
       limit?: number;
     } = {},
   ): KanbanTask[] {
@@ -203,9 +255,17 @@ export class KanbanDB {
       params.push(opts.assignedTo);
     }
 
-    sql += ` ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END, created_at ASC`;
+    if (opts.tag) {
+      sql += ` AND tags LIKE ?`;
+      params.push(`%"${opts.tag}"%`);
+    }
+
+    sql += ` ORDER BY
+      CASE priority
+        WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3
+      END, created_at ASC`;
     sql += ` LIMIT ?`;
-    params.push(opts.limit ?? 100);
+    params.push(opts.limit ?? 200);
 
     return (this.db.prepare(sql).all(...params) as any[]).map(
       this._deserialize,
@@ -216,36 +276,79 @@ export class KanbanDB {
   claim(profileName: string, board?: string): KanbanTask | null {
     const b = board ?? DEFAULT_BOARD;
 
-    // Engelli olmayan, blocker'ı tamamlanmış, pending görevleri bul
     const claimable = this.db
       .prepare(
-        `
-      SELECT t.* FROM kanban_tasks t
-      WHERE t.board = ? AND t.status = 'pending' AND t.fail_count < ?
-      AND NOT EXISTS (
-        SELECT 1 FROM kanban_links l
-        JOIN kanban_tasks blocker ON blocker.id = l.blocker_id
-        WHERE l.blocked_id = t.id AND blocker.status != 'done'
-      )
-      ORDER BY CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END, t.created_at ASC
-      LIMIT 1
-    `,
+        `SELECT t.* FROM kanban_tasks t
+         WHERE t.board = ? AND t.status = 'pending' AND t.fail_count < ?
+           AND NOT EXISTS (
+             SELECT 1 FROM kanban_links l
+             JOIN kanban_tasks blocker ON blocker.id = l.blocker_id
+             WHERE l.blocked_id = t.id AND blocker.status != 'done'
+           )
+         ORDER BY
+           CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
+           t.created_at ASC
+         LIMIT 1`,
       )
       .get(b, MAX_FAIL_COUNT) as any;
 
     if (!claimable) return null;
 
     const now = Date.now();
+    const result = this.db
+      .prepare(
+        `UPDATE kanban_tasks
+         SET status = 'claimed', assigned_to = ?, claimed_at = ?, updated_at = ?
+         WHERE id = ? AND status = 'pending'`,
+      )
+      .run(profileName, now, now, claimable.id) as any;
+
+    if (result.changes === 0) return null; // Başka worker daha önce aldı
+
+    this._emit(claimable.id, "claimed", { by: profileName });
+    return this.get(claimable.id);
+  }
+
+  /**
+   * Manuel alanları güncelle (title, description, priority, tags, assigned_to).
+   * Status değişikliği için markDone/markFailed/block/unblock kullan.
+   */
+  update(
+    id: string,
+    fields: {
+      title?: string;
+      description?: string | null;
+      priority?: TaskPriority;
+      tags?: string[];
+      assigned_to?: string | null;
+    },
+  ): void {
+    const sets: string[] = [];
+    const params: any[] = [];
+
+    if (fields.title !== undefined) { sets.push("title = ?"); params.push(fields.title); }
+    if (fields.description !== undefined) { sets.push("description = ?"); params.push(fields.description); }
+    if (fields.priority !== undefined) { sets.push("priority = ?"); params.push(fields.priority); }
+    if (fields.tags !== undefined) { sets.push("tags = ?"); params.push(JSON.stringify(fields.tags)); }
+    if (fields.assigned_to !== undefined) { sets.push("assigned_to = ?"); params.push(fields.assigned_to); }
+
+    if (sets.length === 0) return;
+
+    sets.push("updated_at = ?");
+    params.push(Date.now());
+    params.push(id);
+
+    this.db.prepare(`UPDATE kanban_tasks SET ${sets.join(", ")} WHERE id = ?`).run(...params);
+    this._emit(id, "updated", { fields: Object.keys(fields) });
+  }
+
+  assign(id: string, profileName: string): void {
     this.db
       .prepare(
-        `
-      UPDATE kanban_tasks SET status = 'claimed', assigned_to = ?, claimed_at = ?, updated_at = ?
-      WHERE id = ? AND status = 'pending'
-    `,
+        `UPDATE kanban_tasks SET assigned_to = ?, updated_at = ? WHERE id = ?`,
       )
-      .run(profileName, now, now, claimable.id);
-
-    return this.get(claimable.id);
+      .run(profileName, Date.now(), id);
+    this._emit(id, "assigned", { to: profileName });
   }
 
   markRunning(id: string): void {
@@ -254,14 +357,19 @@ export class KanbanDB {
         `UPDATE kanban_tasks SET status = 'running', updated_at = ? WHERE id = ?`,
       )
       .run(Date.now(), id);
+    this._emit(id, "status_changed", { status: "running" });
   }
 
   markDone(id: string, output: string): void {
+    const now = Date.now();
     this.db
       .prepare(
-        `UPDATE kanban_tasks SET status = 'done', output = ?, completed_at = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE kanban_tasks
+         SET status = 'done', output = ?, completed_at = ?, updated_at = ?
+         WHERE id = ?`,
       )
-      .run(output.slice(0, 50_000), Date.now(), Date.now(), id);
+      .run(output.slice(0, 50_000), now, now, id);
+    this._emit(id, "status_changed", { status: "done" });
   }
 
   markFailed(id: string, error: string): void {
@@ -273,17 +381,26 @@ export class KanbanDB {
 
     this.db
       .prepare(
-        `UPDATE kanban_tasks SET status = ?, error = ?, fail_count = ?, updated_at = ?, assigned_to = NULL WHERE id = ?`,
+        `UPDATE kanban_tasks
+         SET status = ?, error = ?, fail_count = ?, updated_at = ?, assigned_to = NULL, claimed_at = NULL
+         WHERE id = ?`,
       )
       .run(newStatus, error.slice(0, 2000), newFailCount, Date.now(), id);
+
+    this._emit(id, "status_changed", {
+      status: newStatus,
+      failCount: newFailCount,
+      error: error.slice(0, 200),
+    });
   }
 
-  block(id: string): void {
+  block(id: string, reason?: string): void {
     this.db
       .prepare(
         `UPDATE kanban_tasks SET status = 'blocked', updated_at = ? WHERE id = ?`,
       )
       .run(Date.now(), id);
+    this._emit(id, "status_changed", { status: "blocked", reason });
   }
 
   unblock(id: string): void {
@@ -292,14 +409,51 @@ export class KanbanDB {
         `UPDATE kanban_tasks SET status = 'pending', fail_count = 0, updated_at = ? WHERE id = ?`,
       )
       .run(Date.now(), id);
+    this._emit(id, "status_changed", { status: "pending" });
   }
+
+  /**
+   * Timeout'u aşmış claimed/running görevleri pending'e döndür.
+   * Dispatcher her tick başında çağırır.
+   */
+  reclaim(board?: string): number {
+    const b = board ?? DEFAULT_BOARD;
+    const cutoff = Date.now() - MAX_CLAIM_AGE_MS;
+
+    const stale = this.db
+      .prepare(
+        `SELECT id FROM kanban_tasks
+         WHERE board = ? AND status IN ('claimed', 'running') AND updated_at < ?`,
+      )
+      .all(b, cutoff) as any[];
+
+    for (const row of stale) {
+      this.db
+        .prepare(
+          `UPDATE kanban_tasks
+           SET status = 'pending', assigned_to = NULL, claimed_at = NULL, updated_at = ?
+           WHERE id = ?`,
+        )
+        .run(Date.now(), row.id);
+      this._emit(row.id, "status_changed", {
+        status: "pending",
+        reason: "reclaimed_timeout",
+      });
+    }
+
+    return stale.length;
+  }
+
+  // ── Comments ────────────────────────────────────────────────────────────────
 
   addComment(taskId: string, author: string, content: string): void {
     this.db
       .prepare(
-        `INSERT INTO kanban_comments (id, task_id, author, content, timestamp) VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO kanban_comments (id, task_id, author, content, timestamp)
+         VALUES (?, ?, ?, ?, ?)`,
       )
       .run(crypto.randomUUID(), taskId, author, content, Date.now());
+    this._emit(taskId, "commented", { author, preview: content.slice(0, 100) });
   }
 
   getComments(taskId: string): KanbanComment[] {
@@ -310,6 +464,8 @@ export class KanbanDB {
       .all(taskId) as KanbanComment[];
   }
 
+  // ── Links (bağımlılıklar) ─────────────────────────────────────────────────
+
   link(blockerId: string, blockedId: string): void {
     try {
       this.db
@@ -317,6 +473,7 @@ export class KanbanDB {
           `INSERT OR IGNORE INTO kanban_links (blocker_id, blocked_id) VALUES (?, ?)`,
         )
         .run(blockerId, blockedId);
+      this._emit(blockedId, "linked", { blocker: blockerId });
     } catch {
       /* sessizce */
     }
@@ -329,6 +486,55 @@ export class KanbanDB {
       )
       .run(blockerId, blockedId);
   }
+
+  getBlockers(taskId: string): KanbanTask[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT t.* FROM kanban_tasks t
+           JOIN kanban_links l ON l.blocker_id = t.id
+           WHERE l.blocked_id = ?`,
+        )
+        .all(taskId) as any[]
+    ).map(this._deserialize);
+  }
+
+  getBlocked(taskId: string): KanbanTask[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT t.* FROM kanban_tasks t
+           JOIN kanban_links l ON l.blocked_id = t.id
+           WHERE l.blocker_id = ?`,
+        )
+        .all(taskId) as any[]
+    ).map(this._deserialize);
+  }
+
+  // ── Events (SSE / tail) ──────────────────────────────────────────────────────
+
+  tailEvents(opts: { board?: string; limit?: number; sinceId?: number } = {}): KanbanEvent[] {
+    const b = opts.board ?? DEFAULT_BOARD;
+
+    let sql = `
+      SELECT e.* FROM kanban_events e
+      JOIN kanban_tasks t ON t.id = e.task_id
+      WHERE t.board = ?`;
+    const params: any[] = [b];
+
+    if (opts.sinceId !== undefined) {
+      sql += ` AND e.id > ?`;
+      params.push(opts.sinceId);
+    }
+
+    sql += ` ORDER BY e.id DESC LIMIT ?`;
+    params.push(opts.limit ?? 50);
+
+    const rows = this.db.prepare(sql).all(...params) as any[];
+    return rows.reverse(); // Kronolojik sıra
+  }
+
+  // ── Stats ────────────────────────────────────────────────────────────────────
 
   stats(board?: string): {
     pending: number;
@@ -358,8 +564,12 @@ export class KanbanDB {
     };
   }
 
-  private _deserialize(row: any): KanbanTask {
-    return { ...row, tags: JSON.parse(row.tags ?? "[]") };
+  boards(): string[] {
+    return (
+      this.db
+        .prepare(`SELECT DISTINCT board FROM kanban_tasks ORDER BY board`)
+        .all() as any[]
+    ).map((r: any) => r.board);
   }
 
   close(): void {
@@ -367,7 +577,10 @@ export class KanbanDB {
   }
 }
 
-// Singleton
+// ─────────────────────────────────────────────────────────────────────────────
+// SINGLETON
+// ─────────────────────────────────────────────────────────────────────────────
+
 let _db: KanbanDB | null = null;
 export function getKanbanDB(): KanbanDB {
   if (!_db) _db = new KanbanDB();

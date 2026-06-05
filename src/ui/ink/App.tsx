@@ -156,32 +156,28 @@ export const App: React.FC<AppProps> = ({ agent }) => {
     };
   }, []);
 
-  // ── TODO polling — while busy, read the first pending item from AGENT_TODO.md ──
+  // ── Task polling — while busy, read the active in_progress task from tasks.json ──
   // Polls every 800ms so the user can see which task is being worked on.
   useEffect(() => {
     if (!busy) {
       setActiveTodoItem(null);
       return;
     }
-    const readActiveTodo = () => {
+    const readActiveTask = () => {
       try {
-        if (!fs.existsSync(DIRS.local.todo)) return;
-        const raw = fs.readFileSync(DIRS.local.todo, "utf-8");
-        const firstPending = raw
-          .split("\n")
-          .find((l) => /^\s*-\s*\[ \]/.test(l));
-        if (firstPending) {
-          const text = firstPending.replace(/^\s*-\s*\[\s*\]\s*/, "").trim();
-          setActiveTodoItem(text || null);
-        } else {
-          setActiveTodoItem(null);
-        }
+        if (!fs.existsSync(DIRS.local.tasks)) return;
+        const raw = fs.readFileSync(DIRS.local.tasks, "utf-8");
+        const store = JSON.parse(raw);
+        const active = (store.tasks ?? []).find(
+          (t: any) => t.status === "in_progress",
+        ) ?? (store.tasks ?? []).find((t: any) => t.status === "todo");
+        setActiveTodoItem(active?.title ?? null);
       } catch {
         setActiveTodoItem(null);
       }
     };
-    readActiveTodo();
-    const interval = setInterval(readActiveTodo, 800);
+    readActiveTask();
+    const interval = setInterval(readActiveTask, 800);
     return () => clearInterval(interval);
   }, [busy]);
 
