@@ -416,127 +416,325 @@ registerTool(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TODO / TASK MANAGER
+// MANAGE TASK — Oturum içi yapılandırılmış görev listesi
 // ─────────────────────────────────────────────────────────────────────────────
-const TODO_FILE = path.join(LOCAL_DIR, "AGENT_TODO.md");
 
 registerTool(
-  "manage_todo",
-  `Manage the agent's in-session task list (markdown checklist format).
+  "manage_task",
+  `Manage the current session's structured task list.
+
+TWO-TIER TASK SYSTEM — choose the right tier:
+  manage_task   → SHORT-LIVED tasks scoped to THIS conversation.
+                  Use for: implementation steps, sub-goals you'll finish right now.
+                  Automatically cleared between sessions.
+  manage_kanban → PERSISTENT tasks that survive across sessions.
+                  Use for: project-level work, delegation to subagents, user-visible backlogs.
 
 Actions:
-- read       → return the current todo list
-- update     → overwrite the entire list with new content (requires: content)
-- mark_done  → mark a specific item as [x] done (requires: item — partial text match or 1-based index as string)
-- append     → add a new pending item to the bottom of the list (requires: content — the task text)
+  create  — Add a task (required: title; optional: priority low/normal/high, notes)
+  start   — Mark a task as in_progress (required: ref — task number or keyword)
+  done    — Mark a task as completed (required: ref; optional: notes — outcome summary)
+  block   — Mark a task as blocked (required: ref; optional: notes — reason)
+  unblock — Move blocked task back to todo (required: ref)
+  list    — Show all tasks (optional: filter todo/in_progress/done/blocked)
+  clear   — Remove all completed tasks
 
-Always use mark_done immediately after completing each item. Never batch-mark at the end.`,
+RULES:
+- Call create (or a list of creates) as your VERY FIRST action before any tool call on multi-step tasks.
+- Call start immediately before beginning each task.
+- Call done immediately after completing each task — never batch at the end.
+- Single-step tasks (1 file, 1 obvious action) may skip manage_task entirely.`,
   z.object({
     action: z
-      .enum(["read", "update", "mark_done", "append"])
-      .describe(
-        "read | update (overwrite) | mark_done (check off item) | append (add item)",
-      ),
-    content: z
+      .enum(["create", "start", "done", "block", "unblock", "list", "clear"])
+      .describe("Action to perform"),
+    title: z
       .string()
       .optional()
-      .describe(
-        "For update: full markdown content. For append: task description text.",
-      ),
-    item: z
+      .describe("Task title (required for create)"),
+    ref: z
       .string()
       .optional()
-      .describe(
-        "For mark_done: partial text match of the item, OR a 1-based index (e.g. '1', '2').",
-      ),
+      .describe("Task reference: 1-based index ('1', '2') or keyword match"),
+    priority: z
+      .enum(["low", "normal", "high"])
+      .optional()
+      .default("normal")
+      .describe("Task priority (default: normal)"),
+    notes: z
+      .string()
+      .optional()
+      .describe("For done: outcome summary. For block: reason. For create: context."),
+    filter: z
+      .enum(["todo", "in_progress", "done", "blocked"])
+      .optional()
+      .describe("For list: filter by status"),
   }),
   async ({
     action,
-    content,
-    item,
+    title,
+    ref,
+    priority,
+    notes,
+    filter,
   }: {
     action: string;
-    content?: string;
-    item?: string;
+    title?: string;
+    ref?: string;
+    priority?: "low" | "normal" | "high";
+    notes?: string;
+    filter?: "todo" | "in_progress" | "done" | "blocked";
   }) => {
-    try {
-      // ── read ────────────────────────────────────────────────────────────────
-      if (action === "read") {
-        return fs.existsSync(TODO_FILE)
-          ? fs.readFileSync(TODO_FILE, "utf-8")
-          : "No active TODO list.";
+    const { getTaskManager } = await import("../core/task_manager.js");
+    const tm = getTaskManager();
+
+    switch (action) {
+      case "create":
+        if (!title) return "ERROR: 'create' requires title.";
+        return tm.create({ title, priority: priority ?? "normal", notes });
+
+      case "start":
+        if (!ref) return "ERROR: 'start' requires ref.";
+        return tm.start(ref);
+
+      case "done":
+        if (!ref) return "ERROR: 'done' requires ref.";
+        return tm.done(ref, notes);
+
+      case "block":
+        if (!ref) return "ERROR: 'block' requires ref.";
+        return tm.block(ref, notes);
+
+      case "unblock":
+        if (!ref) return "ERROR: 'unblock' requires ref.";
+        return tm.unblock(ref);
+
+      case "list":
+        return tm.list(filter ? [filter] : undefined);
+
+      case "clear":
+        return tm.clear();
+
+      default:
+        return "ERROR: Unknown action.";
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MANAGE KANBAN — Kalıcı proje görevi kuyruğu
+// ─────────────────────────────────────────────────────────────────────────────
+
+registerTool(
+  "manage_kanban",
+  `Manage the persistent kanban board — tasks that survive across sessions.
+
+TWO-TIER TASK SYSTEM — choose the right tier:
+  manage_kanban → PERSISTENT tasks: project backlogs, delegated subagent work,
+                  multi-session initiatives, user-visible task tracking.
+  manage_task   → Ephemeral tasks: steps within the current conversation only.
+
+Actions:
+  create   — Create a new kanban task (required: title; optional: description, priority low/normal/high/urgent, tags, assign_to)
+  list     — List tasks (optional: status pending/running/done/blocked, assign_to, tag, limit)
+  show     — Show task details + comments (required: id — full or 8-char prefix)
+  assign   — Assign a task to an agent profile (required: id, assign_to)
+  done     — Mark task as done with output (required: id, output)
+  fail     — Mark task as failed (required: id, error)
+  block    — Block a task (required: id; optional: reason)
+  unblock  — Move blocked task back to pending (required: id)
+  comment  — Add a comment to a task (required: id, content)
+  stats    — Board statistics (pending/running/done/blocked counts)`,
+  z.object({
+    action: z
+      .enum(["create", "list", "show", "assign", "done", "fail", "block", "unblock", "comment", "stats"])
+      .describe("Action to perform"),
+    id: z
+      .string()
+      .optional()
+      .describe("Task ID (full UUID or first 8 characters)"),
+    title: z
+      .string()
+      .optional()
+      .describe("Task title (required for create)"),
+    description: z
+      .string()
+      .optional()
+      .describe("Task description"),
+    priority: z
+      .enum(["low", "normal", "high", "urgent"])
+      .optional()
+      .default("normal")
+      .describe("Task priority"),
+    tags: z
+      .array(z.string())
+      .optional()
+      .describe("Tags for categorization"),
+    assign_to: z
+      .string()
+      .optional()
+      .describe("Agent profile name to assign to"),
+    status: z
+      .enum(["pending", "running", "done", "failed", "blocked"])
+      .optional()
+      .describe("Filter by status (for list)"),
+    tag: z
+      .string()
+      .optional()
+      .describe("Filter by tag (for list)"),
+    limit: z
+      .number()
+      .optional()
+      .default(50)
+      .describe("Max tasks to return (default: 50)"),
+    output: z
+      .string()
+      .optional()
+      .describe("Task output / result (for done)"),
+    error: z
+      .string()
+      .optional()
+      .describe("Error message (for fail)"),
+    reason: z
+      .string()
+      .optional()
+      .describe("Reason (for block)"),
+    content: z
+      .string()
+      .optional()
+      .describe("Comment content (for comment)"),
+  }),
+  async ({
+    action,
+    id,
+    title,
+    description,
+    priority,
+    tags,
+    assign_to,
+    status,
+    tag,
+    limit,
+    output,
+    error,
+    reason,
+    content,
+  }: {
+    action: string;
+    id?: string;
+    title?: string;
+    description?: string;
+    priority?: "low" | "normal" | "high" | "urgent";
+    tags?: string[];
+    assign_to?: string;
+    status?: any;
+    tag?: string;
+    limit?: number;
+    output?: string;
+    error?: string;
+    reason?: string;
+    content?: string;
+  }) => {
+    const { getKanbanDB } = await import("../kanban/db.js");
+    const db = getKanbanDB();
+
+    // Resolve short ID
+    const resolveId = (shortId: string): string => {
+      if (shortId.length === 36) return shortId; // full UUID
+      const tasks = db.list({ limit: 500 });
+      const match = tasks.find((t) => t.id.startsWith(shortId));
+      return match?.id ?? shortId;
+    };
+
+    switch (action) {
+      case "create": {
+        if (!title) return "ERROR: 'create' requires title.";
+        const task = db.create({ title, description, priority, tags, assignTo: assign_to });
+        return JSON.stringify({
+          created: true,
+          id: task.id.slice(0, 8),
+          title: task.title,
+          status: task.status,
+          priority: task.priority,
+        }, null, 2);
       }
 
-      // ── update ──────────────────────────────────────────────────────────────
-      if (action === "update") {
-        if (!content) return "ERROR: 'update' requires content.";
-        fs.writeFileSync(TODO_FILE, content, "utf-8");
-        return "TODO list updated.";
-      }
+      case "list": {
+        const tasks = db.list({ status, assignedTo: assign_to, tag, limit });
+        if (tasks.length === 0) return "No tasks found.";
 
-      // ── append ──────────────────────────────────────────────────────────────
-      if (action === "append") {
-        if (!content) return "ERROR: 'append' requires content.";
-        const existing = fs.existsSync(TODO_FILE)
-          ? fs.readFileSync(TODO_FILE, "utf-8")
-          : "# Active Agent Tasks\n";
-        const newItem = `- [ ] ${content.replace(/^-\s*\[.\]\s*/, "")}`;
-        fs.writeFileSync(
-          TODO_FILE,
-          existing.trimEnd() + "\n" + newItem + "\n",
-          "utf-8",
-        );
-        return `Appended: ${newItem}`;
-      }
+        const STATUS_ICON: Record<string, string> = {
+          pending: "⏳", claimed: "🔵", running: "🟡", done: "✅", failed: "❌", blocked: "🚫",
+        };
+        const PRIORITY_BADGE: Record<string, string> = {
+          urgent: "[URGENT]", high: "[HIGH]", normal: "", low: "[LOW]",
+        };
 
-      // ── mark_done ───────────────────────────────────────────────────────────
-      if (action === "mark_done") {
-        if (!item)
-          return "ERROR: 'mark_done' requires item (text or 1-based index).";
-        if (!fs.existsSync(TODO_FILE)) return "ERROR: No todo file found.";
-
-        const raw = fs.readFileSync(TODO_FILE, "utf-8");
-        const lines = raw.split("\n");
-
-        // Determine if item is a numeric index
-        const idx = /^\d+$/.test(item.trim()) ? parseInt(item.trim(), 10) : -1;
-
-        let matched = false;
-        let checklistCount = 0; // counts only checklist lines (- [ ] or - [x])
-
-        const updated = lines.map((line) => {
-          const isCheckbox = /^\s*-\s*\[.\]/.test(line);
-          if (isCheckbox) checklistCount++;
-
-          if (matched) return line;
-
-          if (idx > 0) {
-            // Index match — match the Nth checklist item (1-based)
-            if (isCheckbox && checklistCount === idx) {
-              matched = true;
-              return line.replace(/\[.\]/, "[x]");
-            }
-          } else {
-            // Text match
-            if (isCheckbox && line.toLowerCase().includes(item.toLowerCase())) {
-              matched = true;
-              return line.replace(/\[.\]/, "[x]");
-            }
-          }
-          return line;
+        const lines = tasks.map((t) => {
+          const icon = STATUS_ICON[t.status] ?? "?";
+          const p = PRIORITY_BADGE[t.priority] ?? "";
+          const who = t.assigned_to ? ` @${t.assigned_to}` : "";
+          const tags = t.tags.length ? ` [${t.tags.join(",")}]` : "";
+          return `  ${icon} ${t.id.slice(0, 8)}  ${t.title}${p ? " " + p : ""}${who}${tags}`;
         });
 
-        if (!matched) {
-          return `ERROR: No matching todo item found for: "${item}". Current list:\n${raw}`;
-        }
-
-        fs.writeFileSync(TODO_FILE, updated.join("\n"), "utf-8");
-        return `Marked done: "${item}"`;
+        const s = db.stats();
+        lines.push(`\n  Pending: ${s.pending}  Running: ${s.running}  Done: ${s.done}  Blocked: ${s.blocked}`);
+        return lines.join("\n");
       }
 
-      return "ERROR: Unknown action.";
-    } catch (e: any) {
-      return `ERROR: ${e.message}`;
+      case "show": {
+        if (!id) return "ERROR: 'show' requires id.";
+        const task = db.get(resolveId(id));
+        if (!task) return `ERROR: Task not found: ${id}`;
+        const comments = db.getComments(task.id);
+        const blockers = db.getBlockers(task.id);
+        return JSON.stringify({ ...task, comments, blockers }, null, 2);
+      }
+
+      case "assign": {
+        if (!id || !assign_to) return "ERROR: 'assign' requires id and assign_to.";
+        db.assign(resolveId(id), assign_to);
+        return `Assigned ${id} to @${assign_to}`;
+      }
+
+      case "done": {
+        if (!id) return "ERROR: 'done' requires id.";
+        db.markDone(resolveId(id), output ?? "Marked done manually.");
+        return `Task ${id} marked done.`;
+      }
+
+      case "fail": {
+        if (!id) return "ERROR: 'fail' requires id.";
+        db.markFailed(resolveId(id), error ?? "Unknown error");
+        return `Task ${id} marked failed.`;
+      }
+
+      case "block": {
+        if (!id) return "ERROR: 'block' requires id.";
+        db.block(resolveId(id), reason);
+        return `Task ${id} blocked.${reason ? " Reason: " + reason : ""}`;
+      }
+
+      case "unblock": {
+        if (!id) return "ERROR: 'unblock' requires id.";
+        db.unblock(resolveId(id));
+        return `Task ${id} unblocked → pending.`;
+      }
+
+      case "comment": {
+        if (!id || !content) return "ERROR: 'comment' requires id and content.";
+        db.addComment(resolveId(id), "agent", content);
+        return `Comment added to task ${id}.`;
+      }
+
+      case "stats": {
+        const s = db.stats();
+        return JSON.stringify(s, null, 2);
+      }
+
+      default:
+        return "ERROR: Unknown action.";
     }
   },
 );

@@ -1379,27 +1379,31 @@ After writing, reply: "✓ COWRNGLR.md written. Agent context is now active."
 
     // ── /todo ─────────────────────────────────────────────────────────────────
     this.commands.set("/todo", {
-      description: "Show the agent's active TODO list (.cowrangler/AGENT_TODO.md)",
+      description: "Show the agent's active session task list (.cowrangler/tasks.json)",
       execute: () => {
-        const todoPath = DIRS.local.todo;
-        if (!fs.existsSync(todoPath)) {
-          return UI.info("No active TODO list. The agent creates one automatically for multi-step tasks.");
+        const tasksPath = DIRS.local.tasks;
+        if (!fs.existsSync(tasksPath)) {
+          return UI.info("No active task list. The agent creates one automatically for multi-step tasks.");
         }
-        const raw = fs.readFileSync(todoPath, "utf-8").trim();
-        if (!raw) return UI.info("TODO list is empty.");
-
-        const lines = raw.split("\n").map((line) => {
-          // Colour checked items dimmed, unchecked items highlighted
-          if (/^\s*-\s*\[x\]/i.test(line)) {
-            return `  ${Theme.dim(line)}`;
-          }
-          if (/^\s*-\s*\[ \]/.test(line)) {
-            return `  ${Theme.success("▶")} ${Theme.accent(line.replace(/^\s*-\s*\[\s*\]\s*/, ""))}`;
-          }
-          // Headers and other lines
-          return `  ${Theme.main(line)}`;
-        });
-        UI.box(lines.join("\n"), "Active Agent TODO");
+        try {
+          const raw = fs.readFileSync(tasksPath, "utf-8").trim();
+          if (!raw) return UI.info("Task list is empty.");
+          const store = JSON.parse(raw);
+          const tasks: any[] = store.tasks ?? [];
+          if (tasks.length === 0) return UI.info("Task list is empty.");
+          const STATUS_ICON: Record<string, string> = { todo: "○", in_progress: "◉", done: "✓", blocked: "✗" };
+          const lines = tasks.map((t: any) => {
+            const icon = STATUS_ICON[t.status] ?? "?";
+            const dim = t.status === "done";
+            const line = `  ${icon}  ${t.index}. ${t.title}${t.priority === "high" ? " [HIGH]" : ""}`;
+            return dim ? Theme.dim(line) : (t.status === "in_progress" ? Theme.accent(line) : Theme.main(line));
+          });
+          const active = tasks.filter((t: any) => ["todo","in_progress"].includes(t.status)).length;
+          lines.push("", Theme.dim(`  Active: ${active}  Total: ${tasks.length}`));
+          UI.box(lines.join("\n"), "Session Tasks");
+        } catch {
+          return UI.info("Could not read task list.");
+        }
       },
     });
   }

@@ -6,6 +6,53 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.0.2] — 2026-06-05
+
+### Added
+- **Two-tier task management system** — replaces the flat `AGENT_TODO.md` markdown checklist with two purpose-built tools:
+  - `manage_task` — structured session-scoped tasks (JSON-backed, ephemeral, cleared between sessions); actions: `create`, `start`, `done`, `block`, `unblock`, `list`, `clear`; every response returns a numbered list so the model never needs to track IDs
+  - `manage_kanban` — persistent project-level task board (SQLite-backed, survives sessions); actions: `create`, `list`, `show`, `assign`, `done`, `fail`, `block`, `unblock`, `comment`, `stats`; short 8-char ID resolution for ergonomic CLI use
+- **Kanban dispatcher** (`src/kanban/dispatcher.ts`) — automatically processes pending kanban tasks using subagents:
+  - Foreground mode: `cowrangler kanban dispatch` (Ctrl+C to stop)
+  - Daemon mode: `cowrangler kanban daemon start/stop/status` (PID-file managed background process)
+  - Configurable concurrency (`--concurrency N`, default: 3)
+  - `reclaim()` — automatically releases tasks stuck in `claimed/running` state beyond 10 minutes
+  - Auto-block after 5 consecutive failures per task
+- **Kanban live web UI** (`src/kanban/web.ts` + `src/kanban/board.html`) — `cowrangler kanban board` starts an Express-equivalent HTTP server (default port 4242) and opens the browser:
+  - 4-column board: Pending / Running / Done / Blocked with live task counts
+  - SSE (Server-Sent Events) real-time updates — board refreshes automatically on every task change
+  - Task cards with priority badges, assigned-to labels, tag chips, running spinner
+  - Click any card to open detail modal: full task info, output, error, blockers, comments
+  - **Inline edit form** — ✎ Edit button in modal header; editable fields: title, description, priority, tags, assigned-to, status; saves via `PATCH /api/tasks/:id` with immediate board refresh
+  - **Comment input** — post comments directly from the board; visible in task detail modal
+  - **Offline banner** — shows server status instead of error toasts; auto-retries silently every 30s
+  - Header branding: `kanban_ui_icon.png` + stacked CoWrangler / KANBAN text with matched widths
+  - REST API: `GET /api/tasks`, `GET /api/tasks/:id`, `POST /api/tasks`, `PATCH /api/tasks/:id`, `PATCH /api/tasks/:id/status`, `POST /api/tasks/:id/comment`, `GET /api/stats`, `GET /api/events` (SSE)
+  - Static asset serving: `GET /assets/:filename`
+- **Kanban DB enhancements** (`src/kanban/db.ts`):
+  - `update()` — patch title, description, priority, tags, assigned_to without touching status
+  - `assign()` — explicit profile assignment
+  - `reclaim()` — timeout-based stale task recovery
+  - `tailEvents()` — last N board events for `cowrangler kanban tail` and SSE polling
+  - `getBlockers()` / `getBlocked()` — dependency graph traversal
+  - `boards()` — list all boards
+  - `kanban_events` table — append-only event log (created, status_changed, assigned, commented, linked, updated); all mutations emit events; used for SSE broadcast and `tail` command
+- **Expanded kanban CLI** (`src/main.ts`) — 3 verbs → 15 verbs: `list`, `create`, `show`, `assign`, `complete`, `fail`, `block`, `unblock`, `link`, `unlink`, `comment`, `stats`, `tail`, `board`, `dispatch`, `daemon`
+- **`src/core/task_manager.ts`** — `TaskManager` singleton; JSON store at `.cowrangler/tasks.json`; stable 1-based `index` field so the model references tasks as `"1"`, `"2"` rather than UUIDs; `getTaskManager()` factory
+
+### Changed
+- **System prompt routing guidance** — agent now explicitly told when to use `manage_task` vs `manage_kanban`; session tasks for in-conversation steps, kanban tasks for persistent/delegated work
+- **`DIRS.local.todo`** renamed to **`DIRS.local.tasks`** (`.cowrangler/AGENT_TODO.md` → `.cowrangler/tasks.json`); `ensureAgentTodo()` → `ensureTaskStore()`
+- **`/todo` in-session command** — reads structured `tasks.json` instead of markdown checklist; displays `in_progress` task highlighted, completed tasks dimmed
+- **`App.tsx` task polling** — reads `tasks.json` to surface active task title in status bar; shows `in_progress` task first, falls back to first `todo`
+- `manage_todo` tool removed; replaced by `manage_task` + `manage_kanban`
+- `copy-assets` build script now also copies `assets/kanban_ui_icon.png` → `dist/assets/`
+
+### Fixed
+- `EADDRINUSE` on `cowrangler kanban board` — use `--port <n>` to specify an alternate port if 4242 is occupied; or `lsof -ti:4242 | xargs kill -9` to release it
+
+---
+
 ## [2.0.1] — 2026-05-19
 
 ### Added

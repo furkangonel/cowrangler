@@ -11,7 +11,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript&logoColor=white" alt="TypeScript">
   <img src="https://img.shields.io/badge/Node.js-339933?style=flat&logo=node.js&logoColor=white" alt="Node.js">
-  <img src="https://img.shields.io/badge/Version-2.0.1-orange?style=flat" alt="Version">
+  <img src="https://img.shields.io/badge/Version-2.0.2-orange?style=flat" alt="Version">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/furkangonel/co-wrangler?style=flat" alt="License"></a>
 </p>
 
@@ -20,7 +20,7 @@
   <a href="#architecture">Architecture</a> •
   <a href="#quick-start">Quick Start</a> •
   <a href="#features">Features</a> •
-  <a href="#tools">Tools</a> •
+  <a href="#kanban-board">Kanban Board</a> •
   <a href="#subagents">Subagents</a> •
   <a href="#skills--agents">Skills & Agents</a> •
   <a href="#mcp-servers">MCP Servers</a> •
@@ -83,7 +83,7 @@ Two directories. Total control over your AI environment.
 `./.cowrangler`
 
 - **Project memory:** `memory.md` is injected into the system prompt on every boot — architecture decisions, conventions, context
-- **Task state:** `AGENT_TODO.md` persists open tasks across sessions
+- **Task state:** `tasks.json` — structured session task store (replaces AGENT_TODO.md)
 - **Local overrides:** `config.yaml` and `skills/` override global settings for this repo only
 - **Custom agents:** `agents/` for project-specific agent configurations
 
@@ -164,7 +164,7 @@ Co-Wrangler ships with 25+ built-in tools organized into categories.
 | **File System** | `read_file`, `write_file`, `edit_file`, `list_files`, `glob_files`, `search_in_files`, `copy_file`, `move_item`, `delete_file`, `file_info`, `append_to_file` |
 | **Git** | `git_status`, `git_diff`, `git_log`, `git_add`, `git_commit`, `git_branch`, `git_stash`, `git_checkout_file` |
 | **Web** | `fetch_webpage`, `web_search`, `http_request` |
-| **System** | `execute_bash`, `get_system_info`, `which_command`, `sleep`, `notify`, `manage_todo` |
+| **System** | `execute_bash`, `get_system_info`, `which_command`, `sleep`, `notify`, `manage_task`, `manage_kanban` |
 | **Agent** | `spawn_subagent`, `spawn_subagent_parallel`, `utilize_skill`, `create_skill`, `list_skills` |
 | **Desktop** | `computer_use` — macOS background automation (click, type, scroll, capture) |
 
@@ -206,6 +206,80 @@ Or inside a running session:
 ```
 
 The picker shows all registered models, highlights which API keys are configured, and persists the selection to `config.yaml`. Supports `provider/model_name` format (e.g. `anthropic/claude-sonnet-4-6`, `openai/gpt-4o`, `google/gemini-2.5-pro`) alongside short prefixes.
+
+### Kanban Board
+
+Co-Wrangler ships a full **two-tier task management system** designed to keep even low-capability models on track.
+
+#### Session Tasks — `manage_task`
+
+Short-lived steps within the current conversation. The agent creates them at the start of any multi-step job and marks them done as it goes. Stored in `.cowrangler/tasks.json`, cleared between sessions.
+
+```
+> Refactor the auth module and write tests for it
+  Agent calls manage_task(create) for each step → starts → marks done → next step
+```
+
+#### Kanban Board — `manage_kanban`
+
+Persistent project-level work queue backed by SQLite. Survives across sessions and is visible to all subagents. Use it for delegated work, multi-session initiatives, or anything you want to track as a user-visible backlog item.
+
+```
+> Add OAuth support — track it on the board
+  Agent calls manage_kanban(create, title="OAuth integration", priority="high")
+```
+
+#### Live Web UI
+
+```bash
+cowrangler kanban board          # open board in browser at http://localhost:4242
+cowrangler kanban board --port 4243   # use a different port if 4242 is taken
+```
+
+<p align="center">
+  <img src="./assets/kanban_ui.png" alt="Kanban Board UI" width="820" />
+</p>
+
+The board updates in real time via Server-Sent Events (SSE). Every task change — whether made by the agent, the dispatcher, or you manually — appears instantly without a page refresh.
+
+**What you can do on the board:**
+- Create new tasks with title, priority, tags, and assignee
+- Click any card to see full details: description, output, error, blockers, comments
+- **Edit tasks inline** — click ✎ Edit to update any field and save directly to the database
+- Post comments on tasks
+- Mark tasks done, block, or unblock with one click
+- Filter by title, tag, or priority
+
+#### Dispatcher
+
+The dispatcher picks up `pending` kanban tasks and processes them automatically using subagents.
+
+```bash
+cowrangler kanban dispatch             # foreground — Ctrl+C to stop
+cowrangler kanban daemon start         # background daemon (PID-managed)
+cowrangler kanban daemon stop          # stop the daemon
+cowrangler kanban daemon status        # check if daemon is running
+```
+
+Tasks that crash or time out are automatically retried. After 5 consecutive failures the task is blocked — no silent infinite loops.
+
+#### Kanban CLI Reference
+
+```bash
+cowrangler kanban list                 # list all tasks with status icons
+cowrangler kanban create --title "..." --priority high --tags "api,auth"
+cowrangler kanban show <id>            # full task detail + comments
+cowrangler kanban assign <id> <profile>
+cowrangler kanban complete <id>
+cowrangler kanban block <id> [reason]
+cowrangler kanban unblock <id>
+cowrangler kanban link <blocker-id> <blocked-id>   # add dependency
+cowrangler kanban comment <id> "message"
+cowrangler kanban tail 20              # last 20 board events
+cowrangler kanban stats                # pending/running/done/blocked counts
+```
+
+---
 
 ### Subagents
 
@@ -441,9 +515,20 @@ cowrangler mcp list            # List configured MCP servers
 cowrangler cron list           # List scheduled jobs
 cowrangler cron create         # Create a scheduled job
 cowrangler cron daemon         # Start the cron scheduler daemon
-cowrangler kanban list         # Show kanban task board
-cowrangler kanban create       # Create a kanban task
+cowrangler kanban list         # List all tasks with status icons
+cowrangler kanban board        # Open live web UI at http://localhost:4242
+cowrangler kanban create       # Create a task (--title, --priority, --tags, --assign)
+cowrangler kanban show <id>    # Show task detail + comments
+cowrangler kanban assign       # Assign task to an agent profile
+cowrangler kanban complete     # Mark task done
+cowrangler kanban block        # Block a task
+cowrangler kanban unblock      # Unblock a task
+cowrangler kanban link         # Add blocker → blocked dependency
+cowrangler kanban comment      # Add a comment to a task
+cowrangler kanban tail [n]     # Show last N board events (default: 20)
 cowrangler kanban stats        # Show board statistics
+cowrangler kanban dispatch     # Run dispatcher in foreground
+cowrangler kanban daemon       # Manage background dispatcher (start/stop/status)
 cowrangler profile list        # List profiles
 cowrangler profile create      # Create a new profile
 cowrangler --brief             # Start in brief view (clean, tool-free output)
@@ -531,13 +616,20 @@ cowrangler --help              # Show help
 co-wrangler/
 ├── src/
 │   ├── core/              # Agent core, LLM, sandbox, permissions, skin, i18n
+│   │   └── task_manager.ts  # Structured session task store (tasks.json)
+│   ├── kanban/            # Kanban board system
+│   │   ├── db.ts          # SQLite task queue (WAL mode, event log)
+│   │   ├── dispatcher.ts  # Auto-dispatch: foreground + daemon modes
+│   │   ├── web.ts         # HTTP server + SSE live updates
+│   │   └── board.html     # Self-contained dark-theme web UI
 │   ├── cli/               # CLI wizards (model picker, MCP, gateway)
 │   ├── tools/             # 25+ tool implementations
 │   │   └── computer_use.ts  # macOS desktop automation
 │   ├── ui/                # CLI, commands, theme, setup wizard
 │   │   └── ink/           # React Ink components (ModelPicker, etc.)
 │   ├── i18n/              # Internationalization (en, tr, de, es, fr, it)
-│   ├── utils/             # Helper functions
+│   ├── lsp/               # Language Server Protocol (hover + completion)
+│   ├── batch/             # Batch runner (JSONL parallel task execution)
 │   ├── bundled_skills/    # 32 bundled SOPs, organized by category
 │   │   ├── apple/         # apple-notes, apple-reminders, findmy, imessage, macos-computer-use
 │   │   ├── creative/      # architecture-diagram, creative-ideation, design-system, excalidraw
@@ -545,13 +637,16 @@ co-wrangler/
 │   │   ├── devops/        # ci-cd-pipeline, docker-management, webhook-subscriptions
 │   │   └── ...            # development, writing & communication skills
 │   └── types.d.ts         # TypeScript declarations
+├── assets/                # Static assets (UI images)
 ├── dist/                  # Compiled JavaScript (npm run build)
-├── .cowrangler/           # Project-local settings
+├── .cowrangler/           # Project-local settings (auto-created)
 │   ├── agents/            # Custom agent configurations
 │   ├── skills/            # Custom skills
-│   ├── memory.md          # Project memory
-│   ├── AGENT_TODO.md      # Task list
-│   └── config.yaml        # Local config
+│   ├── memory.md          # Project memory (injected into system prompt)
+│   ├── tasks.json         # Session task store (manage_task)
+│   └── config.yaml        # Local config overrides
+├── ~/.cowrangler/         # Global settings
+│   └── kanban.db          # Persistent kanban board (SQLite)
 ├── Dockerfile
 ├── package.json
 ├── tsconfig.json
@@ -651,6 +746,12 @@ A: Ensure `cua-driver` is installed and available on your PATH. This tool is mac
 
 **Q: How do I create custom agents?**
 A: Create a folder in `.cowrangler/agents/` with an `AGENT.md` file following the format shown in the Custom Agents section.
+
+**Q: `cowrangler kanban board` fails with `EADDRINUSE: address already in use`**
+A: A previous board server is still running. Kill it with `lsof -ti:4242 | xargs kill -9`, then retry. Or use a different port: `cowrangler kanban board --port 4243`.
+
+**Q: `cowrangler kanban dispatch` fails with `ERR_DLOPEN_FAILED` / NODE_MODULE_VERSION mismatch**
+A: `better-sqlite3` was compiled against a different Node.js version. Run `npm rebuild better-sqlite3` in the project directory to recompile it for your current Node.
 
 ## License
 

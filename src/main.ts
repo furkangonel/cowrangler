@@ -60,9 +60,20 @@ if (args.includes("--help") || args.includes("-h")) {
       "    cowrangler cron list           List scheduled jobs",
       "    cowrangler cron create         Create a scheduled job",
       "    cowrangler cron daemon         Start the cron scheduler daemon",
-      "    cowrangler kanban list         Show kanban task board",
-      "    cowrangler kanban create       Create a kanban task",
+      "    cowrangler kanban list         Show kanban board (all tasks)",
+      "    cowrangler kanban board        Open live web UI (http://localhost:4242)",
+      "    cowrangler kanban create       Create a task (--title, --priority, --tags, --assign)",
+      "    cowrangler kanban show <id>    Show task details + comments",
+      "    cowrangler kanban assign       Assign task to a profile",
+      "    cowrangler kanban complete     Mark task done",
+      "    cowrangler kanban block        Block a task",
+      "    cowrangler kanban unblock      Unblock a task",
+      "    cowrangler kanban link         Add blocker → blocked dependency",
+      "    cowrangler kanban comment      Add a comment to a task",
+      "    cowrangler kanban tail         Show recent board events",
       "    cowrangler kanban stats        Show board statistics",
+      "    cowrangler kanban dispatch     Run dispatcher (foreground)",
+      "    cowrangler kanban daemon       Manage background dispatcher",
       "    cowrangler profile list        List profiles",
       "    cowrangler profile create      Create a new profile",
       "    cowrangler --brief             Start in brief view (clean, tool-free output)",
@@ -372,58 +383,251 @@ if (args[0] === "kanban") {
     await import("./core/init.js");
   initEnvironment();
   loadEnvironmentVariables();
+
+  const verb = args[1];
+
+  // ── board — web UI ────────────────────────────────────────────────────
+  if (verb === "board") {
+    const portIdx = args.indexOf("--port");
+    const port = portIdx >= 0 ? parseInt(args[portIdx + 1], 10) : 4242;
+    const noOpen = args.includes("--no-open");
+    const { startKanbanBoard } = await import("./kanban/web.js");
+    await startKanbanBoard({ port, openBrowser: !noOpen });
+    process.exit(0);
+  }
+
+  // ── dispatch — foreground dispatcher ─────────────────────────────────
+  if (verb === "dispatch") {
+    const profileIdx = args.indexOf("--profile");
+    const concIdx   = args.indexOf("--concurrency");
+    const { runDispatcherForeground } = await import("./kanban/dispatcher.js");
+    await runDispatcherForeground({
+      profile:       profileIdx >= 0 ? args[profileIdx + 1] : undefined,
+      maxConcurrent: concIdx >= 0 ? parseInt(args[concIdx + 1], 10) : undefined,
+    });
+    process.exit(0);
+  }
+
+  // ── daemon — background dispatcher ────────────────────────────────────
+  if (verb === "daemon") {
+    const daemonVerb = args[2];
+    const { isDaemonRunning, stopDaemon, runDispatcherDaemon } =
+      await import("./kanban/dispatcher.js");
+
+    if (daemonVerb === "status") {
+      console.log(isDaemonRunning() ? "  Daemon: running" : "  Daemon: stopped");
+      process.exit(0);
+    }
+    if (daemonVerb === "stop") {
+      const stopped = stopDaemon();
+      console.log(stopped ? "  Daemon stopped." : "  Daemon was not running.");
+      process.exit(0);
+    }
+    if (!daemonVerb || daemonVerb === "start") {
+      if (isDaemonRunning()) {
+        console.log("  Daemon already running.");
+        process.exit(0);
+      }
+      const concIdx = args.indexOf("--concurrency");
+      console.log("  Starting kanban daemon...");
+      await runDispatcherDaemon({
+        maxConcurrent: concIdx >= 0 ? parseInt(args[concIdx + 1], 10) : undefined,
+      });
+      process.exit(0);
+    }
+    console.error("  Usage: cowrangler kanban daemon [start|stop|status]");
+    process.exit(1);
+  }
+
+  // Shared DB for remaining verbs
   const { getKanbanDB } = await import("./kanban/db.js");
   const db = getKanbanDB();
 
-  if (args[1] === "list") {
-    const tasks = db.list();
+  const STATUS_ICON: Record<string, string> = {
+    pending: "⏳", claimed: "🔵", running: "🟡", done: "✅", failed: "❌", blocked: "🚫",
+  };
+  const PRIORITY_PAD: Record<string, string> = {
+    urgent: " [URGENT]", high: " [HIGH]", normal: "", low: " [LOW]",
+  };
+
+  // Resolve short task ID (first 8 chars → full UUID)
+  const resolveId = (shortId: string): string => {
+    if (shortId.length === 36) return shortId;
+    const tasks = db.list({ limit: 500 });
+    return tasks.find((t) => t.id.startsWith(shortId))?.id ?? shortId;
+  };
+
+  // ── list ───────────────────────────────────────────────────────────────
+  if (!verb || verb === "list") {
+    const statusArg = args[2] as any;
+    const tasks = db.list({ status: statusArg ?? undefined });
     if (tasks.length === 0) {
       console.log("  No tasks.");
     } else {
       for (const t of tasks) {
-        const icon =
-          {
-            pending: "⏳",
-            claimed: "🔵",
-            running: "🟡",
-            done: "✅",
-            failed: "❌",
-            blocked: "🚫",
-          }[t.status] ?? "?";
-        console.log(
-          `  ${icon} [${t.id.slice(0, 8)}] ${t.title} (${t.priority})`,
-        );
+        const who   = t.assigned_to ? `  @${t.assigned_to}` : "";
+        const tags  = t.tags.length ? `  [${t.tags.join(",")}]` : "";
+        const p     = PRIORITY_PAD[t.priority] ?? "";
+        console.log(`  ${STATUS_ICON[t.status] ?? "?"} ${t.id.slice(0, 8)}  ${t.title}${p}${who}${tags}`);
       }
+      const s = db.stats();
+      console.log(`\n  Pending: ${s.pending}  Running: ${s.running}  Done: ${s.done}  Blocked: ${s.blocked}  Total: ${s.total}`);
     }
     process.exit(0);
   }
 
-  if (args[1] === "create") {
+  // ── create ─────────────────────────────────────────────────────────────
+  if (verb === "create") {
     const titleIdx = args.indexOf("--title");
     if (titleIdx < 0) {
-      console.error(
-        "  Usage: cowrangler kanban create --title <title> [--description <desc>]",
-      );
+      console.error("  Usage: cowrangler kanban create --title <title> [--description <desc>] [--priority low|normal|high|urgent] [--tags tag1,tag2] [--assign <profile>]");
       process.exit(1);
     }
-    const descIdx = args.indexOf("--description");
+    const descIdx     = args.indexOf("--description");
+    const prioIdx     = args.indexOf("--priority");
+    const tagsIdx     = args.indexOf("--tags");
+    const assignIdx   = args.indexOf("--assign");
     const task = db.create({
-      title: args[titleIdx + 1],
-      description: descIdx >= 0 ? args[descIdx + 1] : undefined,
+      title:       args[titleIdx + 1],
+      description: descIdx   >= 0 ? args[descIdx + 1]   : undefined,
+      priority:    prioIdx   >= 0 ? args[prioIdx + 1] as any : undefined,
+      tags:        tagsIdx   >= 0 ? args[tagsIdx + 1].split(",").map((t) => t.trim()) : undefined,
+      assignTo:    assignIdx >= 0 ? args[assignIdx + 1]  : undefined,
     });
-    console.log(`  ✓ Created task '${task.title}' (${task.id})`);
+    console.log(`  ✓ Created  ${task.id.slice(0, 8)}  "${task.title}"`);
     process.exit(0);
   }
 
-  if (args[1] === "stats") {
-    const stats = db.stats();
-    console.log(
-      `  Total: ${stats.total}  Pending: ${stats.pending}  Running: ${stats.running}  Done: ${stats.done}  Blocked: ${stats.blocked}`,
-    );
+  // ── show ───────────────────────────────────────────────────────────────
+  if (verb === "show") {
+    const id = args[2];
+    if (!id) { console.error("  Usage: cowrangler kanban show <id>"); process.exit(1); }
+    const task = db.get(resolveId(id));
+    if (!task) { console.error(`  Task not found: ${id}`); process.exit(1); }
+    const comments = db.getComments(task.id);
+    const blockers = db.getBlockers(task.id);
+
+    console.log(`\n  ${STATUS_ICON[task.status] ?? "?"} ${task.title}`);
+    console.log(`  ID:       ${task.id}`);
+    console.log(`  Status:   ${task.status}`);
+    console.log(`  Priority: ${task.priority}`);
+    if (task.assigned_to) console.log(`  Assigned: @${task.assigned_to}`);
+    if (task.tags.length) console.log(`  Tags:     ${task.tags.join(", ")}`);
+    if (task.description) console.log(`\n  ${task.description}`);
+    if (blockers.length)  console.log(`\n  Blocked by: ${blockers.map((b) => b.id.slice(0, 8) + " " + b.title).join(", ")}`);
+    if (task.output)      console.log(`\n  Output:\n${task.output.slice(0, 1000)}`);
+    if (task.error)       console.log(`\n  Error:\n${task.error}`);
+    if (comments.length) {
+      console.log(`\n  Comments (${comments.length}):`);
+      for (const c of comments) {
+        console.log(`    [${new Date(c.timestamp).toLocaleString()}] @${c.author}: ${c.content.slice(0, 120)}`);
+      }
+    }
+    console.log("");
     process.exit(0);
   }
 
-  console.error("  Usage: cowrangler kanban [list|create|stats]");
+  // ── assign ─────────────────────────────────────────────────────────────
+  if (verb === "assign") {
+    const id = args[2]; const who = args[3];
+    if (!id || !who) { console.error("  Usage: cowrangler kanban assign <id> <profile>"); process.exit(1); }
+    db.assign(resolveId(id), who);
+    console.log(`  ✓ Assigned ${id} → @${who}`);
+    process.exit(0);
+  }
+
+  // ── complete ───────────────────────────────────────────────────────────
+  if (verb === "complete" || verb === "done") {
+    const id = args[2];
+    if (!id) { console.error("  Usage: cowrangler kanban complete <id> [output]"); process.exit(1); }
+    const output = args.slice(3).join(" ") || "Manual completion";
+    db.markDone(resolveId(id), output);
+    console.log(`  ✅ Completed ${id}`);
+    process.exit(0);
+  }
+
+  // ── fail ───────────────────────────────────────────────────────────────
+  if (verb === "fail") {
+    const id = args[2];
+    if (!id) { console.error("  Usage: cowrangler kanban fail <id> [error]"); process.exit(1); }
+    const error = args.slice(3).join(" ") || "Manual failure";
+    db.markFailed(resolveId(id), error);
+    console.log(`  ❌ Failed ${id}`);
+    process.exit(0);
+  }
+
+  // ── block ──────────────────────────────────────────────────────────────
+  if (verb === "block") {
+    const id = args[2];
+    if (!id) { console.error("  Usage: cowrangler kanban block <id> [reason]"); process.exit(1); }
+    db.block(resolveId(id), args.slice(3).join(" ") || undefined);
+    console.log(`  🚫 Blocked ${id}`);
+    process.exit(0);
+  }
+
+  // ── unblock ────────────────────────────────────────────────────────────
+  if (verb === "unblock") {
+    const id = args[2];
+    if (!id) { console.error("  Usage: cowrangler kanban unblock <id>"); process.exit(1); }
+    db.unblock(resolveId(id));
+    console.log(`  ⏳ Unblocked ${id} → pending`);
+    process.exit(0);
+  }
+
+  // ── link ───────────────────────────────────────────────────────────────
+  if (verb === "link") {
+    const [, , blockerId, blockedId] = args;
+    if (!blockerId || !blockedId) { console.error("  Usage: cowrangler kanban link <blocker-id> <blocked-id>"); process.exit(1); }
+    db.link(resolveId(blockerId), resolveId(blockedId));
+    console.log(`  ✓ Linked: ${blockerId} blocks ${blockedId}`);
+    process.exit(0);
+  }
+
+  // ── unlink ─────────────────────────────────────────────────────────────
+  if (verb === "unlink") {
+    const [, , blockerId, blockedId] = args;
+    if (!blockerId || !blockedId) { console.error("  Usage: cowrangler kanban unlink <blocker-id> <blocked-id>"); process.exit(1); }
+    db.unlink(resolveId(blockerId), resolveId(blockedId));
+    console.log(`  ✓ Unlinked: ${blockerId} no longer blocks ${blockedId}`);
+    process.exit(0);
+  }
+
+  // ── comment ────────────────────────────────────────────────────────────
+  if (verb === "comment") {
+    const id = args[2];
+    if (!id || args.length < 4) { console.error("  Usage: cowrangler kanban comment <id> <text...>"); process.exit(1); }
+    const text = args.slice(3).join(" ");
+    db.addComment(resolveId(id), "user", text);
+    console.log(`  ✓ Comment added to ${id}`);
+    process.exit(0);
+  }
+
+  // ── stats ──────────────────────────────────────────────────────────────
+  if (verb === "stats") {
+    const s = db.stats();
+    console.log(`  Pending: ${s.pending}  Running: ${s.running}  Done: ${s.done}  Failed: ${s.failed}  Blocked: ${s.blocked}  Total: ${s.total}`);
+    process.exit(0);
+  }
+
+  // ── tail ───────────────────────────────────────────────────────────────
+  if (verb === "tail") {
+    const n = parseInt(args[2] ?? "20", 10);
+    const events = db.tailEvents({ limit: n });
+    if (events.length === 0) { console.log("  No events."); process.exit(0); }
+    for (const ev of events) {
+      const time = new Date(ev.timestamp).toLocaleTimeString();
+      const payload = JSON.parse(ev.payload);
+      const detail = Object.entries(payload)
+        .filter(([k]) => k !== "title")
+        .map(([k, v]) => `${k}=${v}`)
+        .join(" ");
+      console.log(`  [${time}] ${ev.task_id.slice(0, 8)}  ${ev.event_type}  ${detail}`);
+    }
+    process.exit(0);
+  }
+
+  console.error(`  Unknown verb: ${verb}`);
+  console.error("  Usage: cowrangler kanban [list|create|show|assign|complete|fail|block|unblock|link|unlink|comment|stats|tail|board|dispatch|daemon]");
   process.exit(1);
 }
 
