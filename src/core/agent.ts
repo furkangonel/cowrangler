@@ -10,17 +10,17 @@
  * - Context snapshot API (status bar için)
  */
 
-import { generateText, CoreMessage } from "ai";
+import { streamText, CoreMessage } from "ai";
 import fs from "fs";
 import { LLM } from "./llm.js";
 import { SkillManager } from "./skills.js";
 import { TOOL_SCHEMAS } from "../tools/registry.js";
 import { BriefBuffer, createSendMessageTool } from "../tools/brief_tool.js";
-import { DIRS, COWRNGLR_MD } from "./init.js";
+import { DIRS, COWRNGLR_MD, getConfig } from "./init.js";
 import { DefaultContextEngine, ContextSnapshot } from "./context_engine.js";
 import { getSessionDB } from "./session_db.js";
 import { getPluginManager } from "./plugins.js";
-import { modelSupportsThinking } from "./model_metadata.js";
+import { modelSupportsThinking, estimateCost } from "./model_metadata.js";
 import { getLogger } from "./logger.js";
 import { rotateCredentialPoolKey } from "./credential_pool.js";
 import { TrajectoryRecorder } from "./trajectory.js";
@@ -211,6 +211,7 @@ export class Agent {
     userMessage: string,
     onToolCall?: (name: string, args: any) => void,
     onStepText?: (text: string) => void,
+    onToken?: (delta: string) => void,
   ): Promise<AgentChatResult> {
     const roundStart = Date.now();
     this._interruptRequested = false;
@@ -258,6 +259,7 @@ export class Agent {
     let finalText = "";
     let responseMessages: CoreMessage[] = [];
     let roundToolCallCount = 0;
+    const roundToolCalls: { name: string; args: Record<string, unknown> }[] = [];
 
     try {
       let lastError: unknown;
@@ -280,12 +282,22 @@ export class Agent {
           // ── Provider options ────────────────────────────────────────────────
           // Anthropic: prompt caching + extended thinking (config ile kontrol edilir)
           const isAnthropic = this.llm.model.startsWith("claude-");
+
+          // Thinking ayarı: config.thinking + env override.
+          // COWRANGLER_THINKING=1/0 her zaman config'i ezer.
+          const cfg = getConfig();
+          const envThinking = process.env.COWRANGLER_THINKING;
+          const thinkingConfigured =
+            envThinking === "1"
+              ? true
+              : envThinking === "0"
+                ? false
+                : Boolean(cfg.thinking?.enabled);
           const thinkingEnabled =
-            isAnthropic &&
-            process.env.COWRANGLER_THINKING === "1" &&
-            _supportsThinking(this.llm.model);
+            isAnthropic && thinkingConfigured && _supportsThinking(this.llm.model);
           const thinkingBudget = parseInt(
-            process.env.COWRANGLER_THINKING_BUDGET ?? "8000",
+            process.env.COWRANGLER_THINKING_BUDGET ??
+              String(cfg.thinking?.budget_tokens ?? 8000),
             10,
           );
 
@@ -303,11 +315,33 @@ export class Agent {
               }
             : null;
 
-          const messagesWithSystem = systemMessage
-            ? [systemMessage, ...this.messages.filter((m) => m.role !== "system")]
-            : this.messages.filter((m) => m.role !== "system");
+          const historyMessages = this.messages.filter((m) => m.role !== "system");
 
-          const callOptions: Parameters<typeof generateText>[0] = {
+          // İkinci cache breakpoint: konuşma geçmişinin son mesajını ephemeral
+          // olarak işaretle. Anthropic, prefix'i (tools + system + history) bu
+          // noktaya kadar cache'ler; çok-adımlı tool döngülerinde tekrar tekrar
+          // okunur ve maliyet ~10x düşer. (system breakpoint tools+system'i,
+          // bu breakpoint ise tüm geçmişi kapsar.)
+          if (isAnthropic && historyMessages.length > 0) {
+            const lastIdx = historyMessages.length - 1;
+            const last = historyMessages[lastIdx] as any;
+            historyMessages[lastIdx] = {
+              ...last,
+              providerOptions: {
+                ...(last.providerOptions ?? {}),
+                anthropic: {
+                  ...(last.providerOptions?.anthropic ?? {}),
+                  cacheControl: { type: "ephemeral" as const },
+                },
+              },
+            };
+          }
+
+          const messagesWithSystem = systemMessage
+            ? [systemMessage, ...historyMessages]
+            : historyMessages;
+
+          const callOptions: Parameters<typeof streamText>[0] = {
             model: this.llm.getModel(),
             ...(isAnthropic ? {} : { system: this.baseSystemPrompt }),
             messages: messagesWithSystem,
@@ -332,6 +366,10 @@ export class Agent {
               if (toolCalls && toolCalls.length > 0) {
                 for (const call of toolCalls) {
                   roundToolCallCount++;
+                  roundToolCalls.push({
+                    name: call.toolName,
+                    args: (call.args ?? {}) as Record<string, unknown>,
+                  });
 
                   // Plugin: pre_tool_call
                   await plugins.emitAsync("pre_tool_call", {
@@ -362,23 +400,40 @@ export class Agent {
             },
           };
 
-          const result = await generateText(callOptions);
+          // streamText — token'ları akıtarak gecikmeyi düşür. Stream'in
+          // ilerlemesi için fullStream'i tüketmek zorunludur; text-delta'ları
+          // onToken ile UI'a iletiyoruz. Hesaplama (usage/cache) onStepFinish
+          // ve aşağıdaki final await'ler üzerinden yapılır.
+          const result = streamText(callOptions);
 
-          finalText = result.text;
-          totalInputTokens = stepInputTokens > 0 ? stepInputTokens : (result.usage?.promptTokens ?? 0);
-          totalOutputTokens = stepOutputTokens > 0 ? stepOutputTokens : (result.usage?.completionTokens ?? 0);
+          for await (const part of result.fullStream) {
+            if (this._interruptRequested) break;
+            if (part.type === "text-delta") {
+              if (onToken && part.textDelta) onToken(part.textDelta);
+            } else if (part.type === "error") {
+              throw (part as any).error;
+            }
+          }
+
+          finalText = await result.text;
+          const finalUsage = await result.usage;
+          const finalResponse = await result.response;
+          const finalProviderMeta = await result.providerMetadata;
+
+          totalInputTokens = stepInputTokens > 0 ? stepInputTokens : (finalUsage?.promptTokens ?? 0);
+          totalOutputTokens = stepOutputTokens > 0 ? stepOutputTokens : (finalUsage?.completionTokens ?? 0);
           totalTokens = totalInputTokens + totalOutputTokens;
 
           // Sonuç düzeyinde cache istatistikleri (tek adımlı yanıtlar için)
-          if (result.providerMetadata?.anthropic) {
-            const au = (result.providerMetadata.anthropic as any).usage;
+          if (finalProviderMeta?.anthropic) {
+            const au = (finalProviderMeta.anthropic as any).usage;
             if (au) {
               stepCacheReadTokens += au.cacheReadInputTokens ?? 0;
               stepCacheWriteTokens += au.cacheCreationInputTokens ?? 0;
             }
           }
 
-          responseMessages = result.response.messages as CoreMessage[];
+          responseMessages = finalResponse.messages as CoreMessage[];
           lastError = undefined;
 
           // Cache tokenlarını geçici değişkende sakla (döngü dışında kullanacağız)
@@ -437,10 +492,24 @@ export class Agent {
             content: finalText,
             tokenCount: totalOutputTokens,
           });
+          const snap = this.contextEngine.getSnapshot();
+          // Maliyet tahmini — cache'ten okunan token'lar tam fiyatlanmaz
+          // (Anthropic: cache read ~0.1x). Basit yaklaşım: faturalanabilir
+          // input = sessionInput - cacheRead, +%10 cache read maliyeti.
+          const billableInput = Math.max(
+            0,
+            snap.sessionInputTokens - snap.cacheReadTokens,
+          );
+          const cost =
+            estimateCost(this.llm.model, billableInput, snap.sessionOutputTokens) +
+            estimateCost(this.llm.model, snap.cacheReadTokens, 0) * 0.1;
           db.updateSession(this.sessionId, {
-            input_tokens: this.contextEngine.getSnapshot().sessionInputTokens,
-            output_tokens: this.contextEngine.getSnapshot().sessionOutputTokens,
+            input_tokens: snap.sessionInputTokens,
+            output_tokens: snap.sessionOutputTokens,
+            cache_read_tokens: snap.cacheReadTokens,
+            cache_write_tokens: snap.cacheWriteTokens,
             tool_call_count: this.sessionToolCallCount,
+            estimated_cost_usd: cost,
           });
         } catch { /* sessizce devam */ }
       }
@@ -468,7 +537,7 @@ export class Agent {
         this.trajectoryRecorder.recordTurn({
           userMessage,
           assistantResponse: finalText,
-          toolCalls: [], // tool call isimlerini onStepFinish'ten almak için geliştirilecek
+          toolCalls: roundToolCalls,
           inputTokens: totalInputTokens,
           outputTokens: totalOutputTokens,
           tokenCount: totalTokens,

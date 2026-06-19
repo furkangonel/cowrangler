@@ -184,11 +184,12 @@ export function initEnvironment() {
       model: "openrouter/google/gemini-2.5-flash",
       saved_models: [
         "openrouter/google/gemini-2.5-flash",
-        "claude-sonnet-4-5",
-        "claude-opus-4-5",
+        "claude-opus-4-6",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5",
         "gpt-4o",
-        "gpt-4o-mini",
-        "openrouter/anthropic/claude-sonnet-4-5",
+        "o4-mini",
+        "openrouter/anthropic/claude-sonnet-4-6",
       ],
       // system_prompt is intentionally NOT stored in config.yaml.
       // It is always sourced from the in-code DEFAULT_SYSTEM_PROMPT so that
@@ -208,6 +209,25 @@ export function initEnvironment() {
       },
       // İzin modu: default | plan | auto | bypass
       permission_mode: "default",
+      // Extended thinking (reasoning) — model destekliyorsa açılır.
+      thinking: {
+        enabled: false,
+        budget_tokens: 8000,
+      },
+      // Bağlam yönetimi — token tabanlı sıkıştırma.
+      // summary_model: özet için ucuz yardımcı model (null = ana model).
+      context: {
+        compress_threshold: 0.85,
+        keep_recent: 8,
+        summary_model: null,
+      },
+      // Kanban dispatcher ayarları.
+      kanban: {
+        max_concurrent: 3,
+        tick_ms: 10000,
+        reclaim_timeout_ms: 600000,
+        fail_backoff_ms: 30000,
+      },
     };
     fs.writeFileSync(DIRS.global.config, yaml.dump(defaultGlobal), "utf-8");
   }
@@ -350,5 +370,57 @@ export function getConfig() {
     audit_log: false,
     ...(config.sandbox ?? {}),
   };
+  config.thinking = {
+    enabled: false,
+    budget_tokens: 8000,
+    ...(config.thinking ?? {}),
+  };
+  config.context = {
+    compress_threshold: 0.85,
+    keep_recent: 8,
+    summary_model: null,
+    ...(config.context ?? {}),
+  };
+  config.kanban = {
+    max_concurrent: 3,
+    tick_ms: 10000,
+    reclaim_timeout_ms: 600000,
+    fail_backoff_ms: 30000,
+    ...(config.kanban ?? {}),
+  };
   return config;
+}
+
+/**
+ * Global config.yaml'a tek bir değeri yazar. Nokta-yollu anahtarları destekler
+ * (örn: "kanban.max_concurrent", "thinking.enabled"). Değer tipi otomatik
+ * çıkarılır: "true"/"false" → boolean, sayısal → number, "null" → null,
+ * aksi halde string. `/config set` komutu tarafından kullanılır.
+ */
+export function setConfigValue(dottedKey: string, rawValue: string): void {
+  initEnvironment();
+  let raw: any = {};
+  if (fs.existsSync(DIRS.global.config)) {
+    raw = (yaml.load(fs.readFileSync(DIRS.global.config, "utf-8")) as any) ?? {};
+  }
+
+  // Değer tipini çıkar
+  let value: any = rawValue;
+  if (rawValue === "true") value = true;
+  else if (rawValue === "false") value = false;
+  else if (rawValue === "null") value = null;
+  else if (/^-?\d+(\.\d+)?$/.test(rawValue.trim())) value = Number(rawValue);
+
+  // Nokta-yolu boyunca in
+  const parts = dottedKey.split(".");
+  let node = raw;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (typeof node[parts[i]] !== "object" || node[parts[i]] === null) {
+      node[parts[i]] = {};
+    }
+    node = node[parts[i]];
+  }
+  node[parts[parts.length - 1]] = value;
+
+  fs.writeFileSync(DIRS.global.config, yaml.dump(raw), "utf-8");
 }

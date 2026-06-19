@@ -35,9 +35,25 @@ import fs from "fs";
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
 
-const TICK_MS = 10_000; // Her 10 saniyede bir kontrol
+const DEFAULT_TICK_MS = 10_000; // Her 10 saniyede bir kontrol
 const MAX_CONCURRENT = 3;
 const DAEMON_PID_FILE = path.join(LOCAL_DIR, "kanban-daemon.pid");
+/** Worker, çalışırken görevi canlı tutmak için bu sıklıkta heartbeat atar */
+const HEARTBEAT_MS = 30_000;
+
+/** Config'den dispatcher ayarlarını oku (yoksa varsayılan) */
+function readKanbanConfig(): { tickMs: number; maxConcurrent: number } {
+  try {
+    const k = getConfig().kanban ?? {};
+    return {
+      tickMs: typeof k.tick_ms === "number" ? k.tick_ms : DEFAULT_TICK_MS,
+      maxConcurrent:
+        typeof k.max_concurrent === "number" ? k.max_concurrent : MAX_CONCURRENT,
+    };
+  } catch {
+    return { tickMs: DEFAULT_TICK_MS, maxConcurrent: MAX_CONCURRENT };
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DISPATCHER
@@ -48,12 +64,19 @@ export class KanbanDispatcher {
   private activeWorkers = 0;
   private workerPromises: Set<Promise<void>> = new Set();
   private tickTimer: NodeJS.Timeout | null = null;
+  private readonly tickMs: number;
+  private readonly maxConcurrent: number;
 
   constructor(
     private readonly profileName: string = "dispatcher",
     private readonly board?: string,
-    private readonly maxConcurrent: number = MAX_CONCURRENT,
-  ) {}
+    maxConcurrent?: number,
+    private readonly tenant?: string,
+  ) {
+    const cfg = readKanbanConfig();
+    this.maxConcurrent = maxConcurrent ?? cfg.maxConcurrent;
+    this.tickMs = cfg.tickMs;
+  }
 
   // ── Lifecycle ────────────────────────────────────────────────────────────────
 
@@ -69,7 +92,7 @@ export class KanbanDispatcher {
     const loop = async (): Promise<void> => {
       while (this.running) {
         await new Promise((resolve) => {
-          this.tickTimer = setTimeout(resolve, TICK_MS);
+          this.tickTimer = setTimeout(resolve, this.tickMs);
         });
         if (this.running) {
           await this._tick();
@@ -112,7 +135,7 @@ export class KanbanDispatcher {
     // Yeni görev al
     const slotsAvailable = this.maxConcurrent - this.activeWorkers;
     for (let i = 0; i < slotsAvailable; i++) {
-      const task = db.claim(this.profileName, this.board);
+      const task = db.claim(this.profileName, this.board, this.tenant);
       if (!task) break; // Bekleyen görev yok
 
       log.info("kanban", `Claimed task: [${task.id.slice(0, 8)}] ${task.title}`);
@@ -136,21 +159,41 @@ export class KanbanDispatcher {
     db.markRunning(task.id);
     log.info("kanban", `Running task: [${task.id.slice(0, 8)}] ${task.title}`);
 
+    // Heartbeat — uzun süren görevlerin reclaim ile çift-çalıştırılmasını önler.
+    const heartbeat = setInterval(() => {
+      try {
+        db.heartbeat(task.id);
+      } catch { /* sessizce */ }
+    }, HEARTBEAT_MS);
+
     try {
       const config = getConfig();
-      const llm = new LLM(config.model);
+      // Görev başına model override; yoksa dispatcher varsayılanı.
+      const llm = new LLM(task.model ?? config.model);
+
+      // Görev başına izin verilen tool listesi (boş = tümü).
+      const allowedTools =
+        task.allowed_tools && task.allowed_tools.length > 0
+          ? task.allowed_tools
+          : undefined;
+
+      const skillHint =
+        task.skills && task.skills.length > 0
+          ? `\nLoad these skills before starting (utilize_skill): ${task.skills.join(", ")}.`
+          : "";
 
       const workerSystemPrompt = `You are a focused task execution agent working on a single kanban task.
 Complete the task efficiently and return a clear summary of what was accomplished.
-If you cannot complete the task, explain exactly why and what is blocking you.`;
+If you cannot complete the task, explain exactly why and what is blocking you.${skillHint}`;
 
-      const subAgent = new Agent(llm, workerSystemPrompt, 20, undefined, "kanban");
+      const subAgent = new Agent(llm, workerSystemPrompt, 20, allowedTools, "kanban");
 
       const taskPrompt = [
         `KANBAN TASK [${task.id.slice(0, 8)}]`,
         `Title: ${task.title}`,
         task.description ? `Description: ${task.description}` : "",
         task.tags.length > 0 ? `Tags: ${task.tags.join(", ")}` : "",
+        task.skills.length > 0 ? `Required skills: ${task.skills.join(", ")}` : "",
         ``,
         `Complete this task and return a concise summary of results.`,
       ]
@@ -171,6 +214,8 @@ If you cannot complete the task, explain exactly why and what is blocking you.`;
         `✗ Failed: ${errorMsg.slice(0, 300)}`,
       );
       log.error("kanban", `Task failed: [${task.id.slice(0, 8)}] ${task.title} — ${errorMsg}`);
+    } finally {
+      clearInterval(heartbeat);
     }
   }
 }
