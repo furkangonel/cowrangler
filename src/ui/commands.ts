@@ -13,7 +13,10 @@ import {
   PROJECT_ROOT,
   ensureLocalMemory,
   getVersion,
+  getConfig,
+  setConfigValue,
 } from "../core/init.js";
+import { getModelMeta } from "../core/model_metadata.js";
 import { t } from "../i18n/index.js";
 import { missingKeyHint, showSetupGuide } from "./setup.js";
 import { SUB_AGENTS } from "../core/subagents.js";
@@ -132,6 +135,119 @@ export class CommandRouter {
       get description() { return t("commands.version_desc"); },
       execute: () => {
         UI.info(`Cowrangler v${getVersion()}`);
+      },
+    });
+
+    // ── /config ────────────────────────────────────────────────────────────────
+    this.commands.set("/config", {
+      get description() { return "View or set configuration (e.g. /config set kanban.max_concurrent 5)"; },
+      execute: (args: string[]) => {
+        const sub = args[0];
+        if (sub === "set") {
+          const key = args[1];
+          const value = args.slice(2).join(" ");
+          if (!key || value === "") {
+            UI.error("Usage: /config set <key> <value>   (e.g. /config set thinking.enabled true)");
+            return;
+          }
+          try {
+            setConfigValue(key, value);
+            UI.success(`Set ${key} = ${value}. (Restart or /reset for some values to take effect.)`);
+          } catch (e: any) {
+            UI.error(`Failed to set config: ${e?.message ?? String(e)}`);
+          }
+          return;
+        }
+
+        // No subcommand → dump the effective config (key knobs).
+        const c = getConfig();
+        const lines = [
+          `  ${Theme.dim("model            ")} ${Theme.accent(String(c.model))}`,
+          `  ${Theme.dim("temperature      ")} ${Theme.accent(String(c.temperature))}`,
+          `  ${Theme.dim("max_iterations   ")} ${Theme.accent(String(c.max_iterations))}`,
+          `  ${Theme.dim("permission_mode  ")} ${Theme.accent(String(c.permission_mode))}`,
+          `  ${Theme.dim("thinking.enabled ")} ${Theme.accent(String(c.thinking?.enabled))}`,
+          `  ${Theme.dim("thinking.budget  ")} ${Theme.accent(String(c.thinking?.budget_tokens))}`,
+          `  ${Theme.dim("context.threshold")} ${Theme.accent(String(c.context?.compress_threshold))}`,
+          `  ${Theme.dim("context.keep     ")} ${Theme.accent(String(c.context?.keep_recent))}`,
+          `  ${Theme.dim("context.summary  ")} ${Theme.accent(String(c.context?.summary_model ?? "(main model)"))}`,
+          `  ${Theme.dim("kanban.concurrent")} ${Theme.accent(String(c.kanban?.max_concurrent))}`,
+          `  ${Theme.dim("kanban.tick_ms   ")} ${Theme.accent(String(c.kanban?.tick_ms))}`,
+          `  ${Theme.dim("kanban.reclaim_ms")} ${Theme.accent(String(c.kanban?.reclaim_timeout_ms))}`,
+          `  ${Theme.dim("kanban.backoff_ms")} ${Theme.accent(String(c.kanban?.fail_backoff_ms))}`,
+          "",
+          `  ${Theme.dim("Set with:")} /config set <key> <value>`,
+        ];
+        UI.box(lines.join("\n"), "Configuration");
+      },
+    });
+
+    // ── /doctor ────────────────────────────────────────────────────────────────
+    this.commands.set("/doctor", {
+      get description() { return "Diagnose setup: model, API keys, MCP, config health"; },
+      execute: (args: string[], ctx: CommandContext) => {
+        const c = getConfig();
+        const model = ctx.agent.llm.model;
+        const meta = getModelMeta(model);
+        const lines: string[] = [];
+        const ok = (s: string) => Theme.success(`  ✓ ${s}`);
+        const warn = (s: string) => Theme.accent(`  ! ${s}`);
+        const bad = (s: string) => Theme.fail(`  ✗ ${s}`);
+
+        // Model + metadata
+        lines.push(meta
+          ? ok(`Model: ${model} (${meta.displayName}, ${meta.contextWindow.toLocaleString()} ctx)`)
+          : warn(`Model: ${model} — no local metadata (will fetch from OpenRouter)`));
+
+        // API key for the active provider
+        const keyChecks: Array<[string, string]> = [
+          ["claude-", "ANTHROPIC_API_KEY"],
+          ["gpt-", "OPENAI_API_KEY"],
+          ["o3", "OPENAI_API_KEY"],
+          ["o4-", "OPENAI_API_KEY"],
+          ["gemini-", "GOOGLE_GENERATIVE_AI_API_KEY"],
+          ["groq/", "GROQ_API_KEY"],
+          ["openrouter/", "OPENROUTER_API_KEY"],
+        ];
+        let needed: string | null = null;
+        for (const [prefix, env] of keyChecks) {
+          if (model.startsWith(prefix) || (prefix === "openrouter/" && model.includes("/"))) {
+            needed = env;
+            break;
+          }
+        }
+        if (needed) {
+          lines.push(process.env[needed]
+            ? ok(`API key present: ${needed}`)
+            : bad(`Missing API key: ${needed} — set with /key set ${needed} <value>`));
+        }
+
+        // Thinking support
+        if (c.thinking?.enabled) {
+          lines.push(meta?.supportsThinking
+            ? ok("Extended thinking: enabled & supported by model")
+            : warn("Extended thinking enabled, but active model does not support it"));
+        } else {
+          lines.push(ok("Extended thinking: disabled"));
+        }
+
+        // Caching
+        lines.push(meta?.supportsCaching
+          ? ok("Prompt caching: supported by model")
+          : warn("Prompt caching: not supported by active model"));
+
+        // Config files
+        lines.push(fs.existsSync(DIRS.global.config)
+          ? ok(`Global config: ${DIRS.global.config}`)
+          : bad("Global config missing"));
+        lines.push(fs.existsSync(DIRS.global.credentials)
+          ? ok("Credentials file present")
+          : warn("Credentials file missing — run /key set"));
+
+        // Kanban DB sanity
+        lines.push(ok(`Kanban: concurrency ${c.kanban?.max_concurrent}, reclaim ${Math.round((c.kanban?.reclaim_timeout_ms ?? 0) / 1000)}s, backoff ${Math.round((c.kanban?.fail_backoff_ms ?? 0) / 1000)}s`));
+
+        UI.box(lines.join("\n"), "Co-Wrangler Doctor");
       },
     });
 
@@ -1379,27 +1495,31 @@ After writing, reply: "✓ COWRNGLR.md written. Agent context is now active."
 
     // ── /todo ─────────────────────────────────────────────────────────────────
     this.commands.set("/todo", {
-      description: "Show the agent's active TODO list (.cowrangler/AGENT_TODO.md)",
+      description: "Show the agent's active session task list (.cowrangler/tasks.json)",
       execute: () => {
-        const todoPath = DIRS.local.todo;
-        if (!fs.existsSync(todoPath)) {
-          return UI.info("No active TODO list. The agent creates one automatically for multi-step tasks.");
+        const tasksPath = DIRS.local.tasks;
+        if (!fs.existsSync(tasksPath)) {
+          return UI.info("No active task list. The agent creates one automatically for multi-step tasks.");
         }
-        const raw = fs.readFileSync(todoPath, "utf-8").trim();
-        if (!raw) return UI.info("TODO list is empty.");
-
-        const lines = raw.split("\n").map((line) => {
-          // Colour checked items dimmed, unchecked items highlighted
-          if (/^\s*-\s*\[x\]/i.test(line)) {
-            return `  ${Theme.dim(line)}`;
-          }
-          if (/^\s*-\s*\[ \]/.test(line)) {
-            return `  ${Theme.success("▶")} ${Theme.accent(line.replace(/^\s*-\s*\[\s*\]\s*/, ""))}`;
-          }
-          // Headers and other lines
-          return `  ${Theme.main(line)}`;
-        });
-        UI.box(lines.join("\n"), "Active Agent TODO");
+        try {
+          const raw = fs.readFileSync(tasksPath, "utf-8").trim();
+          if (!raw) return UI.info("Task list is empty.");
+          const store = JSON.parse(raw);
+          const tasks: any[] = store.tasks ?? [];
+          if (tasks.length === 0) return UI.info("Task list is empty.");
+          const STATUS_ICON: Record<string, string> = { todo: "○", in_progress: "◉", done: "✓", blocked: "✗" };
+          const lines = tasks.map((t: any) => {
+            const icon = STATUS_ICON[t.status] ?? "?";
+            const dim = t.status === "done";
+            const line = `  ${icon}  ${t.index}. ${t.title}${t.priority === "high" ? " [HIGH]" : ""}`;
+            return dim ? Theme.dim(line) : (t.status === "in_progress" ? Theme.accent(line) : Theme.main(line));
+          });
+          const active = tasks.filter((t: any) => ["todo","in_progress"].includes(t.status)).length;
+          lines.push("", Theme.dim(`  Active: ${active}  Total: ${tasks.length}`));
+          UI.box(lines.join("\n"), "Session Tasks");
+        } catch {
+          return UI.info("Could not read task list.");
+        }
       },
     });
   }

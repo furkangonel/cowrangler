@@ -118,7 +118,7 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
     }
 
     try {
-      const result = await agent.chat(message, undefined, onStepText, onToolEvent)
+      const result = await agent.chat(message, undefined, onStepText, undefined, onToolEvent)
 
       // Session'ı projeye bağla + başlığı ilk promptun ilk 20 karakterinden ata
       const currentSessionId = agent.currentSessionId
