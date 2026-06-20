@@ -15,6 +15,7 @@ import { agentManager } from './agent_manager.js'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 let mainWindow: BrowserWindow | null = null
+let ipcRegistered = false
 
 function createWindow(): void {
   // Cowrangler ortamını başlat (config, credentials, dirs)
@@ -47,14 +48,17 @@ function createWindow(): void {
   })
 
   // IPC handler'larını kaydet
-  registerAgentIPC(ipcMain, mainWindow)
-  registerProjectsIPC(ipcMain)
-  registerSessionsIPC(ipcMain)
-  registerSettingsIPC(ipcMain)
-  registerSkillsIPC(ipcMain)
-  registerMCPIPC(ipcMain)
-  registerMemoryIPC(ipcMain)
-  registerFSIPC(ipcMain)
+  if (!ipcRegistered) {
+    registerAgentIPC(ipcMain, mainWindow)
+    registerProjectsIPC(ipcMain)
+    registerSessionsIPC(ipcMain)
+    registerSettingsIPC(ipcMain)
+    registerSkillsIPC(ipcMain)
+    registerMCPIPC(ipcMain)
+    registerMemoryIPC(ipcMain)
+    registerFSIPC(ipcMain)
+    ipcRegistered = true
+  }
 
   // Harici linkleri tarayıcıda aç
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
