@@ -1,7 +1,12 @@
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import fixPath from 'fix-path'
 import { initEnvironment, loadEnvironmentVariables } from '../core/init.js'
+
+// Uygulama macOS'ta Finder/Dock üzerinden açıldığında terminal ortam değişkenlerini 
+// (`PATH`) miras alması için fixPath() çağrılmalı. Aksi takdirde MCP için `npx` çalışmaz.
+fixPath()
 import { registerAgentIPC } from './ipc/agent.ipc.js'
 import { registerProjectsIPC } from './ipc/projects.ipc.js'
 import { registerSessionsIPC } from './ipc/sessions.ipc.js'
