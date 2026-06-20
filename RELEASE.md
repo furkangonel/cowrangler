@@ -2,7 +2,9 @@
 
 This guide explains how to produce the downloadable installers (`.dmg`, `.AppImage`, `.exe`) that the website's **Download** buttons point to.
 
-The download buttons on [cowrangler.com](https://cowrangler.com) link to the repo's **GitHub Releases** page, so a download "just works" once you've published a release with the built artifacts attached.
+The download button on [cowrangler.com](https://cowrangler.com) reads the repo's **latest published GitHub Release** through the GitHub API, auto-detects the visitor's OS + CPU (Apple Silicon / Intel), and links straight to the matching installer. A download "just works" once a release is **published** (not draft) with the built artifacts attached.
+
+> Releases publish automatically — `build.publish.releaseType: "release"` in `package.json` — so no manual "Publish" click is needed. The website's `releases/latest` lookup only returns **published** releases; drafts are invisible to it.
 
 ---
 
@@ -10,21 +12,21 @@ The download buttons on [cowrangler.com](https://cowrangler.com) link to the rep
 
 A GitHub Actions workflow (`.github/workflows/release-desktop.yml`) builds for macOS, Linux, and Windows in parallel and uploads the installers to a GitHub Release automatically.
 
-1. Bump the version in `package.json` (e.g. `2.0.2` → `2.0.3`).
+1. Bump the version in `package.json` (e.g. `2.0.3` → `2.0.4`) and keep `package-lock.json` in sync (`npm install --package-lock-only`).
 2. Commit, then create and push a matching tag:
    ```bash
-   git add package.json
-   git commit -m "release: v2.0.3"
-   git tag v2.0.3
+   git add -A
+   git commit -m "release: v2.0.4"
+   git tag v2.0.4
    git push origin main --tags
    ```
-3. The workflow runs on the `v*` tag. When it finishes, a **draft/published Release** with all three installers appears at:
+3. The workflow runs on the `v*` tag, builds macOS / Linux / Windows in parallel, and **publishes** a public Release with all installers at:
    `https://github.com/furkangonel/cowrangler/releases`
-4. If it published as a draft, open the release and click **Publish**.
+4. Within a minute the website's download button serves the new installers automatically — nothing else to click.
 
-That's it — the website's download buttons (`/releases/latest`) now serve the new installers.
-
-> The workflow uses the built-in `GITHUB_TOKEN` — no secrets to configure. The tag version (`v2.0.3`) must match `package.json`'s `version` (`2.0.3`).
+> The workflow uses the built-in `GITHUB_TOKEN` — no secrets to configure. The tag version (`v2.0.4`) must match `package.json`'s `version` (`2.0.4`).
+>
+> **Re-running a failed/old tag:** if a tag already exists but its release failed (e.g. an older `v2.0.3` that predates these fixes), bump to a fresh version and tag instead of reusing it — the tag must point at the commit that contains the workflow + fixes.
 
 ---
 
