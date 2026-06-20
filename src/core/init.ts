@@ -284,10 +284,18 @@ export function initEnvironment() {
   // ── Local directory skeleton (dirs only — no files unless user asks) ────────
   // The .cowrangler/ dir and skills/ subdir are created so that skill discovery
   // and history persistence work without errors. No .md files are written here.
-  fs.mkdirSync(DIRS.local.base, { recursive: true });
-  fs.mkdirSync(DIRS.local.skills, { recursive: true });
-  fs.mkdirSync(DIRS.local.agents, { recursive: true });
   fs.mkdirSync(DIRS.global.agents, { recursive: true });
+  
+  try {
+    fs.mkdirSync(DIRS.local.base, { recursive: true });
+    fs.mkdirSync(DIRS.local.skills, { recursive: true });
+    fs.mkdirSync(DIRS.local.agents, { recursive: true });
+  } catch (err: any) {
+    // Desktop uygulamasında (macOS release) process.cwd() kök dizin (/) olabileceği için
+    // EACCES hatası verebilir. Masaüstü uygulaması yerel (local) dizinler yerine
+    // ProjectContext üzerinden kendi çalışma dizinlerini oluşturur, bu yüzden bu adımı
+    // sessizce geçebiliriz. CLI ise normal şekilde klasörleri oluşturur.
+  }
 }
 
 /**
