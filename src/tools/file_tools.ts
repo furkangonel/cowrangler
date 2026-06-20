@@ -5,7 +5,6 @@ import path from "path";
 import mammoth from "mammoth";
 import pdfParse from "pdf-parse";
 import xlsx from "xlsx";
-import markdownpdf from "markdown-pdf";
 import fg from "fast-glob";
 import { registerTool } from "./registry.js";
 
@@ -447,6 +446,15 @@ registerTool(
       if (!relPath.toLowerCase().endsWith(".pdf")) relPath += ".pdf";
       const target = _safePath(relPath);
       await fs.mkdir(path.dirname(target), { recursive: true });
+      // markdown-pdf is an optional dependency (it pulls in phantomjs-prebuilt,
+      // whose OS-specific binary can fail to install on some platforms). Load it
+      // lazily so its absence never breaks startup or the build — only this tool.
+      let markdownpdf: any;
+      try {
+        markdownpdf = (await import("markdown-pdf")).default;
+      } catch {
+        return "ERROR creating PDF: the 'markdown-pdf' package is not installed in this build. Install it (`npm i markdown-pdf`) to enable create_pdf.";
+      }
       return new Promise((resolve) => {
         markdownpdf().from.string(markdown_content).to(target, () => {
           resolve(`OK: PDF created at ${relPath}`);
