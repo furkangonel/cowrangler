@@ -9,7 +9,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Bundled skills live next to this file in src/bundled_skills/
 // After build they will be at dist/bundled_skills/
-const BUNDLED_SKILLS_DIR = path.resolve(__dirname, "../bundled_skills");
+let BUNDLED_SKILLS_DIR = path.resolve(__dirname, "../bundled_skills");
+
+// Electron (desktop) production modunda çalışıyorsa ve resourcesPath mevcutsa
+// extraResources ile paketlenen dizini kullan.
+if (!fs.existsSync(BUNDLED_SKILLS_DIR) && process.versions && process.versions.electron && (process as any).resourcesPath) {
+  BUNDLED_SKILLS_DIR = path.join((process as any).resourcesPath, "bundled_skills");
+}
 
 export interface SkillDef {
   id: string;
