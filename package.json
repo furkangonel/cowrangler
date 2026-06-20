@@ -140,6 +140,7 @@
     "discord.js": "^14.26.4",
     "dotenv": "^16.4.5",
     "fast-glob": "^3.3.3",
+    "fix-path": "^5.0.0",
     "highlight.js": "^11.9.0",
     "ink": "^5.0.1",
     "ink-spinner": "^5.0.0",
