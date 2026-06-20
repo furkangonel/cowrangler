@@ -136,6 +136,10 @@ export const App: React.FC<AppProps> = ({ agent }) => {
   const [spinnerMode, setSpinnerMode] = useState<SpinnerMode>("thinking");
   const [liveTrace, setLiveTrace] = useState<TraceEntry[]>([]);
   const [stepCount, setStepCount] = useState<number>(0);
+  // Canlı token akışı — streamText'ten gelen delta'lar throttle ile gösterilir.
+  const [streamingText, setStreamingText] = useState<string>("");
+  const streamBufRef = useRef<string>("");
+  const streamThrottleRef = useRef<NodeJS.Timeout | null>(null);
   const [activeTodoItem, setActiveTodoItem] = useState<string | null>(null); // current pending TODO
   const stepStartRef = useRef<number>(0);
   const runStartRef = useRef<number>(0); // wall-clock start of the whole run
@@ -263,6 +267,9 @@ export const App: React.FC<AppProps> = ({ agent }) => {
             }
 
             setStepCount(toolCallCount);
+            // Tool çağrısı başladı → canlı metin akışını sıfırla.
+            streamBufRef.current = "";
+            setStreamingText("");
             const displayTool = toolName.replace(/_/g, " ");
             setSpinnerLabel(`${displayTool}...`);
             setSpinnerMode("tool");
@@ -270,6 +277,9 @@ export const App: React.FC<AppProps> = ({ agent }) => {
           },
           // onStepText (intermediate narrative between tool calls)
           (text) => {
+            // Adım bitti → streaming buffer'ı sıfırla (bu metin artık narrative).
+            streamBufRef.current = "";
+            setStreamingText("");
             if (!text.trim()) return;
             const entry: TraceEntry = { kind: "narrative", text: text.trim() };
             collected.push(entry);
@@ -277,6 +287,15 @@ export const App: React.FC<AppProps> = ({ agent }) => {
             setSpinnerLabel("Thinking...");
             setSpinnerMode("thinking");
             stepStartRef.current = Date.now();
+          },
+          // onToken (canlı token akışı) — throttle ile re-render maliyetini düşür
+          (delta) => {
+            streamBufRef.current += delta;
+            if (streamThrottleRef.current) return;
+            streamThrottleRef.current = setTimeout(() => {
+              streamThrottleRef.current = null;
+              setStreamingText(streamBufRef.current);
+            }, 80);
           },
         );
 
@@ -303,6 +322,12 @@ export const App: React.FC<AppProps> = ({ agent }) => {
         busyRef.current = false;
         setBusy(false);
         setLiveTrace([]);
+        if (streamThrottleRef.current) {
+          clearTimeout(streamThrottleRef.current);
+          streamThrottleRef.current = null;
+        }
+        streamBufRef.current = "";
+        setStreamingText("");
       }
     },
     [agent, commitTurn, viewMode],
@@ -706,6 +731,13 @@ export const App: React.FC<AppProps> = ({ agent }) => {
               <Box paddingLeft={2} marginTop={0}>
                 <Text dimColor>{"  ◎ "}</Text>
                 <Text color="#FF9500">{activeTodoItem}</Text>
+              </Box>
+            )}
+
+            {/* ── Canlı token akışı (streamText delta'ları) ── */}
+            {streamingText.trim() && viewMode !== "brief" && (
+              <Box paddingLeft={2} marginTop={0}>
+                <Text dimColor>{streamingText.slice(-600)}</Text>
               </Box>
             )}
 

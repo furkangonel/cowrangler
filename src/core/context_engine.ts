@@ -16,6 +16,7 @@
 import { generateText, CoreMessage } from "ai";
 import { LLM } from "./llm.js";
 import { getContextWindow, formatTokenCount } from "./model_metadata.js";
+import { getConfig } from "./init.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -81,11 +82,30 @@ export class DefaultContextEngine extends ContextEngine {
   private lastRoundDurationMs = 0;
   private sessionStartMs: number;
   private thresholdRatio: number;
+  private keepRecent: number;
+  /** Özet üretimi için ucuz yardımcı model (null = ana model) */
+  private summaryModel: string | null;
 
-  constructor(model: string, thresholdRatio = COMPRESS_THRESHOLD) {
+  constructor(model: string, thresholdRatio?: number) {
     super();
     this.model = model;
-    this.thresholdRatio = thresholdRatio;
+
+    // Config'den ayarları oku (env/yaml). Hata olursa varsayılanlar.
+    let cfgThreshold = COMPRESS_THRESHOLD;
+    let cfgKeepRecent = COMPRESS_KEEP_RECENT;
+    let cfgSummaryModel: string | null = null;
+    try {
+      const ctx = getConfig().context ?? {};
+      if (typeof ctx.compress_threshold === "number") cfgThreshold = ctx.compress_threshold;
+      if (typeof ctx.keep_recent === "number") cfgKeepRecent = ctx.keep_recent;
+      if (typeof ctx.summary_model === "string" && ctx.summary_model.trim()) {
+        cfgSummaryModel = ctx.summary_model.trim();
+      }
+    } catch { /* varsayılanlar */ }
+
+    this.thresholdRatio = thresholdRatio ?? cfgThreshold;
+    this.keepRecent = cfgKeepRecent;
+    this.summaryModel = cfgSummaryModel;
     this.sessionStartMs = Date.now();
   }
 
@@ -114,14 +134,18 @@ export class DefaultContextEngine extends ContextEngine {
     llm: LLM,
     systemPrompt: string,
   ): Promise<CoreMessage[]> {
-    if (messages.length <= COMPRESS_KEEP_RECENT) return messages;
+    if (messages.length <= this.keepRecent) return messages;
 
     // Önce tool result'larını kırp
     const pruned = this._pruneToolResults(messages);
 
-    // Özetlenecek eski mesajlar
-    const toSummarize = pruned.slice(0, pruned.length - COMPRESS_KEEP_RECENT);
-    const recent = pruned.slice(pruned.length - COMPRESS_KEEP_RECENT);
+    // Güvenli bölme noktasını hesapla: `recent` ASLA bir orphan
+    // tool-result ile (role === "tool") başlamamalı; aksi halde provider'a
+    // geçersiz mesaj dizisi gider (tool_result without preceding tool_call).
+    const splitAt = this._safeSplitIndex(pruned, this.keepRecent);
+
+    const toSummarize = pruned.slice(0, splitAt);
+    const recent = pruned.slice(splitAt);
 
     if (toSummarize.length === 0) return messages;
 
@@ -141,6 +165,21 @@ export class DefaultContextEngine extends ContextEngine {
       this.compressionCount++;
       return recent;
     }
+  }
+
+  /**
+   * Güvenli bölme indeksi: en az `keepRecent` mesaj korunur, fakat `recent`
+   * dilimi bir "tool" rolüyle (orphan tool-result) BAŞLAMAYACAK şekilde sınır
+   * geriye doğru kaydırılır. Böylece assistant tool_call + tool_result çiftleri
+   * asla ikiye bölünmez. (toSummarize zaten düz metne çevrildiği için
+   * geçerliliği önemli değildir.)
+   */
+  private _safeSplitIndex(messages: CoreMessage[], keepRecent: number): number {
+    let idx = Math.max(0, messages.length - keepRecent);
+    while (idx > 0 && idx < messages.length && messages[idx].role === "tool") {
+      idx--; // sınırı erkene çek → tüm çifti `recent` içine al
+    }
+    return idx;
   }
 
   private _pruneToolResults(messages: CoreMessage[]): CoreMessage[] {
@@ -194,8 +233,18 @@ export class DefaultContextEngine extends ContextEngine {
       })
       .join("\n\n");
 
+    // Özet için ucuz yardımcı model varsa onu kullan; aksi halde ana model.
+    let summaryLLM = llm;
+    if (this.summaryModel && this.summaryModel !== llm.model) {
+      try {
+        summaryLLM = new LLM(this.summaryModel);
+      } catch {
+        summaryLLM = llm; // yardımcı model yapılandırılamadıysa ana modele düş
+      }
+    }
+
     const result = await generateText({
-      model: llm.getModel(),
+      model: summaryLLM.getModel(),
       system:
         "You are a conversation summarizer. Produce a concise factual summary of the conversation " +
         "history. Preserve: decisions made, files changed, errors encountered, completed tasks, " +

@@ -25,7 +25,7 @@ import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
-import { DIRS } from "../core/init.js";
+import { DIRS, getConfig } from "../core/init.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -59,6 +59,12 @@ export interface KanbanTask {
   error: string | null;
   fail_count: number;
   tags: string[];
+  /** Görev başına model override (null = dispatcher varsayılanı) */
+  model: string | null;
+  /** Görev başına yüklenecek skill id'leri */
+  skills: string[];
+  /** Görev başına izin verilen tool listesi ('*' veya açık liste, boş = tümü) */
+  allowed_tools: string[];
 }
 
 export interface KanbanComment {
@@ -86,6 +92,9 @@ export interface CreateTaskOpts {
   parentId?: string;
   tags?: string[];
   assignTo?: string;
+  model?: string;
+  skills?: string[];
+  allowedTools?: string[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -95,7 +104,8 @@ export interface CreateTaskOpts {
 const DEFAULT_BOARD = process.env.COWRANGLER_KANBAN_BOARD ?? "default";
 const MAX_FAIL_COUNT = 5;
 /** claimed/running durumunda bu süreden uzun kalan görevler reclaim ile serbest kalır */
-const MAX_CLAIM_AGE_MS = 10 * 60 * 1000; // 10 dakika
+const DEFAULT_MAX_CLAIM_AGE_MS = 10 * 60 * 1000; // 10 dakika
+const DEFAULT_FAIL_BACKOFF_MS = 30 * 1000; // başarısız görev tekrar denenmeden önce bekleme
 
 // ─────────────────────────────────────────────────────────────────────────────
 // KANBAN DB
@@ -103,6 +113,8 @@ const MAX_CLAIM_AGE_MS = 10 * 60 * 1000; // 10 dakika
 
 export class KanbanDB {
   private db: Database.Database;
+  private reclaimTimeoutMs: number = DEFAULT_MAX_CLAIM_AGE_MS;
+  private failBackoffMs: number = DEFAULT_FAIL_BACKOFF_MS;
 
   constructor(dbPath?: string) {
     const p = dbPath ?? path.join(DIRS.global.base, "kanban.db");
@@ -111,6 +123,13 @@ export class KanbanDB {
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("foreign_keys = ON");
     this._migrate();
+
+    // Config'den dayanıklılık ayarlarını oku.
+    try {
+      const k = getConfig().kanban ?? {};
+      if (typeof k.reclaim_timeout_ms === "number") this.reclaimTimeoutMs = k.reclaim_timeout_ms;
+      if (typeof k.fail_backoff_ms === "number") this.failBackoffMs = k.fail_backoff_ms;
+    } catch { /* varsayılanlar */ }
   }
 
   // ── Schema ──────────────────────────────────────────────────────────────────
@@ -165,12 +184,33 @@ export class KanbanDB {
       CREATE INDEX IF NOT EXISTS idx_kanban_events_task  ON kanban_events(task_id);
       CREATE INDEX IF NOT EXISTS idx_kanban_events_ts    ON kanban_events(timestamp DESC);
     `);
+
+    // ── Additive migrations (per-task overrides) ──────────────────────────────
+    // Eski DB'lerde eksik olan kolonları güvenli şekilde ekle.
+    this._addColumnIfMissing("kanban_tasks", "model", "TEXT");
+    this._addColumnIfMissing("kanban_tasks", "skills", "TEXT NOT NULL DEFAULT '[]'");
+    this._addColumnIfMissing("kanban_tasks", "allowed_tools", "TEXT NOT NULL DEFAULT '[]'");
+  }
+
+  /** SQLite'ta kolon yoksa ekler. Varsa sessizce geçer. */
+  private _addColumnIfMissing(table: string, column: string, type: string): void {
+    const cols = this.db.prepare(`PRAGMA table_info(${table})`).all() as any[];
+    if (cols.some((c) => c.name === column)) return;
+    try {
+      this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+    } catch { /* zaten var / yarış */ }
   }
 
   // ── Internal helpers ────────────────────────────────────────────────────────
 
   private _deserialize(row: any): KanbanTask {
-    return { ...row, tags: JSON.parse(row.tags ?? "[]") };
+    return {
+      ...row,
+      tags: JSON.parse(row.tags ?? "[]"),
+      model: row.model ?? null,
+      skills: JSON.parse(row.skills ?? "[]"),
+      allowed_tools: JSON.parse(row.allowed_tools ?? "[]"),
+    };
   }
 
   private _emit(
@@ -195,8 +235,8 @@ export class KanbanDB {
     this.db
       .prepare(
         `INSERT INTO kanban_tasks
-           (id, board, tenant, title, description, priority, parent_id, tags, assigned_to, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, board, tenant, title, description, priority, parent_id, tags, assigned_to, created_at, updated_at, model, skills, allowed_tools)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -210,6 +250,9 @@ export class KanbanDB {
         opts.assignTo ?? null,
         now,
         now,
+        opts.model ?? null,
+        JSON.stringify(opts.skills ?? []),
+        JSON.stringify(opts.allowedTools ?? []),
       );
 
     this._emit(id, "created", { title: opts.title });
@@ -273,13 +316,25 @@ export class KanbanDB {
   }
 
   /** Bir sonraki atanabilir görevi atomik olarak talep et */
-  claim(profileName: string, board?: string): KanbanTask | null {
+  claim(profileName: string, board?: string, tenant?: string): KanbanTask | null {
     const b = board ?? DEFAULT_BOARD;
+    // Başarısız görevler fail_backoff süresi geçmeden tekrar alınamaz.
+    // (markFailed updated_at'i now yapar; o yüzden updated_at eşiği ile filtreliyoruz.)
+    const backoffCutoff = Date.now() - this.failBackoffMs;
+
+    const params: any[] = [b];
+    let tenantClause = "";
+    if (tenant) {
+      tenantClause = " AND t.tenant = ?";
+      params.push(tenant);
+    }
+    params.push(MAX_FAIL_COUNT, backoffCutoff);
 
     const claimable = this.db
       .prepare(
         `SELECT t.* FROM kanban_tasks t
-         WHERE t.board = ? AND t.status = 'pending' AND t.fail_count < ?
+         WHERE t.board = ?${tenantClause} AND t.status = 'pending' AND t.fail_count < ?
+           AND (t.fail_count = 0 OR t.updated_at <= ?)
            AND NOT EXISTS (
              SELECT 1 FROM kanban_links l
              JOIN kanban_tasks blocker ON blocker.id = l.blocker_id
@@ -290,7 +345,7 @@ export class KanbanDB {
            t.created_at ASC
          LIMIT 1`,
       )
-      .get(b, MAX_FAIL_COUNT) as any;
+      .get(...params) as any;
 
     if (!claimable) return null;
 
@@ -360,6 +415,19 @@ export class KanbanDB {
     this._emit(id, "status_changed", { status: "running" });
   }
 
+  /**
+   * Heartbeat — çalışan bir worker'ın görevi canlı tuttuğunu bildirir.
+   * updated_at'i tazeler, böylece reclaim() uzun-süren (ama hayatta olan)
+   * görevleri yanlışlıkla serbest bırakıp çift-çalıştırmaz.
+   */
+  heartbeat(id: string): void {
+    this.db
+      .prepare(
+        `UPDATE kanban_tasks SET updated_at = ? WHERE id = ? AND status IN ('claimed','running')`,
+      )
+      .run(Date.now(), id);
+  }
+
   markDone(id: string, output: string): void {
     const now = Date.now();
     this.db
@@ -418,7 +486,7 @@ export class KanbanDB {
    */
   reclaim(board?: string): number {
     const b = board ?? DEFAULT_BOARD;
-    const cutoff = Date.now() - MAX_CLAIM_AGE_MS;
+    const cutoff = Date.now() - this.reclaimTimeoutMs;
 
     const stale = this.db
       .prepare(
@@ -467,6 +535,17 @@ export class KanbanDB {
   // ── Links (bağımlılıklar) ─────────────────────────────────────────────────
 
   link(blockerId: string, blockedId: string): void {
+    if (blockerId === blockedId) {
+      throw new Error("A task cannot block itself.");
+    }
+    // Döngü kontrolü: blockedId zaten blockerId'yi (geçişli olarak) blokluyorsa
+    // bu yeni link bir döngü oluşturur ve dispatcher'ı kilitler.
+    if (this._wouldCreateCycle(blockerId, blockedId)) {
+      throw new Error(
+        `Refusing to link: this would create a dependency cycle ` +
+          `(${blockedId.slice(0, 8)} already blocks ${blockerId.slice(0, 8)}).`,
+      );
+    }
     try {
       this.db
         .prepare(
@@ -477,6 +556,27 @@ export class KanbanDB {
     } catch {
       /* sessizce */
     }
+  }
+
+  /**
+   * blockerId → blockedId link'i eklenirse döngü oluşur mu?
+   * blockedId'den başlayarak blokladığı görevleri BFS ile gezeriz; blockerId'ye
+   * ulaşırsak döngü vardır.
+   */
+  private _wouldCreateCycle(blockerId: string, blockedId: string): boolean {
+    const seen = new Set<string>();
+    const queue: string[] = [blockedId];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      if (current === blockerId) return true;
+      if (seen.has(current)) continue;
+      seen.add(current);
+      const next = this.db
+        .prepare(`SELECT blocked_id FROM kanban_links WHERE blocker_id = ?`)
+        .all(current) as any[];
+      for (const row of next) queue.push(row.blocked_id);
+    }
+    return false;
   }
 
   unlink(blockerId: string, blockedId: string): void {
