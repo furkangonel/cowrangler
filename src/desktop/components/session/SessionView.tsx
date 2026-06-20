@@ -45,6 +45,8 @@ export function SessionView({ projectId, sessionId }: Props) {
   }, [projectId])
 
   useEffect(() => {
+    // Oturum değişince önceki turların tool izlerini temizle.
+    agentStore.clearTimelines()
     if (!isNew && sessionId && sessionId !== '__new__') loadMessages(sessionId)
     else clearUIMessages()
   }, [sessionId])
@@ -79,6 +81,7 @@ export function SessionView({ projectId, sessionId }: Props) {
     await ipc.agent.newSession(projectId)
     agentStore.setStatus('idle')
     agentStore.clearToolCalls()
+    agentStore.clearTimelines()
     agentStore.setProgress([])
     clearUIMessages()
     setActiveSession('__new__')
@@ -139,11 +142,7 @@ export function SessionView({ projectId, sessionId }: Props) {
               key={msg.id}
               message={msg}
               isLast={i === uiMessages.length - 1}
-              toolCalls={
-                msg.role === 'assistant' && i === uiMessages.length - 1
-                  ? agentStore.toolCalls
-                  : []
-              }
+              timeline={msg.role === 'assistant' ? agentStore.timelines[msg.id] : undefined}
             />
           ))}
 

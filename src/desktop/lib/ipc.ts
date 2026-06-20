@@ -140,6 +140,9 @@ export interface MCPServerInfo {
   url?: string
   timeout?: number
   status: 'connected' | 'disconnected' | 'unknown' | 'error'
+  /** Live runtime signal (added by mcp:list) */
+  toolCount?: number
+  error?: string
 }
 
 export interface ConnectorCatalogInfo {
@@ -152,7 +155,14 @@ export interface ConnectorCatalogInfo {
   popular?: number
   requiresPathArg?: boolean
   authFields?: { envKey: string; label: string; hint?: string }[]
+  /** Configured in config.yaml (the user added it) */
   connected: boolean
+  /** Actually connected at runtime and tools discovered */
+  live?: boolean
+  toolCount?: number
+  error?: string
+  /** OAuth connectors: vault holds valid tokens */
+  authorized?: boolean
 }
 
 export interface PluginInfo {
@@ -243,7 +253,9 @@ interface ElectronAPI {
   }
   connectors: {
     catalog: () => Promise<ConnectorCatalogInfo[]>
-    add: (payload: { id: string; secrets?: Record<string, string>; pathArg?: string }) => Promise<{ ok: boolean; name?: string; requiresAuth?: boolean; error?: string }>
+    add: (payload: { id: string; secrets?: Record<string, string>; pathArg?: string }) => Promise<{ ok: boolean; name?: string; requiresAuth?: boolean; oauth?: boolean; error?: string }>
+    authorize: (id: string) => Promise<{ ok: boolean; toolCount?: number; error?: string }>
+    secInfo: () => Promise<{ encrypted: boolean }>
     list: () => Promise<MCPServerInfo[]>
     remove: (name: string) => Promise<{ ok: boolean }>
     test: (name: string) => Promise<{ ok: boolean; message?: string; error?: string }>

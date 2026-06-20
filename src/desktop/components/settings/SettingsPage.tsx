@@ -1,25 +1,27 @@
 import React from 'react'
-import { X, Cpu, Plug, BookOpen, Palette, Boxes } from 'lucide-react'
+import { X, Cpu, Palette, Boxes } from 'lucide-react'
 import { ModelsTab } from './ModelsTab'
-import { ConnectorsTab } from './ConnectorsTab'
-import { PluginsTab } from './PluginsTab'
-import { SkillsTab } from './SkillsTab'
 import { AppearanceTab } from './AppearanceTab'
+import { ExtensionsPage, ExtSubTab } from '../extensions/ExtensionsPage'
 import { useUIStore } from '../../stores/ui.store'
 
 const TABS = [
   { id: 'models', label: 'Models & API', icon: Cpu },
-  { id: 'connectors', label: 'Connectors', icon: Plug },
-  { id: 'plugins', label: 'Plugins', icon: Boxes },
-  { id: 'skills', label: 'Skills', icon: BookOpen },
+  { id: 'extensions', label: 'Extensions', icon: Boxes },
   { id: 'appearance', label: 'Appearance', icon: Palette },
 ] as const
 
 type TabId = typeof TABS[number]['id']
 
+// Legacy deep-links (connectors/plugins/skills) now open the unified Extensions surface.
+const EXT_SUBTABS: ExtSubTab[] = ['connectors', 'plugins', 'skills']
+
 export function SettingsPage() {
   const { settingsPage, openSettings, closeSettings } = useUIStore()
-  const activeTab = (settingsPage || 'models') as TabId
+  const raw = settingsPage || 'models'
+  const isExtSub = EXT_SUBTABS.includes(raw as ExtSubTab)
+  const mainTab = (isExtSub ? 'extensions' : raw) as TabId
+  const extSub = (isExtSub ? raw : 'connectors') as ExtSubTab
 
   return (
     <div
@@ -28,7 +30,7 @@ export function SettingsPage() {
     >
       <div
         className="bg-bg-secondary border border-border rounded-2xl shadow-panel flex overflow-hidden animate-slide-up"
-        style={{ width: '860px', height: '620px', maxWidth: '94vw', maxHeight: '90vh' }}
+        style={{ width: '1000px', height: '680px', maxWidth: '94vw', maxHeight: '90vh' }}
         onMouseDown={e => e.stopPropagation()}
       >
         {/* Left nav */}
@@ -36,7 +38,7 @@ export function SettingsPage() {
           <h2 className="text-sm font-semibold text-text-primary px-3 mb-3 brand-serif">Settings</h2>
           {TABS.map(tab => {
             const Icon = tab.icon
-            const active = activeTab === tab.id
+            const active = mainTab === tab.id
             return (
               <button
                 key={tab.id}
@@ -58,22 +60,26 @@ export function SettingsPage() {
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="flex items-center justify-between px-6 py-4 border-b border-border-subtle flex-shrink-0">
             <h3 className="text-sm font-semibold text-text-primary">
-              {TABS.find(t => t.id === activeTab)?.label}
+              {TABS.find(t => t.id === mainTab)?.label}
             </h3>
             <button
               onClick={closeSettings}
+              aria-label="Close settings"
               className="p-1.5 text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors rounded-lg"
             >
               <X size={16} />
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto">
-            {activeTab === 'models' && <ModelsTab />}
-            {activeTab === 'connectors' && <ConnectorsTab />}
-            {activeTab === 'plugins' && <PluginsTab />}
-            {activeTab === 'skills' && <SkillsTab />}
-            {activeTab === 'appearance' && <AppearanceTab />}
+          <div className="flex-1 overflow-hidden">
+            {mainTab === 'extensions' ? (
+              <ExtensionsPage initial={extSub} />
+            ) : (
+              <div className="h-full overflow-y-auto">
+                {mainTab === 'models' && <ModelsTab />}
+                {mainTab === 'appearance' && <AppearanceTab />}
+              </div>
+            )}
           </div>
         </div>
       </div>

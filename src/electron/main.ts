@@ -16,6 +16,10 @@ import { registerMCPIPC } from './ipc/mcp.ipc.js'
 import { registerMemoryIPC } from './ipc/memory.ipc.js'
 import { registerFSIPC } from './ipc/fs.ipc.js'
 import { agentManager } from './agent_manager.js'
+// KRİTİK: Tüm yerleşik araçları (system/git/web/dev/skill/file/brief/computer_use +
+// mcp_status) registry'ye kaydet. Bu import olmadan desktop agent'ı yalnızca
+// file_tools + send_message araçlarına sahip oluyordu.
+import '../tools/builtin.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -95,7 +99,23 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(createWindow)
+app.whenReady().then(async () => {
+  createWindow()
+
+  // ── MCP sunucularını başlat ────────────────────────────────────────────────
+  // KRİTİK: Desktop'ta MCP init'i SADECE burada gerçekleşir. Önceden yalnızca
+  // CLI (main.ts) yolunda init ediliyordu; UI config.yaml'a yazsa da desktop
+  // agent'ı hiçbir MCP aracını görmüyordu ("hiç MCP bağlantımız yok"). Pencere
+  // açılışını bloke etmemek için await edilmeden, arka planda başlatılır.
+  try {
+    const { bootMcp } = await import('../core/mcp_client.js')
+    const summary = await bootMcp()
+    console.log(`[mcp] ${summary}`)
+    mainWindow?.webContents.send('mcp:ready', summary)
+  } catch (err: any) {
+    console.error(`[mcp] init failed: ${err?.message ?? err}`)
+  }
+})
 
 app.on('window-all-closed', () => {
   agentManager.destroyAll()

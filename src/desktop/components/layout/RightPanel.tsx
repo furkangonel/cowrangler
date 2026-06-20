@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 import { ProgressPanel } from '../panels/ProgressPanel'
 import { ContextPanel } from '../panels/ContextPanel'
 import { WorkingFoldersPanel } from '../panels/WorkingFoldersPanel'
@@ -8,13 +8,11 @@ import { ScheduledPanel } from '../panels/ScheduledPanel'
 import { useUIStore } from '../../stores/ui.store'
 import { useProjectsStore } from '../../stores/projects.store'
 import { useSessionsStore } from '../../stores/sessions.store'
-import { useAgentStore } from '../../stores/agent.store'
 
 export function RightPanel() {
   const { rightPanelOpen } = useUIStore()
   const { activeProjectId } = useProjectsStore()
   const { activeSessionId } = useSessionsStore()
-  const { status } = useAgentStore()
 
   if (!rightPanelOpen) return null
 
@@ -28,11 +26,7 @@ export function RightPanel() {
       {isSession ? (
         // ─── Session view ───────────────────────────────────────────────────
         <>
-          <CollapsibleBox
-            title="Progress"
-            defaultOpen
-            badge={status === 'thinking' ? <Loader2 size={11} className="text-accent animate-spin" /> : undefined}
-          >
+          <CollapsibleBox title="Tasks" defaultOpen>
             <ProgressPanel />
           </CollapsibleBox>
 

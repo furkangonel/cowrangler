@@ -110,6 +110,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     catalog: () => ipcRenderer.invoke('connectors:catalog'),
     add: (payload: { id: string; secrets?: Record<string, string>; pathArg?: string }) =>
       ipcRenderer.invoke('connectors:add', payload),
+    authorize: (id: string) => ipcRenderer.invoke('connectors:authorize', id),
+    secInfo: () => ipcRenderer.invoke('connectors:secInfo'),
     list: () => ipcRenderer.invoke('mcp:list'),
     remove: (name: string) => ipcRenderer.invoke('mcp:remove', name),
     test: (name: string) => ipcRenderer.invoke('mcp:test', name),
