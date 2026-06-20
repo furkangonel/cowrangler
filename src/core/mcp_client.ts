@@ -36,7 +36,10 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { registerTool } from "../tools/registry.js";
+import { registerTool, unregisterTool } from "../tools/registry.js";
+import { getSecrets } from "./credential_vault.js";
+import { LoopbackOAuthProvider } from "./oauth_provider.js";
+import { jsonSchema } from "ai";
 import { z } from "zod";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -49,6 +52,8 @@ export interface MCPServerStdioConfig {
   env?: Record<string, string>;
   timeout?: number;
   connect_timeout?: number;
+  /** Değerleri credential_vault'ta tutulan env anahtarları (düz metin DEĞİL). */
+  secrets?: string[];
 }
 
 export interface MCPServerHTTPConfig {
@@ -56,6 +61,11 @@ export interface MCPServerHTTPConfig {
   headers?: Record<string, string>;
   transport?: "http" | "sse";
   timeout?: number;
+  /** Değeri vault'ta tutulan tek gizli değerden bir header üret (ör. Authorization: Bearer …). */
+  secrets?: string[];
+  secretsHeader?: string;
+  /** true ise: gerçek OAuth (vault'taki token'lar; gerekirse refresh) kullan. */
+  oauth?: boolean;
 }
 
 export type MCPServerConfig = MCPServerStdioConfig | MCPServerHTTPConfig;
@@ -115,6 +125,8 @@ class MCPServerConnection {
   private toolCount = 0;
   private lastError: string | undefined;
   private reconnectAttempts = 0;
+  // Bu sunucu için registry'ye eklenen araç adları — disconnect/reload'da temizlenir.
+  private registeredToolNames: string[] = [];
 
   constructor(
     private name: string,
@@ -151,27 +163,37 @@ class MCPServerConnection {
 
     if (isStdioConfig(this.config)) {
       const cfg = this.config;
+      // Vault'taki gizli değerleri env'e ekle (config'te düz metin tutulmaz).
+      const vaultEnv = this._resolveVaultSecrets(cfg.secrets);
       transport = new StdioClientTransport({
         command: cfg.command,
         args: cfg.args ?? [],
-        env: filterEnvForSubprocess(cfg.env),
+        env: filterEnvForSubprocess({ ...(cfg.env ?? {}), ...vaultEnv }),
         stderr: "pipe",
       });
     } else {
       const cfg = this.config as MCPServerHTTPConfig;
       const url = new URL(cfg.url);
 
+      // Vault gizli değerinden Authorization (vb.) header üret.
+      const headers: Record<string, string> = { ...(cfg.headers ?? {}) };
+      if (cfg.secretsHeader && cfg.secrets?.length) {
+        const v = this._resolveVaultSecrets(cfg.secrets)[cfg.secrets[0]];
+        if (v) headers[cfg.secretsHeader] = `Bearer ${v}`;
+      }
+
+      // OAuth: vault'taki token'larla sessiz sağlayıcı (gerekirse refresh).
+      const authProvider = cfg.oauth ? LoopbackOAuthProvider.createSilent(this.name) : undefined;
+
       if (cfg.transport === "sse") {
         transport = new SSEClientTransport(url, {
-          requestInit: {
-            headers: cfg.headers ?? {},
-          },
+          ...(authProvider ? { authProvider } : {}),
+          requestInit: { headers },
         });
       } else {
         transport = new StreamableHTTPClientTransport(url, {
-          requestInit: {
-            headers: cfg.headers ?? {},
-          },
+          ...(authProvider ? { authProvider } : {}),
+          requestInit: { headers },
         });
       }
     }
@@ -183,10 +205,27 @@ class MCPServerConnection {
     await this._discoverTools();
   }
 
+  /** Bu sunucu için vault'ta saklı gizli değerleri (yalnız istenen anahtarlar) çöz. */
+  private _resolveVaultSecrets(keys?: string[]): Record<string, string> {
+    if (!keys || keys.length === 0) return {};
+    try {
+      const all = getSecrets(this.name);
+      const out: Record<string, string> = {};
+      for (const k of keys) if (all[k]) out[k] = all[k];
+      return out;
+    } catch {
+      return {};
+    }
+  }
+
   private async _discoverTools(): Promise<void> {
     if (!this.client) return;
 
     try {
+      // Yeniden keşiften önce bu sunucunun eski araçlarını registry'den temizle
+      // (reload sırasında bayat/çift kayıt oluşmasını önler).
+      this._unregisterTools();
+
       const result = await this.client.listTools();
       const tools = result.tools ?? [];
 
@@ -194,8 +233,16 @@ class MCPServerConnection {
         const toolName = `mcp_${this.name}_${tool.name}`;
         const description = `[MCP:${this.name}] ${tool.description ?? tool.name}`;
 
-        // Tool şemasını zod'a dönüştür (basit object geçişi)
-        const parameters = z.object({}).passthrough();
+        // KRİTİK: MCP aracının GERÇEK inputSchema'sını modele ilet. Önceden
+        // z.object({}).passthrough() kullanılıyordu — bu, modele aracın hiçbir
+        // parametresi yokmuş gibi gösteriyor ve model çağrıyı boş argümanla
+        // yapıyordu. jsonSchema() ile MCP server'ın JSON Schema'sı doğrudan
+        // AI SDK'ya geçirilir; yoksa serbest obje geçişine düşeriz.
+        const inputSchema = (tool as any).inputSchema;
+        const parameters =
+          inputSchema && typeof inputSchema === "object"
+            ? jsonSchema(inputSchema as any)
+            : z.object({}).passthrough();
 
         registerTool(
           toolName,
@@ -205,12 +252,20 @@ class MCPServerConnection {
             return this.callTool(tool.name, args);
           },
         );
+        this.registeredToolNames.push(toolName);
       }
 
       this.toolCount = tools.length;
     } catch (err: any) {
       throw new Error(`Tool discovery failed for ${this.name}: ${err.message}`);
     }
+  }
+
+  /** Bu sunucuya ait tüm araçları registry'den kaldırır. */
+  private _unregisterTools(): void {
+    for (const name of this.registeredToolNames) unregisterTool(name);
+    this.registeredToolNames = [];
+    this.toolCount = 0;
   }
 
   async callTool(
@@ -261,6 +316,9 @@ class MCPServerConnection {
   }
 
   async disconnect(): Promise<void> {
+    // Bağlantı kesilince araçları registry'den kaldır — bayat araçlar modele
+    // sunulmaya devam etmesin.
+    this._unregisterTools();
     if (this.client) {
       try {
         await this.client.close();
@@ -313,6 +371,22 @@ export class MCPManager {
     await Promise.allSettled(connectPromises);
   }
 
+  /**
+   * Sunucuları yeniden yükler — kullanıcı UI'dan MCP ekleyip/kaldırınca
+   * uygulamayı yeniden başlatmaya gerek kalmadan canlı olarak uygulanır.
+   * Mevcut bağlantılar kapatılır, araçları registry'den temizlenir ve
+   * yeni config ile sıfırdan bağlanılır.
+   */
+  async reload(serverConfigs: Record<string, MCPServerConfig>): Promise<void> {
+    await this.shutdown();
+    this.initialized = false;
+    await this.init(serverConfigs);
+  }
+
+  isInitialized(): boolean {
+    return this.initialized;
+  }
+
   async callTool(
     serverName: string,
     toolName: string,
@@ -349,4 +423,41 @@ let _manager: MCPManager | null = null;
 export function getMCPManager(): MCPManager {
   if (!_manager) _manager = new MCPManager();
   return _manager;
+}
+
+/**
+ * config.yaml (global + proje-yerel birleşik) içindeki `mcp_servers` girdilerini
+ * okuyup MCP yöneticisini başlatır. Hem CLI hem Electron (desktop) boot yolundan
+ * çağrılabilir; idempotent'tir (zaten başlatılmışsa tekrar bağlanmaz).
+ *
+ * @returns insan-okunur özet (ör. "1/1 MCP servers connected, 12 tools available")
+ */
+export async function bootMcp(): Promise<string> {
+  const { getConfig } = await import("./init.js");
+  const cfg = getConfig();
+  const servers: Record<string, MCPServerConfig> = cfg.mcp_servers || {};
+  const mgr = getMCPManager();
+
+  if (Object.keys(servers).length === 0) {
+    return "0 MCP servers configured";
+  }
+
+  await mgr.init(servers);
+  return mgr.summary();
+}
+
+/**
+ * MCP sunucularını config'ten yeniden yükler. Kullanıcı UI'dan bir connector
+ * ekleyip/kaldırdığında çağrılır — uygulamayı yeniden başlatmaya gerek yoktur.
+ * Yeni keşfedilen araçlar global tool registry'ye girer; Agent her chat'te
+ * registry'yi taze okuduğu için mevcut oturumlar bile yeni araçları görür.
+ */
+export async function reloadMcp(): Promise<string> {
+  const { getConfig } = await import("./init.js");
+  const cfg = getConfig();
+  const servers: Record<string, MCPServerConfig> = cfg.mcp_servers || {};
+  const mgr = getMCPManager();
+
+  await mgr.reload(servers);
+  return mgr.summary();
 }

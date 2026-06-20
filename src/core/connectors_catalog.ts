@@ -235,39 +235,43 @@ export function getCatalogEntry(id: string): ConnectorCatalogEntry | undefined {
  * Bir katalog girişini + toplanan auth değerlerini config.yaml > mcp_servers
  * için yazılabilir MCP config nesnesine çevirir.
  *
+ * Gizli DEĞERLER buraya yazılmaz — yalnızca vault referansları (`secrets`,
+ * `secretsHeader`, `oauth`) üretilir. Değerler `credential_vault`'a IPC katmanında
+ * yazılır ve yükleme anında mcp_client tarafından çözülür.
+ *
  * @param entry   katalog girişi
- * @param secrets authFields envKey → değer eşlemesi (apikey/token için)
  * @param pathArg requiresPathArg girişler için dizin yolu
  */
 export function buildMcpServerConfig(
   entry: ConnectorCatalogEntry,
-  secrets: Record<string, string> = {},
   pathArg?: string,
 ): Record<string, any> {
+  const secretKeys = (entry.authFields ?? []).map((f) => f.envKey);
+
   if (entry.transport === "stdio") {
     const args = [...(entry.args ?? [])];
     if (entry.requiresPathArg && pathArg) args.push(pathArg);
-    const env: Record<string, string> = {};
-    for (const f of entry.authFields ?? []) {
-      if (secrets[f.envKey]) env[f.envKey] = secrets[f.envKey];
-    }
     return {
       command: entry.command,
       args,
-      ...(Object.keys(env).length ? { env } : {}),
+      ...(secretKeys.length ? { secrets: secretKeys } : {}),
       timeout: 120,
     };
   }
 
   // http / sse
-  const headers: Record<string, string> = {};
-  // token/apikey ile gelen remote'lar Authorization header'ı ister
-  for (const f of entry.authFields ?? []) {
-    if (secrets[f.envKey]) headers["Authorization"] = `Bearer ${secrets[f.envKey]}`;
+  if (entry.auth === "oauth") {
+    return {
+      url: entry.url,
+      oauth: true,
+      ...(entry.transport === "sse" ? { transport: "sse" } : {}),
+      timeout: 120,
+    };
   }
+  // token/apikey ile gelen remote'lar Authorization header'ı ister
   return {
     url: entry.url,
-    ...(Object.keys(headers).length ? { headers } : {}),
+    ...(secretKeys.length ? { secrets: [secretKeys[0]], secretsHeader: "Authorization" } : {}),
     ...(entry.transport === "sse" ? { transport: "sse" } : {}),
     timeout: 120,
   };

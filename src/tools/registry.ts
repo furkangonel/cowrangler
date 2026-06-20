@@ -34,3 +34,20 @@ export function registerTool(
     execute: wrapExecute(execute),
   };
 }
+
+/**
+ * Bir aracı registry'den kaldırır. MCP sunucusunun bağlantısı kesildiğinde
+ * (remove/reload) o sunucuya ait araçların temizlenmesi için kullanılır.
+ * Aksi halde bağlantısı kesilmiş sunucunun araçları modele sunulmaya devam eder.
+ */
+export function unregisterTool(name: string): void {
+  delete TOOL_SCHEMAS[name];
+}
+
+export function hasTool(name: string): boolean {
+  return Object.prototype.hasOwnProperty.call(TOOL_SCHEMAS, name);
+}
+
+export function getToolNames(): string[] {
+  return Object.keys(TOOL_SCHEMAS);
+}

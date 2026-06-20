@@ -863,6 +863,7 @@ import "./tools/skill_tools.js";
 import "./tools/dev_tools.js";
 import "./tools/brief_tool.js";
 import "./tools/computer_use.js";
+import "./tools/mcp_status_tool.js";
 
 async function main() {
   initEnvironment();
