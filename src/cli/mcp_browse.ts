@@ -474,7 +474,7 @@ function renderScreen(
   const lines: string[] = [];
 
   // ── Title ───────────────────────────────────────────────────────────────
-  const title = " ◆ Co-Wrangler MCP Marketplace ";
+  const title = " ◆ Cowrangler MCP Marketplace ";
   const titlePad = Math.max(0, Math.floor((cols - title.length) / 2));
   lines.push(
     chalk.hex(ACCENT).bold(" ".repeat(titlePad) + title),

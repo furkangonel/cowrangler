@@ -9,10 +9,10 @@
   },
   "commands": {
     "help_desc": "Alle verfügbaren Befehle anzeigen.",
-    "exit_desc": "Co-Wrangler beenden.",
+    "exit_desc": "Cowrangler beenden.",
     "reset_desc": "Gesprächsverlauf löschen und Projektgedächtnis vom Datenträger neu laden.",
     "status_desc": "Aktuelle Sitzung anzeigen: Modell, Kontext, Gedächtnis, Skills, Werkzeuge.",
-    "version_desc": "Co-Wrangler-Version anzeigen.",
+    "version_desc": "Cowrangler-Version anzeigen.",
     "tools_desc": "Alle verfügbaren Werkzeuge (Fähigkeiten) auflisten.",
     "skills_desc": "Alle geladenen Skills (SOPs) auflisten.",
     "skill_desc": "Einen Skill verwenden: /skill <id> [Aufgabe]  oder nur /skill <id>",
@@ -22,7 +22,7 @@
     "tip_history": "zum Durchsuchen des Verlaufs",
     "tip_type": "Tippe",
     "tip_press": "Drücke",
-    "box_title": "Co-Wrangler Befehle"
+    "box_title": "Cowrangler Befehle"
   },
   "status": {
     "context_cleared": "Kontext gelöscht. Gedächtnis neu geladen.",

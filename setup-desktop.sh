@@ -1,8 +1,8 @@
 #!/bin/bash
-# Co-Wrangler Desktop — Kurulum scripti
+# Cowrangler Desktop — Kurulum scripti
 set -e
 
-echo "🤠 Co-Wrangler Desktop kurulum başlıyor..."
+echo "🤠 Cowrangler Desktop kurulum başlıyor..."
 
 # 1. Bağımlılıkları kur
 echo "📦 Bağımlılıklar yükleniyor..."

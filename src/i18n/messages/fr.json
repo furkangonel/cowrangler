@@ -9,10 +9,10 @@
   },
   "commands": {
     "help_desc": "Afficher toutes les commandes disponibles.",
-    "exit_desc": "Quitter Co-Wrangler.",
+    "exit_desc": "Quitter Cowrangler.",
     "reset_desc": "Effacer l'historique et recharger la mémoire du projet depuis le disque.",
     "status_desc": "Afficher la session actuelle : modèle, contexte, mémoire, skills, outils.",
-    "version_desc": "Afficher la version de Co-Wrangler.",
+    "version_desc": "Afficher la version de Cowrangler.",
     "tools_desc": "Lister tous les outils disponibles (capacités).",
     "skills_desc": "Lister tous les skills chargés (SOP).",
     "skill_desc": "Utiliser un skill : /skill <id> [tâche]  ou juste /skill <id>",
@@ -22,7 +22,7 @@
     "tip_history": "pour parcourir l'historique",
     "tip_type": "Tapez",
     "tip_press": "Appuyez sur",
-    "box_title": "Commandes Co-Wrangler"
+    "box_title": "Commandes Cowrangler"
   },
   "status": {
     "context_cleared": "Contexte effacé. Mémoire rechargée.",

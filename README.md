@@ -2,7 +2,7 @@
   <img src="https://em-content.zobj.net/source/apple/391/octopus_1f419.png" width="120" alt="Octopus" />
 </p>
 
-<h1 align="center">Co-Wrangler</h1>
+<h1 align="center">Cowrangler</h1>
 
 <p align="center">
   <strong>Tame the AI chaos right from your terminal</strong>
@@ -11,8 +11,8 @@
 <p align="center">
   <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript&logoColor=white" alt="TypeScript">
   <img src="https://img.shields.io/badge/Node.js-339933?style=flat&logo=node.js&logoColor=white" alt="Node.js">
-  <img src="https://img.shields.io/badge/Version-2.0.1-orange?style=flat" alt="Version">
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/furkangonel/co-wrangler?style=flat" alt="License"></a>
+  <img src="https://img.shields.io/badge/Version-2.0.3-orange?style=flat" alt="Version">
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/furkangonel/cowrangler?style=flat" alt="License"></a>
 </p>
 
 <p align="center">
@@ -29,9 +29,24 @@
 
 ---
 
+> ### 📦 Two editions
+>
+> Cowrangler ships in two flavors that share the same agent core:
+>
+> | Edition | For | Docs |
+> |---------|-----|------|
+> | 🖥️ **CLI** (this document) | Terminal-native power users & developers | You're reading it |
+> | 🪟 **Desktop app** | A Claude-Cowork-style visual workspace | **[→ README.desktop.md](./README.desktop.md)** |
+>
+> Both read the same `~/.cowrangler` config, credentials, skills, and sessions — set up once, use anywhere.
+>
+> **Download the desktop app:** grab the latest `.dmg` (macOS), `.exe` (Windows), or `.AppImage` (Linux) from the [**Releases page**](https://github.com/furkangonel/cowrangler/releases/latest).
+
+---
+
 ## What is This?
 
-Co-Wrangler is not just another chat wrapper. It's a terminal-native AI agent built for developers who want real work done — from code review and test writing to macOS desktop automation and GitHub workflow management.
+Cowrangler is not just another chat wrapper. It's a terminal-native AI agent built for developers who want real work done — from code review and test writing to macOS desktop automation and GitHub workflow management.
 
 **What can it do?**
 - Read, edit, and create files across your entire codebase
@@ -55,7 +70,7 @@ Co-Wrangler is not just another chat wrapper. It's a terminal-native AI agent bu
 <br>
 
 <p align="center">
-  <img src="./assets/cowrangler.png" alt="Co-Wrangler CLI" width="800" />
+  <img src="./assets/cowrangler.png" alt="Cowrangler CLI" width="800" />
 </p>
 
 <br>
@@ -112,7 +127,7 @@ irm https://cowrangler.com/install.ps1 | iex
 ```bash
 # 1. Clone and install globally
 git clone https://github.com/furkangonel/cowrangler.git
-cd co-wrangler
+cd cowrangler
 npm run setup
 
 # 2. Run the setup wizard (required before first use)
@@ -144,7 +159,7 @@ cowrangler
 
 ### Internationalization
 
-Co-Wrangler supports 6 languages out of the box. The language is auto-detected from your system locale on startup, or set explicitly:
+Cowrangler supports 6 languages out of the box. The language is auto-detected from your system locale on startup, or set explicitly:
 
 ```bash
 cowrangler --lang tr   # Turkish
@@ -157,7 +172,7 @@ cowrangler --lang it   # Italian
 
 ### Tools (25+ Built-in)
 
-Co-Wrangler ships with 25+ built-in tools organized into categories.
+Cowrangler ships with 25+ built-in tools organized into categories.
 
 | Category | Tools |
 |---|---|
@@ -351,7 +366,7 @@ The agent is automatically discovered and listed alongside bundled agents.
 
 ## MCP Servers
 
-Co-Wrangler supports [Model Context Protocol (MCP)](https://modelcontextprotocol.io) servers, letting you connect any external tool — databases, APIs, local services — directly into the agent's tool set.
+Cowrangler supports [Model Context Protocol (MCP)](https://modelcontextprotocol.io) servers, letting you connect any external tool — databases, APIs, local services — directly into the agent's tool set.
 
 ### Browse the Marketplace
 
@@ -415,7 +430,7 @@ Once configured, MCP tools appear automatically in the agent's tool set alongsid
 
 ### Sandbox Protection
 
-Co-Wrangler keeps you safe with default sandbox mode:
+Cowrangler keeps you safe with default sandbox mode:
 - **Always blocked:** Critical patterns (`rm -rf /`, `dd if=`, `mkfs`, fork bombs)
 - **Logged and confirmed:** Dangerous patterns (`sudo`, recursive rm, force push)
 - **Output capped:** 512 KB max to prevent runaway commands

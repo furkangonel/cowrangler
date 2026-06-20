@@ -185,7 +185,7 @@ export class InsightsEngine {
    */
   formatDashboard(dashboard: InsightsDashboard): string {
     const lines: string[] = [
-      `╔══ Co-Wrangler Insights ══ ${dashboard.period} ══╗`,
+      `╔══ Cowrangler Insights ══ ${dashboard.period} ══╗`,
       ``,
       `  Sessions:  ${dashboard.totalSessions}`,
       `  Messages:  ${dashboard.totalMessages}`,

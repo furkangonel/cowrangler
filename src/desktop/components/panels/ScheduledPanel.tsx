@@ -6,13 +6,13 @@ export function ScheduledPanel() {
     <div className="p-4">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-xs font-semibold text-text-primary">Scheduled</h3>
-        <button className="p-1 text-text-muted hover:text-accent transition-colors rounded" title="Yeni görev">
+        <button className="p-1 text-text-muted hover:text-accent transition-colors rounded" title="New task">
           <Plus size={13} />
         </button>
       </div>
       <div className="text-center py-6">
         <Clock size={24} className="text-text-muted mx-auto mb-2 opacity-40" />
-        <p className="text-xs text-text-muted">Zamanlanmış görev yok.</p>
+        <p className="text-xs text-text-muted">No scheduled tasks.</p>
         <p className="text-2xs text-text-muted mt-1">
           CLI'de <code className="font-mono text-accent">cowrangler cron add</code> komutuyla ekleyebilirsiniz.
         </p>

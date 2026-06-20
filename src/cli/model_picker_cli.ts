@@ -51,7 +51,7 @@ function printList(models: typeof DEFAULT_MODELS, selected: number, current: str
   // Ekranı temizle ve başa dön
   process.stdout.write("\x1b[2J\x1b[H");
 
-  console.log(chalk.hex("#FF4C00").bold("\n  ◆ Co-Wrangler — Model Seç\n"));
+  console.log(chalk.hex("#FF4C00").bold("\n  ◆ Cowrangler — Model Seç\n"));
   console.log(chalk.dim("  ↑↓ gezin  ·  Enter seç  ·  Ctrl+C iptal  ·  Harf yaz: filtrele\n"));
 
   if (filter) {

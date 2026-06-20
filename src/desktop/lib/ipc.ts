@@ -16,6 +16,7 @@ export interface TaskProgress {
 }
 
 export interface ToolCallEvent {
+  id?: string
   name: string
   args: Record<string, any>
   status: 'start' | 'done' | 'error'
@@ -128,6 +129,7 @@ export interface SkillDef {
   description: string
   source: 'bundled' | 'global' | 'local'
   content: string
+  active?: boolean
 }
 
 export interface MCPServerInfo {
@@ -138,6 +140,31 @@ export interface MCPServerInfo {
   url?: string
   timeout?: number
   status: 'connected' | 'disconnected' | 'unknown' | 'error'
+}
+
+export interface ConnectorCatalogInfo {
+  id: string
+  name: string
+  description: string
+  category: string
+  transport: 'stdio' | 'http' | 'sse'
+  auth: 'none' | 'apikey' | 'token' | 'oauth'
+  popular?: number
+  requiresPathArg?: boolean
+  authFields?: { envKey: string; label: string; hint?: string }[]
+  connected: boolean
+}
+
+export interface PluginInfo {
+  id: string
+  name: string
+  description: string
+  author: 'cowrangler'
+  signed: boolean
+  category: string
+  skills: string[]
+  connectors: string[]
+  enabled: boolean
 }
 
 export interface FileNode {
@@ -197,18 +224,33 @@ interface ElectronAPI {
     getApiKeys: () => Promise<ApiKeyInfo[]>
     setApiKey: (provider: string, key: string) => Promise<{ ok: boolean }>
     removeApiKey: (provider: string) => Promise<{ ok: boolean }>
-    getModels: () => Promise<ModelInfo[]>
+    getModels: (opts?: { refresh?: boolean }) => Promise<ModelInfo[]>
   }
   skills: {
     list: () => Promise<SkillDef[]>
     getContent: (skillId: string) => Promise<string | null>
     toggle: (skillId: string, active: boolean) => Promise<{ ok: boolean }>
+    create: (data: { name: string; description: string; content?: string }) => Promise<{ ok: boolean; id?: string; error?: string }>
+    upload: () => Promise<{ ok: boolean; id?: string; error?: string }>
+    remove: (skillId: string) => Promise<{ ok: boolean; error?: string }>
+    openFolder: () => Promise<{ ok: boolean }>
   }
   mcp: {
     list: () => Promise<MCPServerInfo[]>
     add: (config: any) => Promise<{ ok: boolean }>
     remove: (name: string) => Promise<{ ok: boolean }>
     testConnection: (name: string) => Promise<{ ok: boolean; message?: string; error?: string }>
+  }
+  connectors: {
+    catalog: () => Promise<ConnectorCatalogInfo[]>
+    add: (payload: { id: string; secrets?: Record<string, string>; pathArg?: string }) => Promise<{ ok: boolean; name?: string; requiresAuth?: boolean; error?: string }>
+    list: () => Promise<MCPServerInfo[]>
+    remove: (name: string) => Promise<{ ok: boolean }>
+    test: (name: string) => Promise<{ ok: boolean; message?: string; error?: string }>
+  }
+  plugins: {
+    list: () => Promise<PluginInfo[]>
+    setEnabled: (id: string, on: boolean) => Promise<{ ok: boolean; enabled: string[] }>
   }
   memory: {
     readGlobal: () => Promise<string>

@@ -56,7 +56,7 @@ export function MemoryPanel({ projectId }: Props) {
           </button>
           {!editing ? (
             <button onClick={() => { setDraft(content); setEditing(true) }}
-              className="p-1 text-text-muted hover:text-accent transition-colors rounded" title="Düzenle">
+              className="p-1 text-text-muted hover:text-accent transition-colors rounded" title="Edit">
               <Edit2 size={12} />
             </button>
           ) : (
@@ -89,13 +89,13 @@ export function MemoryPanel({ projectId }: Props) {
       </div>
 
       {loading ? (
-        <div className="text-xs text-text-muted">Yükleniyor...</div>
+        <div className="text-xs text-text-muted">Loading...</div>
       ) : editing ? (
         <textarea
           value={draft}
           onChange={e => setDraft(e.target.value)}
           className="w-full min-h-[200px] bg-bg-tertiary border border-border rounded-lg p-3 text-xs text-text-primary placeholder-text-muted resize-none focus:border-accent transition-colors selectable font-mono"
-          placeholder="Agent bu hafıza notlarını okur ve referans alır..."
+          placeholder="The agent reads and references these memory notes..."
         />
       ) : content ? (
         <div className="text-xs text-text-secondary selectable whitespace-pre-wrap leading-relaxed font-mono">
@@ -104,9 +104,9 @@ export function MemoryPanel({ projectId }: Props) {
       ) : (
         <div className="text-center py-4">
           <span className="text-2xl opacity-40">🧠</span>
-          <p className="text-xs text-text-muted mt-2">Hafıza boş.</p>
+          <p className="text-xs text-text-muted mt-2">Memory is empty.</p>
           <p className="text-2xs text-text-muted mt-1">
-            Agent manage_memory çağırdığında burada görünür.
+            Appears here when the agent calls manage_memory.
           </p>
         </div>
       )}

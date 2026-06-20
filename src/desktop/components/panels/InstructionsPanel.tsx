@@ -39,7 +39,7 @@ export function InstructionsPanel({ projectId }: Props) {
             onClick={() => { setDraft(content); setEditing(true) }}
             disabled={!projectId}
             className="p-1 text-text-muted hover:text-accent transition-colors rounded disabled:opacity-40"
-            title="Düzenle"
+            title="Edit"
           >
             <Edit2 size={12} />
           </button>
@@ -48,7 +48,7 @@ export function InstructionsPanel({ projectId }: Props) {
             <button
               onClick={() => setEditing(false)}
               className="p-1 text-text-muted hover:text-text-secondary transition-colors rounded"
-              title="İptal"
+              title="Cancel"
             >
               <X size={12} />
             </button>
@@ -65,15 +65,15 @@ export function InstructionsPanel({ projectId }: Props) {
       </div>
 
       {!projectId ? (
-        <p className="text-xs text-text-muted italic">Proje seçin.</p>
+        <p className="text-xs text-text-muted italic">Select a project.</p>
       ) : editing ? (
         <textarea
           value={draft}
           onChange={e => setDraft(e.target.value)}
           className="w-full min-h-[200px] bg-bg-tertiary border border-border rounded-lg p-3 text-xs text-text-primary placeholder-text-muted resize-none focus:border-accent transition-colors selectable"
-          placeholder="Agentin nasıl davranmasını istediğinizi yazın.
+          placeholder="Describe how you want the agent to behave.
 
-Örn: Her zaman Türkçe yanıt ver. Kod yazarken TypeScript kullan. Commit mesajlarında Conventional Commits formatını uygula."
+e.g. Always respond in English. Use TypeScript when writing code. Follow Conventional Commits for commit messages."
         />
       ) : content ? (
         <div className="text-xs text-text-secondary selectable whitespace-pre-wrap leading-relaxed">
@@ -83,7 +83,7 @@ export function InstructionsPanel({ projectId }: Props) {
         <div className="flex flex-col gap-2 text-center py-4">
           <span className="text-2xl opacity-40">📝</span>
           <p className="text-xs text-text-muted italic">
-            Agent davranışını şekillendirmek için kurallar, ton veya formatlar ekleyin.
+            Add rules, tone, or formats to shape agent behavior.
           </p>
           <button
             onClick={() => setEditing(true)}

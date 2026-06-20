@@ -85,7 +85,7 @@ export interface SkinConfig {
 const BUILTIN_SKINS: Record<string, SkinConfig> = {
   default: {
     name: "default",
-    description: "Co-wrangler varsayılan teması — mor/beyaz",
+    description: "Cowrangler varsayılan teması — mor/beyaz",
     colors: {
       bannerBorder: "#8B5CF6",
       bannerTitle: "#A78BFA",
@@ -107,7 +107,7 @@ const BUILTIN_SKINS: Record<string, SkinConfig> = {
       wings: [["< ", " >"], ["[ ", " ]"], ["{ ", " }"]],
     },
     branding: {
-      agentName: "Co-Wrangler",
+      agentName: "Cowrangler",
       welcome: "Ready to wrangle your code and files.",
       promptSymbol: "❯",
     },
@@ -168,7 +168,7 @@ const BUILTIN_SKINS: Record<string, SkinConfig> = {
       wings: [["‹ ", " ›"], ["« ", " »"]],
     },
     branding: {
-      agentName: "Co-Wrangler",
+      agentName: "Cowrangler",
       welcome: "Slate mode — developer focused.",
       promptSymbol: "❯",
     },

@@ -2,18 +2,17 @@
  * AgentManager — Desktop için proje başına izole Agent yönetimi.
  *
  * Her projenin kendi Agent instance'ı vardır.
- * Agent oluşturulurken proje instructions + global config kullanılır.
+ * agent:chat çağrısından önce setProjectContext() ile proje
+ * bağlamı ayarlanır — bu sayede manage_todo, memory, COWRNGLR.md
+ * hepsi doğru proje dizinini kullanır.
  */
 
 import path from 'path'
-import os from 'os'
 import fs from 'fs'
 import { Agent } from '../core/agent.js'
 import { LLM } from '../core/llm.js'
-import { getProjectDB, ProjectRecord } from './project_db.js'
-
-const GLOBAL_DIR = path.join(os.homedir(), '.cowrangler')
-const TODO_FILE = path.join(GLOBAL_DIR, 'AGENT_TODO.md')
+import { setProjectContext, getProjectTodoFile } from '../core/project_context.js'
+import { setWorkspace } from '../tools/file_tools.js'
 
 export interface TaskProgress {
   id: string
@@ -28,7 +27,7 @@ export class AgentManager {
 
   /**
    * Proje için Agent instance'ı döndürür veya oluşturur.
-   * model parametresi geçilirse override eder.
+   * Her çağrıda workdir kaydedilir — sonraki chat için bağlam ayarlanır.
    */
   getOrCreate(
     projectId: string,
@@ -39,8 +38,8 @@ export class AgentManager {
       const llm = new LLM(config.model)
       const agent = new Agent(llm, config.systemPrompt, 25, undefined, 'desktop')
       this.agents.set(projectId, agent)
-      if (workdir) this.workdirs.set(projectId, workdir)
     }
+    if (workdir) this.workdirs.set(projectId, workdir)
     return this.agents.get(projectId)!
   }
 
@@ -77,6 +76,18 @@ export class AgentManager {
     return this.workdirs.get(projectId) ?? null
   }
 
+  /**
+   * Chat öncesi proje bağlamını ayarla.
+   * Araçların (manage_todo, file_tools vb.) doğru dizini kullanmasını sağlar.
+   */
+  applyProjectContext(projectId: string): void {
+    const workdir = this.workdirs.get(projectId)
+    if (workdir) {
+      setProjectContext(workdir)
+      setWorkspace(workdir)
+    }
+  }
+
   /** TODO dosyasını parse ederek TaskProgress[] döndürür. */
   static parseTodo(content: string): TaskProgress[] {
     const lines = content.split('\n')
@@ -97,29 +108,45 @@ export class AgentManager {
     return tasks
   }
 
-  /** Global TODO dosyasını oku ve parse et. */
-  static readTodo(): TaskProgress[] {
-    if (!fs.existsSync(TODO_FILE)) return []
+  /**
+   * Proje TODO dosyasını oku ve parse et.
+   * workdir verilirse o dizindeki todo'yu okur; verilmezse project_context'teki güncel yolu kullanır.
+   */
+  static readTodo(workdir?: string): TaskProgress[] {
+    const todoFile = workdir
+      ? path.join(workdir, '.cowrangler', 'AGENT_TODO.md')
+      : getProjectTodoFile()
+    if (!fs.existsSync(todoFile)) return []
     try {
-      const content = fs.readFileSync(TODO_FILE, 'utf-8')
+      const content = fs.readFileSync(todoFile, 'utf-8')
       return AgentManager.parseTodo(content)
     } catch {
       return []
     }
   }
 
-  /** TODO dosyasını izle — değişince callback çağır. */
+  /**
+   * TODO dosyasını izle — değişince callback çağır.
+   * Proje workdir'ine dayalı per-project dosyayı izler.
+   */
   watchTodo(projectId: string, onChange: (tasks: TaskProgress[]) => void): void {
     if (this.todoWatchers.has(projectId)) return
-    // Dosya yoksa önce oluştur
-    if (!fs.existsSync(TODO_FILE)) fs.writeFileSync(TODO_FILE, '', 'utf-8')
+
+    const workdir = this.workdirs.get(projectId)
+    const todoFile = workdir
+      ? path.join(workdir, '.cowrangler', 'AGENT_TODO.md')
+      : getProjectTodoFile()
+
+    // Dizin + dosyayı hazırla
+    fs.mkdirSync(path.dirname(todoFile), { recursive: true })
+    if (!fs.existsSync(todoFile)) fs.writeFileSync(todoFile, '', 'utf-8')
 
     let debounce: ReturnType<typeof setTimeout> | null = null
     try {
-      const watcher = fs.watch(TODO_FILE, () => {
+      const watcher = fs.watch(todoFile, () => {
         if (debounce) clearTimeout(debounce)
         debounce = setTimeout(() => {
-          onChange(AgentManager.readTodo())
+          onChange(AgentManager.readTodo(workdir))
         }, 100)
       })
       this.todoWatchers.set(projectId, watcher)

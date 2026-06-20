@@ -18,21 +18,102 @@ const PROVIDERS = [
   { id: 'github', label: 'GitHub Copilot', envKey: 'GITHUB_TOKEN', prefix: 'ghp_' },
 ]
 
-const AVAILABLE_MODELS = [
-  { provider: 'anthropic', id: 'anthropic/claude-opus-4-6', label: 'Claude Opus 4.6', contextK: 200 },
-  { provider: 'anthropic', id: 'anthropic/claude-sonnet-4-6', label: 'Claude Sonnet 4.6', contextK: 200 },
-  { provider: 'anthropic', id: 'anthropic/claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', contextK: 200 },
-  { provider: 'openai', id: 'openai/gpt-4o', label: 'GPT-4o', contextK: 128 },
-  { provider: 'openai', id: 'openai/gpt-4o-mini', label: 'GPT-4o mini', contextK: 128 },
-  { provider: 'openai', id: 'openai/o3', label: 'o3', contextK: 200 },
-  { provider: 'google', id: 'google/gemini-2.5-pro', label: 'Gemini 2.5 Pro', contextK: 1000 },
-  { provider: 'google', id: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash', contextK: 1000 },
-  { provider: 'openrouter', id: 'openrouter/google/gemini-2.5-flash', label: 'Gemini 2.5 Flash (OpenRouter)', contextK: 1000 },
-  { provider: 'openrouter', id: 'openrouter/anthropic/claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (OpenRouter)', contextK: 200 },
-  { provider: 'openrouter', id: 'openrouter/openai/gpt-4o', label: 'GPT-4o (OpenRouter)', contextK: 128 },
-  { provider: 'groq', id: 'groq/llama-3.3-70b-versatile', label: 'Llama 3.3 70B', contextK: 128 },
-  { provider: 'groq', id: 'groq/moonshotai/kimi-k2-instruct', label: 'Kimi K2', contextK: 128 },
-]
+// NOT: Hardcoded model listesi KALDIRILDI. Modeller artık tamamen dinamiktir —
+// anahtarı girilmiş her provider'ın canlı /models endpoint'inden keşfedilir ve
+// ~/.cowrangler/cache/models.json'a 24 saat cache'lenir. Anahtar yoksa liste boştur.
+
+const MODELS_CACHE = path.join(GLOBAL_DIR, 'cache', 'models.json')
+const MODELS_TTL_MS = 24 * 60 * 60 * 1000
+
+interface DiscoveredModel {
+  provider: string
+  id: string
+  label: string
+  contextK: number
+}
+
+function readModelsCache(): { fetchedAt: number; models: DiscoveredModel[] } | null {
+  try {
+    if (fs.existsSync(MODELS_CACHE)) return JSON.parse(fs.readFileSync(MODELS_CACHE, 'utf-8'))
+  } catch {}
+  return null
+}
+
+function writeModelsCache(models: DiscoveredModel[]): void {
+  try {
+    fs.mkdirSync(path.dirname(MODELS_CACHE), { recursive: true })
+    fs.writeFileSync(MODELS_CACHE, JSON.stringify({ fetchedAt: Date.now(), models }, null, 2), 'utf-8')
+  } catch {}
+}
+
+/** Anahtarı olan her provider için canlı model keşfi. Hatalar sessizce atlanır. */
+async function discoverModels(creds: Record<string, string>): Promise<DiscoveredModel[]> {
+  const key = (envKey: string) => creds[envKey] || process.env[envKey] || ''
+  const out: DiscoveredModel[] = []
+
+  const anthropicKey = key('ANTHROPIC_API_KEY')
+  const openaiKey = key('OPENAI_API_KEY')
+  const googleKey = key('GOOGLE_GENERATIVE_AI_API_KEY')
+  const openrouterKey = key('OPENROUTER_API_KEY')
+  const groqKey = key('GROQ_API_KEY')
+
+  const jobs: Promise<void>[] = []
+
+  if (anthropicKey) jobs.push((async () => {
+    try {
+      const r = await fetch('https://api.anthropic.com/v1/models?limit=100', {
+        headers: { 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01' },
+      })
+      if (!r.ok) return
+      const j: any = await r.json()
+      for (const m of j.data ?? []) out.push({ provider: 'anthropic', id: `anthropic/${m.id}`, label: m.display_name ?? m.id, contextK: 200 })
+    } catch {}
+  })())
+
+  if (openaiKey) jobs.push((async () => {
+    try {
+      const r = await fetch('https://api.openai.com/v1/models', { headers: { Authorization: `Bearer ${openaiKey}` } })
+      if (!r.ok) return
+      const j: any = await r.json()
+      for (const m of j.data ?? []) {
+        if (/^(gpt|o[0-9]|chatgpt)/i.test(m.id)) out.push({ provider: 'openai', id: `openai/${m.id}`, label: m.id, contextK: 128 })
+      }
+    } catch {}
+  })())
+
+  if (googleKey) jobs.push((async () => {
+    try {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${googleKey}`)
+      if (!r.ok) return
+      const j: any = await r.json()
+      for (const m of j.models ?? []) {
+        const id = String(m.name ?? '').replace(/^models\//, '')
+        if (id) out.push({ provider: 'google', id: `google/${id}`, label: m.displayName ?? id, contextK: Math.round((m.inputTokenLimit ?? 128000) / 1000) })
+      }
+    } catch {}
+  })())
+
+  if (openrouterKey) jobs.push((async () => {
+    try {
+      const r = await fetch('https://openrouter.ai/api/v1/models', { headers: { Authorization: `Bearer ${openrouterKey}` } })
+      if (!r.ok) return
+      const j: any = await r.json()
+      for (const m of j.data ?? []) out.push({ provider: 'openrouter', id: `openrouter/${m.id}`, label: m.name ?? m.id, contextK: Math.round((m.context_length ?? 128000) / 1000) })
+    } catch {}
+  })())
+
+  if (groqKey) jobs.push((async () => {
+    try {
+      const r = await fetch('https://api.groq.com/openai/v1/models', { headers: { Authorization: `Bearer ${groqKey}` } })
+      if (!r.ok) return
+      const j: any = await r.json()
+      for (const m of j.data ?? []) out.push({ provider: 'groq', id: `groq/${m.id}`, label: m.id, contextK: Math.round((m.context_window ?? 128000) / 1000) })
+    } catch {}
+  })())
+
+  await Promise.allSettled(jobs)
+  return out
+}
 
 function readCredentials(): Record<string, string> {
   const creds: Record<string, string> = {}
@@ -107,9 +188,20 @@ export function registerSettingsIPC(ipcMain: IpcMain): void {
     return { ok: true }
   })
 
-  ipcMain.handle('settings:models', async () => {
+  ipcMain.handle('settings:models', async (_, opts?: { refresh?: boolean }) => {
     const creds = readCredentials()
-    return AVAILABLE_MODELS.map(m => {
+    const cached = readModelsCache()
+    const fresh = cached && Date.now() - cached.fetchedAt < MODELS_TTL_MS
+    let models: DiscoveredModel[]
+    if (fresh && !opts?.refresh) {
+      models = cached!.models
+    } else {
+      models = await discoverModels(creds)
+      if (models.length) writeModelsCache(models)
+      else if (cached) models = cached.models // ağ yoksa eski cache'e düş
+    }
+    // Anahtarı olan provider'ların modelleri available
+    return models.map(m => {
       const p = PROVIDERS.find(pr => pr.id === m.provider)
       const hasKey = p ? !!(creds[p.envKey] || process.env[p.envKey]) : false
       return { ...m, available: hasKey }

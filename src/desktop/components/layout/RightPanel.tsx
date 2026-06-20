@@ -1,8 +1,8 @@
-import React from 'react'
-import { X, ChevronLeft } from 'lucide-react'
+import React, { useState } from 'react'
+import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
 import { ProgressPanel } from '../panels/ProgressPanel'
 import { ContextPanel } from '../panels/ContextPanel'
-import { MemoryPanel } from '../panels/MemoryPanel'
+import { WorkingFoldersPanel } from '../panels/WorkingFoldersPanel'
 import { InstructionsPanel } from '../panels/InstructionsPanel'
 import { ScheduledPanel } from '../panels/ScheduledPanel'
 import { useUIStore } from '../../stores/ui.store'
@@ -10,93 +10,93 @@ import { useProjectsStore } from '../../stores/projects.store'
 import { useSessionsStore } from '../../stores/sessions.store'
 import { useAgentStore } from '../../stores/agent.store'
 
-const TABS = [
-  { id: 'progress', label: 'Progress' },
-  { id: 'context', label: 'Context' },
-  { id: 'instructions', label: 'Instructions' },
-  { id: 'memory', label: 'Memory' },
-  { id: 'scheduled', label: 'Scheduled' },
-] as const
-
-type TabId = typeof TABS[number]['id']
-
 export function RightPanel() {
-  const { rightPanelOpen, rightPanelTab, setRightPanelOpen, setRightPanelTab } = useUIStore()
+  const { rightPanelOpen } = useUIStore()
   const { activeProjectId } = useProjectsStore()
   const { activeSessionId } = useSessionsStore()
-  const { progress } = useAgentStore()
+  const { status } = useAgentStore()
 
-  if (!rightPanelOpen) {
-    return (
-      <button
-        onClick={() => setRightPanelOpen(true)}
-        className="flex-shrink-0 flex items-center justify-center w-6 border-l border-border bg-bg-secondary hover:bg-bg-hover transition-colors text-text-muted hover:text-text-secondary"
-        title="Paneli aç"
-      >
-        <ChevronLeft size={12} />
-      </button>
-    )
-  }
+  if (!rightPanelOpen) return null
 
-  // Session aktifken Progress önde, yoksa Instructions önde
-  const defaultTab: TabId = activeSessionId ? 'progress' : 'instructions'
-  const activeTab: TabId = rightPanelTab
-
-  // Progress tab badge
-  const pendingCount = progress.filter(t => t.status !== 'completed').length
+  const isSession = !!activeSessionId
 
   return (
     <aside
-      className="flex flex-col flex-shrink-0 border-l border-border bg-bg-secondary overflow-hidden animate-fade-in"
+      className="flex flex-col flex-shrink-0 border-l border-border-subtle bg-bg-secondary overflow-y-auto animate-slide-in"
       style={{ width: 'var(--right-panel-width)' }}
     >
-      {/* Tab bar */}
-      <div className="flex items-center border-b border-border px-1 flex-shrink-0" style={{ minHeight: '36px' }}>
-        <div className="flex flex-1 overflow-x-auto">
-          {TABS.map(tab => {
-            // Progress sadece session varken göster
-            if (tab.id === 'progress' && !activeSessionId) return null
-            const isActive = activeTab === tab.id
+      {isSession ? (
+        // ─── Session view ───────────────────────────────────────────────────
+        <>
+          <CollapsibleBox
+            title="Progress"
+            defaultOpen
+            badge={status === 'thinking' ? <Loader2 size={11} className="text-accent animate-spin" /> : undefined}
+          >
+            <ProgressPanel />
+          </CollapsibleBox>
 
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setRightPanelTab(tab.id)}
-                className={`
-                  relative flex-shrink-0 px-2.5 py-2 text-2xs font-medium transition-colors whitespace-nowrap
-                  ${isActive
-                    ? 'text-text-primary border-b-2 border-accent'
-                    : 'text-text-muted hover:text-text-secondary'
-                  }
-                `}
-              >
-                {tab.label}
-                {tab.id === 'progress' && pendingCount > 0 && (
-                  <span className="ml-1 bg-accent text-white text-2xs rounded-full px-1 py-0.5 font-medium">
-                    {pendingCount}
-                  </span>
-                )}
-              </button>
-            )
-          })}
-        </div>
-        <button
-          onClick={() => setRightPanelOpen(false)}
-          className="flex-shrink-0 p-1 text-text-muted hover:text-text-secondary transition-colors ml-1"
-          title="Paneli kapat"
-        >
-          <X size={12} />
-        </button>
-      </div>
+          <CollapsibleBox title="Working Folders" defaultOpen>
+            <WorkingFoldersPanel projectId={activeProjectId} />
+          </CollapsibleBox>
 
-      {/* Panel içeriği */}
-      <div className="flex-1 overflow-y-auto">
-        {activeTab === 'progress' && <ProgressPanel />}
-        {activeTab === 'context' && <ContextPanel projectId={activeProjectId} />}
-        {activeTab === 'instructions' && <InstructionsPanel projectId={activeProjectId} />}
-        {activeTab === 'memory' && <MemoryPanel projectId={activeProjectId} />}
-        {activeTab === 'scheduled' && <ScheduledPanel />}
-      </div>
+          <CollapsibleBox title="Context" defaultOpen={false}>
+            <ContextPanel projectId={activeProjectId} />
+          </CollapsibleBox>
+        </>
+      ) : (
+        // ─── Project home view ──────────────────────────────────────────────
+        <>
+          <CollapsibleBox title="Instructions" defaultOpen>
+            <InstructionsPanel projectId={activeProjectId} />
+          </CollapsibleBox>
+
+          <CollapsibleBox title="Scheduled" defaultOpen={false}>
+            <ScheduledPanel />
+          </CollapsibleBox>
+
+          <CollapsibleBox title="Context" defaultOpen={false}>
+            <ContextPanel projectId={activeProjectId} />
+          </CollapsibleBox>
+        </>
+      )}
     </aside>
+  )
+}
+
+// ─── CollapsibleBox ──────────────────────────────────────────────────────────
+
+interface BoxProps {
+  title: string
+  defaultOpen?: boolean
+  badge?: React.ReactNode
+  children: React.ReactNode
+}
+
+function CollapsibleBox({ title, defaultOpen = true, badge, children }: BoxProps) {
+  const [open, setOpen] = useState(defaultOpen)
+
+  return (
+    <div className="border-b border-border-subtle last:border-b-0">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center justify-between w-full px-4 py-3 hover:bg-bg-hover/50 transition-colors group"
+      >
+        <span className="flex items-center gap-2">
+          {badge}
+          <span className="text-xs font-semibold text-text-primary">{title}</span>
+        </span>
+        <ChevronDown
+          size={13}
+          className={`text-text-muted transition-transform duration-200 ${open ? '' : '-rotate-90'}`}
+        />
+      </button>
+
+      {open && (
+        <div className="border-t border-border-subtle/50">
+          {children}
+        </div>
+      )}
+    </div>
   )
 }

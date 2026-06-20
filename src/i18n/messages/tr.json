@@ -9,10 +9,10 @@
   },
   "commands": {
     "help_desc": "Tüm mevcut komutları göster.",
-    "exit_desc": "Co-Wrangler'dan çık.",
+    "exit_desc": "Cowrangler'dan çık.",
     "reset_desc": "Konuşma geçmişini temizle ve proje belleğini diskten yeniden yükle.",
     "status_desc": "Mevcut oturumu göster: model, bağlam, bellek, skill'ler, araçlar.",
-    "version_desc": "Co-Wrangler sürümünü göster.",
+    "version_desc": "Cowrangler sürümünü göster.",
     "tools_desc": "Tüm mevcut araçları (yetenekleri) listele.",
     "skills_desc": "Yüklü tüm skill'leri (SOP) listele.",
     "skill_desc": "Bir skill kullan: /skill <id> [görev]  veya sadece /skill <id>",
@@ -22,7 +22,7 @@
     "tip_history": "geçmişe göz atmak için",
     "tip_type": "Yaz",
     "tip_press": "Bas",
-    "box_title": "Co-Wrangler Komutları"
+    "box_title": "Cowrangler Komutları"
   },
   "status": {
     "context_cleared": "Bağlam temizlendi. Bellek yeniden yüklendi.",

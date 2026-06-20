@@ -3,6 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import yaml from "js-yaml";
 import { DIRS } from "./init.js";
+import { getProjectLocalSkillsDir, getProjectContextSkillsDir } from "./project_context.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -101,7 +102,7 @@ export class SkillManager {
     globalSkills.forEach((val, key) => merged.set(key, val));
 
     // 3. Local project skills (.cowrangler/skills) — highest priority
-    const localSkills = this.loadSkillsFromDir(DIRS.local.skills, "local");
+    const localSkills = this.loadSkillsFromDir(getProjectLocalSkillsDir(), "local");
     localSkills.forEach((val, key) => merged.set(key, val));
 
     return Array.from(merged.values()).sort((a, b) => a.id.localeCompare(b.id));
@@ -127,5 +128,75 @@ export class SkillManager {
 
   public listSkillIds(): string[] {
     return this.getAvailableSkills().map((s) => s.id);
+  }
+
+  /**
+   * Bir SKILL'i (global/bundled/local) aktif projenin CONTEXT alanına kopyalar:
+   *   {workdir}/.cowrangler/context/skills/<id>/SKILL.md
+   *
+   * Spec: "SKILL her zaman global; bir projede çağrılınca o projenin CONTEXT
+   * alanına kopyalanmalı." Bu fonksiyon `utilize_skill` çağrısında tetiklenir.
+   * Idempotent — varsa üzerine yazar (en güncel sürüm).
+   */
+  public copySkillToContext(skillId: string): { ok: boolean; path?: string; error?: string } {
+    const target = this.getAvailableSkills().find((s) => s.id === skillId);
+    if (!target) return { ok: false, error: `Skill '${skillId}' not found.` };
+
+    const destDir = path.join(getProjectContextSkillsDir(), target.id);
+    try {
+      fs.mkdirSync(destDir, { recursive: true });
+      const full = [
+        `---`,
+        `id: ${target.id}`,
+        `name: ${target.name}`,
+        `description: ${target.description}`,
+        `source: ${target.source}`,
+        `copied_at: ${new Date().toISOString()}`,
+        `---`,
+        ``,
+        target.content,
+      ].join("\n");
+      fs.writeFileSync(path.join(destDir, "SKILL.md"), full, "utf-8");
+      return { ok: true, path: destDir };
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? String(err) };
+    }
+  }
+
+  /**
+   * Aktif projenin CONTEXT'ine kopyalanmış SKILL'leri (tam içerikleriyle) döndürür.
+   * Agent system prompt'u yalnız bunları "aktif" SOP olarak tam metinle enjekte eder.
+   */
+  public getContextSkills(): SkillDef[] {
+    const dir = getProjectContextSkillsDir();
+    const out: SkillDef[] = [];
+    if (!fs.existsSync(dir)) return out;
+    for (const item of fs.readdirSync(dir)) {
+      const skillFile = path.join(dir, item, "SKILL.md");
+      if (!fs.existsSync(skillFile)) continue;
+      try {
+        const raw = fs.readFileSync(skillFile, "utf-8");
+        const { metadata, body } = this._parseFrontmatter(raw);
+        out.push({
+          id: item,
+          name: metadata.name || item,
+          description: metadata.description || "",
+          source: "local",
+          content: body,
+        });
+      } catch { /* bozuk skill atla */ }
+    }
+    return out;
+  }
+
+  /** CONTEXT'ten bir SKILL'i kaldırır. */
+  public removeContextSkill(skillId: string): boolean {
+    const destDir = path.join(getProjectContextSkillsDir(), skillId);
+    try {
+      if (fs.existsSync(destDir)) fs.rmSync(destDir, { recursive: true, force: true });
+      return true;
+    } catch {
+      return false;
+    }
   }
 }

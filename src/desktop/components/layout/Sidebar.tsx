@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Settings, Plus, Search, Pin, ChevronRight, MessageSquare, Home } from 'lucide-react'
+import { Settings, Plus, Search, Pin, MessageSquare, Home, FolderPlus } from 'lucide-react'
 import { useProjectsStore } from '../../stores/projects.store'
 import { useSessionsStore } from '../../stores/sessions.store'
 import { useUIStore } from '../../stores/ui.store'
@@ -14,7 +14,6 @@ export function Sidebar() {
   const filtered = projects.filter(p =>
     search === '' || p.name.toLowerCase().includes(search.toLowerCase())
   )
-
   const pinned = filtered.filter(p => p.pinned)
   const unpinned = filtered.filter(p => !p.pinned)
 
@@ -26,159 +25,193 @@ export function Sidebar() {
 
   return (
     <aside
-      className="flex flex-col flex-shrink-0 border-r border-border bg-bg-secondary"
+      className="flex flex-col flex-shrink-0 border-r border-border-subtle bg-bg-secondary"
       style={{ width: 'var(--sidebar-width)' }}
     >
-      {/* Header */}
-      <div className="flex items-center gap-1 px-3 py-2 border-b border-border-subtle">
+      {/* New project */}
+      <div className="px-3 pt-3 pb-2">
         <button
           onClick={() => setNewProjectModal(true)}
-          className="flex-1 flex items-center gap-1.5 px-2 py-1.5 rounded text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-xs"
-          title="Yeni proje"
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-accent text-accent-fg hover:bg-accent-hover transition-colors text-sm font-medium shadow-card"
         >
-          <Plus size={13} />
-          <span>Yeni Proje</span>
-        </button>
-        <button
-          onClick={() => openSettings('models')}
-          className="p-1.5 rounded text-text-muted hover:text-text-secondary hover:bg-bg-hover transition-colors"
-          title="Ayarlar"
-        >
-          <Settings size={14} />
+          <FolderPlus size={15} />
+          <span>Yeni proje</span>
         </button>
       </div>
 
       {/* Search */}
-      <div className="px-3 py-2">
-        <div className="flex items-center gap-2 px-2 py-1.5 bg-bg-tertiary rounded border border-border-subtle">
-          <Search size={12} className="text-text-muted flex-shrink-0" />
+      <div className="px-3 pb-2">
+        <div className="flex items-center gap-2 px-2.5 py-1.5 bg-bg-tertiary rounded-lg border border-border-subtle focus-within:border-accent/40 transition-colors">
+          <Search size={13} className="text-text-muted flex-shrink-0" />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Proje ara..."
+            placeholder="Projelerde ara"
             className="flex-1 bg-transparent text-xs text-text-primary placeholder-text-muted outline-none"
           />
         </div>
       </div>
 
       {/* Project list */}
-      <div className="flex-1 overflow-y-auto px-1.5 pb-2">
+      <div className="flex-1 overflow-y-auto px-2 pb-2">
         {loading && (
-          <div className="flex items-center justify-center py-8">
-            <span className="text-xs text-text-muted">Yükleniyor...</span>
+          <div className="space-y-1.5 px-1 py-2">
+            {[0, 1, 2].map(i => (
+              <div key={i} className="h-9 rounded-lg shimmer" />
+            ))}
           </div>
         )}
 
         {!loading && projects.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-8 gap-2 text-center px-4">
-            <span className="text-3xl">📂</span>
-            <p className="text-xs text-text-muted">Henüz proje yok</p>
+          <div className="flex flex-col items-center justify-center py-10 gap-2 text-center px-4">
+            <span className="text-3xl opacity-70">📂</span>
+            <p className="text-xs text-text-muted">No projects yet</p>
             <button
               onClick={() => setNewProjectModal(true)}
-              className="text-xs text-accent hover:text-accent-hover"
+              className="text-xs text-accent hover:text-accent-hover font-medium"
             >
-              Proje oluştur
+              Create your first project
             </button>
           </div>
         )}
 
         {pinned.length > 0 && (
-          <div className="mb-1">
-            <p className="text-2xs text-text-muted px-2 py-1 font-medium uppercase tracking-wide flex items-center gap-1">
-              <Pin size={10} /> Sabitlenmiş
-            </p>
+          <Section label="Pinned" icon={<Pin size={10} />}>
             {pinned.map(p => (
               <ProjectItem
                 key={p.id}
                 project={p}
                 active={p.id === activeProjectId}
-                onClick={() => selectProject(p.id)}
+                activeSessionId={activeSessionId}
+                sessions={sessionsByProject[p.id] ?? []}
+                onSelect={() => selectProject(p.id)}
+                onSession={setActiveSession}
               />
             ))}
-          </div>
+          </Section>
         )}
 
         {unpinned.length > 0 && (
-          <div>
-            {pinned.length > 0 && (
-              <p className="text-2xs text-text-muted px-2 py-1 font-medium uppercase tracking-wide mt-1">
-                Projeler
-              </p>
-            )}
+          <Section label={pinned.length > 0 ? 'Projeler' : undefined}>
             {unpinned.map(p => (
-              <div key={p.id}>
-                <ProjectItem
-                  project={p}
-                  active={p.id === activeProjectId}
-                  onClick={() => selectProject(p.id)}
-                />
-                {/* Sessions sub-list for active project */}
-                {p.id === activeProjectId && (
-                  <div className="ml-4 mb-1">
-                    <button
-                      onClick={() => setActiveSession(null)}
-                      className={`flex items-center gap-1.5 w-full px-2 py-1 rounded text-2xs transition-colors ${
-                        !activeSessionId ? 'text-accent bg-accent/10' : 'text-text-muted hover:text-text-secondary hover:bg-bg-hover'
-                      }`}
-                    >
-                      <Home size={10} />
-                      Proje Ana Sayfası
-                    </button>
-                    {(sessionsByProject[p.id] ?? []).slice(0, 5).map(s => (
-                      <button
-                        key={s.id}
-                        onClick={() => setActiveSession(s.id)}
-                        className={`flex items-center gap-1.5 w-full px-2 py-1 rounded text-2xs transition-colors truncate ${
-                          activeSessionId === s.id ? 'text-accent bg-accent/10' : 'text-text-muted hover:text-text-secondary hover:bg-bg-hover'
-                        }`}
-                      >
-                        <MessageSquare size={10} className="flex-shrink-0" />
-                        <span className="truncate">{s.title || formatRelative(s.started_at)}</span>
-                      </button>
-                    ))}
-                    <button
-                      onClick={() => setActiveSession('__new__')}
-                      className="flex items-center gap-1.5 w-full px-2 py-1 rounded text-2xs text-text-muted hover:text-accent hover:bg-bg-hover transition-colors"
-                    >
-                      <Plus size={10} />
-                      Yeni konuşma
-                    </button>
-                  </div>
-                )}
-              </div>
+              <ProjectItem
+                key={p.id}
+                project={p}
+                active={p.id === activeProjectId}
+                activeSessionId={activeSessionId}
+                sessions={sessionsByProject[p.id] ?? []}
+                onSelect={() => selectProject(p.id)}
+                onSession={setActiveSession}
+              />
             ))}
-          </div>
+          </Section>
         )}
+      </div>
+
+      {/* Footer — settings */}
+      <div className="border-t border-border-subtle px-2 py-2">
+        <button
+          onClick={() => openSettings('models')}
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-xs"
+        >
+          <Settings size={14} />
+          <span>Ayarlar</span>
+        </button>
       </div>
     </aside>
   )
 }
 
-function ProjectItem({ project, active, onClick }: {
-  project: any; active: boolean; onClick: () => void
+function Section({ label, icon, children }: { label?: string; icon?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="mb-1.5">
+      {label && (
+        <p className="text-2xs text-text-muted px-2.5 py-1.5 font-semibold uppercase tracking-wider flex items-center gap-1.5">
+          {icon}{label}
+        </p>
+      )}
+      {children}
+    </div>
+  )
+}
+
+function ProjectItem({ project, active, activeSessionId, sessions, onSelect, onSession }: {
+  project: any
+  active: boolean
+  activeSessionId: string | null
+  sessions: any[]
+  onSelect: () => void
+  onSession: (id: string | null) => void
+}) {
+  return (
+    <div className="mb-0.5">
+      <button
+        onClick={onSelect}
+        className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left transition-colors ${
+          active
+            ? 'bg-bg-hover text-text-primary'
+            : 'text-text-secondary hover:bg-bg-hover/60 hover:text-text-primary'
+        }`}
+      >
+        <span className="text-base flex-shrink-0 leading-none">{project.icon || '📁'}</span>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-medium truncate">{project.name}</p>
+          {project.session_count > 0 && (
+            <p className="text-2xs text-text-muted truncate">
+              {project.session_count} sohbet
+              {project.last_session_at && ` · ${formatRelative(project.last_session_at)}`}
+            </p>
+          )}
+        </div>
+      </button>
+
+      {/* Sessions for active project */}
+      {active && (
+        <div className="ml-3 mt-0.5 pl-2 border-l border-border-subtle space-y-0.5">
+          <SubItem
+            active={!activeSessionId}
+            icon={<Home size={11} />}
+            label="Project home"
+            onClick={() => onSession(null)}
+          />
+          {sessions.slice(0, 6).map(s => (
+            <SubItem
+              key={s.id}
+              active={activeSessionId === s.id}
+              icon={<MessageSquare size={11} />}
+              label={s.title || formatRelative(s.started_at)}
+              onClick={() => onSession(s.id)}
+            />
+          ))}
+          <SubItem
+            active={false}
+            icon={<Plus size={11} />}
+            label="Yeni sohbet"
+            muted
+            onClick={() => onSession('__new__')}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SubItem({ active, icon, label, muted, onClick }: {
+  active: boolean; icon: React.ReactNode; label: string; muted?: boolean; onClick: () => void
 }) {
   return (
     <button
       onClick={onClick}
-      className={`
-        w-full flex items-center gap-2 px-2 py-2 rounded-md text-left transition-colors mb-0.5
-        ${active
-          ? 'bg-accent-subtle text-text-primary border border-accent/20'
-          : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'
-        }
-      `}
+      className={`flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-2xs transition-colors truncate ${
+        active
+          ? 'text-accent bg-accent-subtle font-medium'
+          : muted
+          ? 'text-text-muted hover:text-accent hover:bg-bg-hover/60'
+          : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover/60'
+      }`}
     >
-      <span className="text-base flex-shrink-0">{project.icon || '📁'}</span>
-      <div className="flex-1 min-w-0">
-        <p className="text-xs font-medium truncate">{project.name}</p>
-        {project.session_count > 0 && (
-          <p className="text-2xs text-text-muted">
-            {project.session_count} session
-            {project.last_session_at && ` · ${formatRelative(project.last_session_at)}`}
-          </p>
-        )}
-      </div>
-      {active && <ChevronRight size={12} className="text-accent flex-shrink-0" />}
+      <span className="flex-shrink-0">{icon}</span>
+      <span className="truncate">{label}</span>
     </button>
   )
 }

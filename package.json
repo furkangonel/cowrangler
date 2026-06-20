@@ -1,7 +1,8 @@
 {
   "name": "co-wrangler",
-  "version": "2.0.1",
+  "version": "2.0.3",
   "description": "An enterprise-grade personal AI agent for the terminal — powered by Claude, GPT, Gemini & more",
+  "author": "Furkan Gönel <frkngnl000@gmail.com>",
   "type": "module",
   "main": "out/main/index.js",
   "bin": {
@@ -21,13 +22,15 @@
     "desktop:build": "electron-vite build",
     "desktop:preview": "electron-vite preview",
     "desktop:pack": "npm run desktop:build && electron-builder",
-    "desktop:rebuild": "electron-rebuild -f -w better-sqlite3"
+    "desktop:rebuild": "electron-rebuild -f -w better-sqlite3",
+    "desktop:release": "bash scripts/release-desktop.sh"
   },
   "build": {
     "appId": "co.cowrangler.desktop",
-    "productName": "Co-Wrangler",
+    "productName": "Cowrangler",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "assets"
     },
     "files": [
       "out/**",
@@ -40,20 +43,68 @@
         "to": "bundled_skills"
       }
     ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "furkangonel",
+        "repo": "cowrangler"
+      }
+    ],
     "mac": {
-      "icon": "assets/icon.icns",
+      "icon": "assets/icon.png",
       "category": "public.app-category.developer-tools",
-      "hardenedRuntime": true,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "identity": null,
+      "hardenedRuntime": false,
       "gatekeeperAssess": false
     },
     "win": {
-      "icon": "assets/icon.ico"
+      "icon": "assets/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "linux": {
       "icon": "assets/icon.png",
-      "target": "AppImage"
+      "category": "Development",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}.${ext}"
     },
-    "nativeRebuilder": "legacy"
+    "dmg": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    }
   },
   "keywords": [
     "ai",
@@ -130,5 +181,9 @@
     "typescript": "^5.3.3",
     "vite": "^5.4.11",
     "vitest": "^4.1.6"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/furkangonel/cowrangler.git"
   }
 }

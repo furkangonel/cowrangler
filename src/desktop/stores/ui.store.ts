@@ -1,19 +1,15 @@
 import { create } from 'zustand'
 
-type RightPanelTab = 'progress' | 'context' | 'memory' | 'instructions' | 'scheduled'
-
 interface UIState {
   rightPanelOpen: boolean
-  rightPanelTab: RightPanelTab
   searchOpen: boolean
   searchQuery: string
   onboardingVisible: boolean
   newProjectModalOpen: boolean
-  settingsPage: string | null  // null = settings kapalı, 'models' | 'mcp' | 'skills' | 'appearance' | 'profiles'
+  settingsPage: string | null  // null = settings kapalı, 'models' | 'connectors' | 'skills' | 'appearance'
 
-  setRightPanelOpen: (open: boolean) => void
-  setRightPanelTab: (tab: RightPanelTab) => void
   toggleRightPanel: () => void
+  setRightPanelOpen: (open: boolean) => void
   setSearchOpen: (open: boolean) => void
   setSearchQuery: (q: string) => void
   setOnboardingVisible: (v: boolean) => void
@@ -24,16 +20,14 @@ interface UIState {
 
 export const useUIStore = create<UIState>((set) => ({
   rightPanelOpen: true,
-  rightPanelTab: 'context',
   searchOpen: false,
   searchQuery: '',
   onboardingVisible: false,
   newProjectModalOpen: false,
   settingsPage: null,
 
-  setRightPanelOpen: (open) => set({ rightPanelOpen: open }),
-  setRightPanelTab: (tab) => set({ rightPanelTab: tab }),
   toggleRightPanel: () => set(s => ({ rightPanelOpen: !s.rightPanelOpen })),
+  setRightPanelOpen: (open) => set({ rightPanelOpen: open }),
   setSearchOpen: (open) => set({ searchOpen: open }),
   setSearchQuery: (q) => set({ searchQuery: q }),
   setOnboardingVisible: (v) => set({ onboardingVisible: v }),

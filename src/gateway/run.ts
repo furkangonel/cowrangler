@@ -87,7 +87,7 @@ export function loadGatewayConfig(): GatewayConfig {
  * cowrangler gateway start — CLI entrypoint
  */
 export async function gatewayMain(): Promise<void> {
-  console.log("\n  Co-Wrangler Gateway\n");
+  console.log("\n  Cowrangler Gateway\n");
 
   const config = loadGatewayConfig();
 

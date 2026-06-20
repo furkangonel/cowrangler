@@ -1,18 +1,16 @@
 import React, { useEffect, useState, useRef } from 'react'
-import { Pin, MoreHorizontal, Plus, Send, Folder, Clock, FolderOpen, Trash2, ExternalLink } from 'lucide-react'
+import { Pin, MoreHorizontal, Plus, ArrowUp, Folder, Clock, ExternalLink, MessageSquare } from 'lucide-react'
 import { useProjectsStore } from '../../stores/projects.store'
 import { useSessionsStore } from '../../stores/sessions.store'
-import { useUIStore } from '../../stores/ui.store'
 import { useAgentStore } from '../../stores/agent.store'
 import { ipc, OutputFile } from '../../lib/ipc'
-import { formatRelative, formatDateTime } from '../../lib/time'
+import { formatRelative } from '../../lib/time'
 
 interface Props { projectId: string }
 
 export function ProjectHome({ projectId }: Props) {
-  const { projects, getActiveProject, loadFolders, folders, loadInstructions } = useProjectsStore()
+  const { getActiveProject, loadFolders, folders, loadInstructions } = useProjectsStore()
   const { sessionsByProject, loadSessions, setActiveSession } = useSessionsStore()
-  const { setRightPanelTab } = useUIStore()
   const [message, setMessage] = useState('')
   const [outputs, setOutputs] = useState<OutputFile[]>([])
   const [menuOpen, setMenuOpen] = useState(false)
@@ -26,173 +24,136 @@ export function ProjectHome({ projectId }: Props) {
       loadSessions(projectId)
       loadFolders(projectId)
       loadInstructions(projectId)
-      ipc.projects.getOutputs(projectId).then(setOutputs)
+      ipc.projects.getOutputs(projectId).then(setOutputs).catch(() => {})
     }
-  }, [projectId])
-
-  useEffect(() => {
-    setRightPanelTab('instructions')
   }, [projectId])
 
   async function startSession() {
     if (!message.trim()) return
-    // Yeni session başlat
     await ipc.agent.newSession(projectId)
-    // Session ID'yi agent'tan alacağız — şimdilik geçici bir session açıyoruz
-    // İlk mesaj gönderilince agent sessionId döner
     setActiveSession('__new__')
-    // Mesajı agent store'a aktar
     useAgentStore.getState().setStatus('idle')
-    // Session view açılır ve message iletilir
     sessionStorage.setItem(`pendingMessage_${projectId}`, message)
     setMessage('')
   }
 
   if (!project) return null
-
   const projectFolders = folders[projectId] ?? []
 
   return (
     <div className="flex flex-col h-full overflow-y-auto bg-bg-primary">
-      <div className="max-w-2xl w-full mx-auto px-6 py-8 flex flex-col gap-6">
+      <div className="max-w-2xl w-full mx-auto px-6 py-10 flex flex-col gap-7">
 
         {/* Header */}
         <div className="flex items-start justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-4xl">{project.icon}</span>
-            <div>
-              <h1 className="text-xl font-semibold text-text-primary">{project.name}</h1>
-              {project.description && (
-                <p className="text-sm text-text-secondary mt-0.5">{project.description}</p>
-              )}
-            </div>
+          <div>
+            <h1 className="text-2xl font-semibold text-text-primary brand-serif">{project.name}</h1>
+            {project.description && (
+              <p className="text-sm text-text-secondary mt-1 leading-relaxed">{project.description}</p>
+            )}
           </div>
           <div className="flex items-center gap-1">
-            <button
-              onClick={() => {}}
-              className="p-1.5 text-text-muted hover:text-text-secondary transition-colors rounded"
-              title="Sabitle"
-            >
-              <Pin size={14} />
+            <button className="p-2 text-text-muted hover:text-text-secondary hover:bg-bg-hover transition-colors rounded-lg" title="Sabitle">
+              <Pin size={15} />
             </button>
             <div className="relative">
               <button
                 onClick={() => setMenuOpen(!menuOpen)}
-                className="p-1.5 text-text-muted hover:text-text-secondary transition-colors rounded"
+                className="p-2 text-text-muted hover:text-text-secondary hover:bg-bg-hover transition-colors rounded-lg"
               >
-                <MoreHorizontal size={14} />
+                <MoreHorizontal size={15} />
               </button>
               {menuOpen && (
                 <div
-                  className="absolute right-0 top-8 z-20 bg-bg-secondary border border-border rounded-lg shadow-xl min-w-[160px] py-1 animate-fade-in"
+                  className="absolute right-0 top-10 z-20 bg-bg-secondary border border-border rounded-xl shadow-pop min-w-[170px] py-1 animate-slide-up"
                   onClick={() => setMenuOpen(false)}
                 >
-                  <button className="w-full px-3 py-2 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary">
-                    Projeyi düzenle
-                  </button>
-                  <button className="w-full px-3 py-2 text-left text-xs text-error hover:bg-bg-hover">
-                    Projeyi sil
-                  </button>
+                  <button className="w-full px-3 py-2 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary">Edit project</button>
+                  <button className="w-full px-3 py-2 text-left text-xs text-error hover:bg-error/10">Projeyi sil</button>
                 </div>
               )}
             </div>
           </div>
         </div>
 
-        {/* Message prompt */}
-        <div className="bg-bg-secondary border border-border rounded-xl overflow-hidden shadow-sm">
-          {/* Image/outputs preview strip */}
+        {/* Composer */}
+        <div className="bg-bg-secondary border border-border rounded-2xl overflow-hidden shadow-card">
           {outputs.length > 0 && (
-            <div className="px-4 pt-3 pb-0 border-b border-border-subtle">
-              <div className="flex gap-2 overflow-x-auto pb-3">
-                {outputs.slice(0, 4).map(f => (
-                  <OutputCard key={f.path} file={f} />
-                ))}
+            <div className="px-4 pt-3.5 pb-0 border-b border-border-subtle">
+              <div className="flex gap-2 overflow-x-auto pb-3.5">
+                {outputs.slice(0, 5).map(f => <OutputCard key={f.path} file={f} />)}
               </div>
             </div>
           )}
 
-          {/* Text area */}
-          <div className="px-4 py-3">
-            <textarea
-              ref={textareaRef}
-              value={message}
-              onChange={e => setMessage(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  startSession()
-                }
-              }}
-              placeholder="Bu projede ne yapmak istersiniz?"
-              rows={3}
-              className="w-full bg-transparent text-sm text-text-primary placeholder-text-muted resize-none outline-none selectable"
-            />
-          </div>
+          <textarea
+            ref={textareaRef}
+            value={message}
+            onChange={e => setMessage(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); startSession() } }}
+            placeholder="Bu projede ne yapmak istersiniz?"
+            rows={3}
+            className="w-full bg-transparent text-md text-text-primary placeholder-text-muted resize-none outline-none selectable px-4 py-3.5"
+          />
 
-          {/* Footer bar */}
           <div className="flex items-center justify-between px-4 py-3 border-t border-border-subtle">
             <button
               onClick={async () => {
                 const path = await ipc.fs.pickFolder()
                 if (path) await useProjectsStore.getState().addFolder(projectId, path)
               }}
-              className="flex items-center gap-1.5 text-xs text-text-muted hover:text-text-secondary transition-colors"
+              className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary transition-colors"
             >
-              <Plus size={13} />
-              Klasör ekle
+              <Plus size={14} /> Add folder
             </button>
             <button
               onClick={startSession}
               disabled={!message.trim()}
-              className="flex items-center gap-2 px-3 py-1.5 bg-accent text-white rounded-lg text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-accent-hover transition-colors"
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-accent text-accent-fg rounded-xl text-xs font-medium disabled:opacity-30 disabled:cursor-not-allowed hover:bg-accent-hover transition-colors"
             >
-              <Send size={12} />
-              Gönder
+              Start <ArrowUp size={13} />
             </button>
           </div>
         </div>
 
         {/* Folders */}
         {projectFolders.length > 0 && (
-          <div>
-            <h3 className="text-xs font-medium text-text-muted uppercase tracking-wide mb-2">Klasörler</h3>
-            <div className="flex flex-col gap-1">
+          <Section title="Folders">
+            <div className="flex flex-col gap-1.5">
               {projectFolders.map(f => (
-                <div key={f.id} className="flex items-center gap-2 px-3 py-2 bg-bg-secondary border border-border rounded-lg group">
-                  <Folder size={13} className="text-text-muted flex-shrink-0" />
+                <div key={f.id} className="flex items-center gap-2.5 px-3 py-2.5 bg-bg-secondary border border-border rounded-xl group">
+                  <Folder size={14} className="text-text-muted flex-shrink-0" />
                   <span className="text-xs text-text-secondary truncate flex-1 font-mono">{f.folder_path}</span>
                   <button
                     onClick={() => ipc.fs.openInFinder(f.folder_path)}
-                    className="opacity-0 group-hover:opacity-100 p-1 text-text-muted hover:text-text-secondary transition-all"
+                    className="opacity-0 group-hover:opacity-100 p-1 text-text-muted hover:text-text-primary transition-all"
                   >
-                    <ExternalLink size={11} />
+                    <ExternalLink size={12} />
                   </button>
                 </div>
               ))}
             </div>
-          </div>
+          </Section>
         )}
 
-        {/* Recent sessions */}
+        {/* Recent chats */}
         {sessions.length > 0 && (
-          <div>
-            <h3 className="text-xs font-medium text-text-muted uppercase tracking-wide mb-2">Son Sessionlar</h3>
-            <div className="grid grid-cols-2 gap-2">
+          <Section title="Son sohbetler">
+            <div className="grid grid-cols-2 gap-2.5">
               {sessions.slice(0, 6).map(s => (
                 <button
                   key={s.id}
                   onClick={() => setActiveSession(s.id)}
-                  className="text-left px-3 py-3 bg-bg-secondary border border-border rounded-lg hover:border-accent/40 hover:bg-bg-tertiary transition-colors group"
+                  className="text-left px-3.5 py-3 bg-bg-secondary border border-border rounded-xl hover:border-accent/40 hover:bg-bg-hover transition-colors group"
                 >
-                  <div className="flex items-start gap-2">
-                    <Clock size={12} className="text-text-muted mt-0.5 flex-shrink-0" />
+                  <div className="flex items-start gap-2.5">
+                    <MessageSquare size={13} className="text-text-muted mt-0.5 flex-shrink-0 group-hover:text-accent transition-colors" />
                     <div className="min-w-0">
                       <p className="text-xs font-medium text-text-primary truncate group-hover:text-accent transition-colors">
-                        {s.title || 'Session'}
+                        {s.title || 'Sohbet'}
                       </p>
-                      <p className="text-2xs text-text-muted mt-0.5">
-                        {formatRelative(s.started_at)}
+                      <p className="text-2xs text-text-muted mt-1 flex items-center gap-1">
+                        <Clock size={9} /> {formatRelative(s.started_at)}
                         {s.message_count > 0 && ` · ${s.message_count} mesaj`}
                       </p>
                     </div>
@@ -200,14 +161,18 @@ export function ProjectHome({ projectId }: Props) {
                 </button>
               ))}
             </div>
-            {sessions.length > 6 && (
-              <button className="text-xs text-text-muted hover:text-text-secondary transition-colors mt-2">
-                +{sessions.length - 6} daha
-              </button>
-            )}
-          </div>
+          </Section>
         )}
       </div>
+    </div>
+  )
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <h3 className="text-2xs font-semibold text-text-muted uppercase tracking-wider mb-2.5">{title}</h3>
+      {children}
     </div>
   )
 }
@@ -218,15 +183,12 @@ function OutputCard({ file }: { file: OutputFile }) {
     ['.md', '.txt'].includes(ext) ? '📝' :
     ['.pdf'].includes(ext) ? '📕' :
     ['.docx'].includes(ext) ? '📄' :
-    ['.xlsx'].includes(ext) ? '📊' :
-    ['.pptx'].includes(ext) ? '📊' :
-    ['.png', '.jpg', '.jpeg'].includes(ext) ? '🖼️' :
-    '📎'
-
+    ['.xlsx', '.pptx'].includes(ext) ? '📊' :
+    ['.png', '.jpg', '.jpeg'].includes(ext) ? '🖼️' : '📎'
   return (
     <button
       onClick={() => ipc.fs.openInFinder(file.path)}
-      className="flex-shrink-0 flex flex-col items-center gap-1 p-2.5 bg-bg-tertiary border border-border rounded-lg hover:border-accent/40 transition-colors w-24"
+      className="flex-shrink-0 flex flex-col items-center gap-1.5 p-3 bg-bg-tertiary border border-border rounded-xl hover:border-accent/40 transition-colors w-24"
     >
       <span className="text-2xl">{emoji}</span>
       <span className="text-2xs text-text-muted truncate w-full text-center">{file.name}</span>

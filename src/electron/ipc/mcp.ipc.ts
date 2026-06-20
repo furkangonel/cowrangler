@@ -1,8 +1,10 @@
-import { IpcMain } from 'electron'
+import { IpcMain, shell } from 'electron'
 import path from 'path'
 import os from 'os'
 import fs from 'fs'
 import yaml from 'js-yaml'
+import { getCatalogSorted, getCatalogEntry, buildMcpServerConfig } from '../../core/connectors_catalog.js'
+import { getBundledPlugins, getDefaultEnabledPluginIds } from '../../core/plugins_catalog.js'
 
 const GLOBAL_DIR = path.join(os.homedir(), '.cowrangler')
 const CONFIG_FILE = path.join(GLOBAL_DIR, 'config.yaml')
@@ -75,5 +77,61 @@ export function registerMCPIPC(ipcMain: IpcMain): void {
     const server = config.mcp_servers?.[name]
     if (!server) return { ok: false, error: 'Server not found' }
     return { ok: true, message: 'Configuration looks valid' }
+  })
+
+  // ── CONNECTORS (kürasyonlu katalog) ────────────────────────────────────────
+
+  /** Browse: kürate edilmiş, gerçekten çalışan connector katalogu + bağlı durumu */
+  ipcMain.handle('connectors:catalog', async () => {
+    const config = readConfig()
+    const connected = new Set(Object.keys(config.mcp_servers || {}))
+    return getCatalogSorted().map(e => ({ ...e, connected: connected.has(e.id) }))
+  })
+
+  /**
+   * Katalogdan ekle. auth gerektiren girişler için `secrets` (envKey→değer) ve
+   * filesystem gibi yol gerektirenler için `pathArg` beklenir.
+   * oauth girişlerinde: callback başlatılmadan önce tarayıcı açılır.
+   */
+  ipcMain.handle('connectors:add', async (_, payload: {
+    id: string
+    secrets?: Record<string, string>
+    pathArg?: string
+  }) => {
+    const entry = getCatalogEntry(payload.id)
+    if (!entry) return { ok: false, error: 'Unknown connector' }
+
+    // OAuth: kullanıcıyı sağlayıcı izin sayfasına yönlendir (MCP SDK kendi akışını da yürütür)
+    if (entry.auth === 'oauth' && entry.url) {
+      try { await shell.openExternal(entry.url) } catch {}
+    }
+
+    const serverConfig = buildMcpServerConfig(entry, payload.secrets ?? {}, payload.pathArg)
+    const config = readConfig()
+    if (!config.mcp_servers) config.mcp_servers = {}
+    config.mcp_servers[entry.id] = serverConfig
+    writeConfig(config)
+    return { ok: true, name: entry.id, requiresAuth: entry.auth !== 'none' }
+  })
+
+  // ── PLUGINS (cowrangler imzalı bundled katalog) ────────────────────────────
+
+  ipcMain.handle('plugins:list', async () => {
+    const config = readConfig()
+    const enabled: string[] = Array.isArray(config.enabled_plugins)
+      ? config.enabled_plugins
+      : getDefaultEnabledPluginIds()
+    return getBundledPlugins().map(p => ({ ...p, enabled: enabled.includes(p.id) }))
+  })
+
+  ipcMain.handle('plugins:setEnabled', async (_, id: string, on: boolean) => {
+    const config = readConfig()
+    const current: string[] = Array.isArray(config.enabled_plugins)
+      ? config.enabled_plugins
+      : getDefaultEnabledPluginIds()
+    const next = on ? [...new Set([...current, id])] : current.filter(p => p !== id)
+    config.enabled_plugins = next
+    writeConfig(config)
+    return { ok: true, enabled: next }
   })
 }

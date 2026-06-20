@@ -9,6 +9,7 @@ import { Agent } from "../core/agent.js";
 import { LLM } from "../core/llm.js";
 import { getConfig } from "../core/init.js";
 import { PROJECT_ROOT, LOCAL_DIR } from "../core/init.js";
+import { getProjectTodoFile } from "../core/project_context.js";
 import {
   runInSandbox,
   configureSandbox,
@@ -353,7 +354,7 @@ Use proactively when:
 
 Do NOT use for every step — only for genuinely important milestones.`,
   z.object({
-    title: z.string().default("Co-Wrangler").describe("Notification title"),
+    title: z.string().default("Cowrangler").describe("Notification title"),
     message: z
       .string()
       .describe("Notification body text (keep under 120 chars)"),
@@ -418,8 +419,6 @@ registerTool(
 // ─────────────────────────────────────────────────────────────────────────────
 // TODO / TASK MANAGER
 // ─────────────────────────────────────────────────────────────────────────────
-const TODO_FILE = path.join(LOCAL_DIR, "AGENT_TODO.md");
-
 registerTool(
   "manage_todo",
   `Manage the agent's in-session task list (markdown checklist format).
@@ -460,29 +459,33 @@ Always use mark_done immediately after completing each item. Never batch-mark at
     item?: string;
   }) => {
     try {
+      // Resolve at call time — handles per-project context for desktop
+      const todoFile = getProjectTodoFile()
+      fs.mkdirSync(path.dirname(todoFile), { recursive: true })
+
       // ── read ────────────────────────────────────────────────────────────────
       if (action === "read") {
-        return fs.existsSync(TODO_FILE)
-          ? fs.readFileSync(TODO_FILE, "utf-8")
+        return fs.existsSync(todoFile)
+          ? fs.readFileSync(todoFile, "utf-8")
           : "No active TODO list.";
       }
 
       // ── update ──────────────────────────────────────────────────────────────
       if (action === "update") {
         if (!content) return "ERROR: 'update' requires content.";
-        fs.writeFileSync(TODO_FILE, content, "utf-8");
+        fs.writeFileSync(todoFile, content, "utf-8");
         return "TODO list updated.";
       }
 
       // ── append ──────────────────────────────────────────────────────────────
       if (action === "append") {
         if (!content) return "ERROR: 'append' requires content.";
-        const existing = fs.existsSync(TODO_FILE)
-          ? fs.readFileSync(TODO_FILE, "utf-8")
+        const existing = fs.existsSync(todoFile)
+          ? fs.readFileSync(todoFile, "utf-8")
           : "# Active Agent Tasks\n";
         const newItem = `- [ ] ${content.replace(/^-\s*\[.\]\s*/, "")}`;
         fs.writeFileSync(
-          TODO_FILE,
+          todoFile,
           existing.trimEnd() + "\n" + newItem + "\n",
           "utf-8",
         );
@@ -493,9 +496,9 @@ Always use mark_done immediately after completing each item. Never batch-mark at
       if (action === "mark_done") {
         if (!item)
           return "ERROR: 'mark_done' requires item (text or 1-based index).";
-        if (!fs.existsSync(TODO_FILE)) return "ERROR: No todo file found.";
+        if (!fs.existsSync(todoFile)) return "ERROR: No todo file found.";
 
-        const raw = fs.readFileSync(TODO_FILE, "utf-8");
+        const raw = fs.readFileSync(todoFile, "utf-8");
         const lines = raw.split("\n");
 
         // Determine if item is a numeric index
@@ -530,7 +533,7 @@ Always use mark_done immediately after completing each item. Never batch-mark at
           return `ERROR: No matching todo item found for: "${item}". Current list:\n${raw}`;
         }
 
-        fs.writeFileSync(TODO_FILE, updated.join("\n"), "utf-8");
+        fs.writeFileSync(todoFile, updated.join("\n"), "utf-8");
         return `Marked done: "${item}"`;
       }
 

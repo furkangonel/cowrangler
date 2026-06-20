@@ -27,7 +27,7 @@ interface AgentState {
   appendStreamText: (text: string) => void
   clearStream: () => void
   addToolCall: (event: ToolCallEvent) => void
-  updateToolCall: (name: string, status: 'done' | 'error', durationMs?: number) => void
+  updateToolCall: (id: string, status: 'done' | 'error', durationMs?: number) => void
   clearToolCalls: () => void
   setProgress: (tasks: TaskProgress[]) => void
   setContextSnapshot: (snap: ContextSnapshot | null) => void
@@ -61,7 +61,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   addToolCall: (event) => {
     const tc: ActiveToolCall = {
-      id: `${event.name}-${event.timestamp}`,
+      id: event.id ?? `${event.name}-${event.timestamp}`,
       name: event.name,
       args: event.args || {},
       status: 'running',
@@ -70,10 +70,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     set(s => ({ toolCalls: [...s.toolCalls, tc], status: 'thinking' }))
   },
 
-  updateToolCall: (name, status, durationMs) => {
+  updateToolCall: (id, status, durationMs) => {
     set(s => ({
       toolCalls: s.toolCalls.map(tc =>
-        tc.name === name && tc.status === 'running'
+        tc.id === id && tc.status === 'running'
           ? { ...tc, status, durationMs: durationMs ?? (Date.now() - tc.startedAt) }
           : tc
       ),
@@ -96,7 +96,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       if (data.status === 'start') {
         get().addToolCall(data)
       } else {
-        get().updateToolCall(data.name, data.status as 'done' | 'error', data.durationMs)
+        const id = data.id ?? `${data.name}-${data.timestamp}`
+        get().updateToolCall(id, data.status as 'done' | 'error', data.durationMs)
       }
     })
     cleanups.push(unsubToolCall)
@@ -128,7 +129,17 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       if (result.sessionId) {
         callbacks.onSessionCreated(result.sessionId, projectId)
       }
-      set({ status: 'idle', streamingText: '', streamingMessageId: null })
+      // Hâlâ 'running' durumunda kalan tool call'ları kapat — IPC'den done olayı gelmese bile
+      set(s => ({
+        toolCalls: s.toolCalls.map(tc =>
+          tc.status === 'running'
+            ? { ...tc, status: 'done' as const, durationMs: Date.now() - tc.startedAt }
+            : tc
+        ),
+        status: 'idle',
+        streamingText: '',
+        streamingMessageId: null,
+      }))
       assistantMsgId = null
       accText = ''
     })
@@ -136,7 +147,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
     const unsubError = ipc.agent.onError((err: string) => {
       if (assistantMsgId) {
-        callbacks.onFinalize(assistantMsgId, `❌ Hata: ${err}`)
+        callbacks.onFinalize(assistantMsgId, `❌ Error: ${err}`)
       }
       set({ status: 'error', lastError: err, streamingText: '', streamingMessageId: null })
       assistantMsgId = null

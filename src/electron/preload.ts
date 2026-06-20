@@ -90,14 +90,35 @@ contextBridge.exposeInMainWorld('electronAPI', {
     list: () => ipcRenderer.invoke('skills:list'),
     getContent: (skillId: string) => ipcRenderer.invoke('skills:content', skillId),
     toggle: (skillId: string, active: boolean) => ipcRenderer.invoke('skills:toggle', skillId, active),
+    create: (data: { name: string; description: string; content?: string }) =>
+      ipcRenderer.invoke('skills:create', data),
+    upload: () => ipcRenderer.invoke('skills:upload'),
+    remove: (skillId: string) => ipcRenderer.invoke('skills:delete', skillId),
+    openFolder: () => ipcRenderer.invoke('skills:openFolder'),
   },
 
-  // ── MCP ────────────────────────────────────────────────────────────────────
+  // ── MCP / Connectors ───────────────────────────────────────────────────────
   mcp: {
     list: () => ipcRenderer.invoke('mcp:list'),
     add: (config: any) => ipcRenderer.invoke('mcp:add', config),
     remove: (name: string) => ipcRenderer.invoke('mcp:remove', name),
     testConnection: (name: string) => ipcRenderer.invoke('mcp:test', name),
+  },
+
+  // Connectors = kullanıcıya sunulan MCP yüzeyi (kürasyonlu katalog + auth)
+  connectors: {
+    catalog: () => ipcRenderer.invoke('connectors:catalog'),
+    add: (payload: { id: string; secrets?: Record<string, string>; pathArg?: string }) =>
+      ipcRenderer.invoke('connectors:add', payload),
+    list: () => ipcRenderer.invoke('mcp:list'),
+    remove: (name: string) => ipcRenderer.invoke('mcp:remove', name),
+    test: (name: string) => ipcRenderer.invoke('mcp:test', name),
+  },
+
+  // ── Plugins (cowrangler imzalı bundled) ──────────────────────────────────────
+  plugins: {
+    list: () => ipcRenderer.invoke('plugins:list'),
+    setEnabled: (id: string, on: boolean) => ipcRenderer.invoke('plugins:setEnabled', id, on),
   },
 
   // ── Memory ─────────────────────────────────────────────────────────────────

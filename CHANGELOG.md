@@ -6,6 +6,30 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.0.3] — 2026-06-20
+
+### Added
+- **Connectors catalog** (`src/core/connectors_catalog.ts`) — curated, real, working MCP connectors surfaced to users as "Connectors"; Browse → Add → auth flow (stdio servers that work out of the box, plus token/OAuth ones). Replaces the duplicated raw MCP add form.
+- **Plugins catalog** (`src/core/plugins_catalog.ts`) — Cowrangler-signed, pre-installed plugins bundling related skills + recommended connectors; desktop **Plugins** tab to enable/disable.
+- **Skill → Context copy** — invoking a skill (`utilize_skill`) now copies it into the project's CONTEXT (`.cowrangler/context/skills/`); the agent injects only context-active skills as full SOPs, preserving prompt caching. CONTEXT = project MEMORY + copied skills.
+- **Skill upload** — desktop "New skill" now offers *Write instructions* or *Upload* (`.md` / `.zip` / `.skill`, via `skills:upload`).
+- **Per-tool live status** — each tool call now reports its own start/done/error in real time (wrapped tool `execute`, keyed by the SDK `toolCallId`), so loaders and checkmarks update independently instead of in a batch.
+- **Multi-platform desktop releases** — `.github/workflows/release-desktop.yml` builds macOS (`.dmg`/`.zip`), Windows (`.exe`), and Linux (`.AppImage`) on a `v*` tag and publishes to GitHub Releases.
+
+### Changed
+- **Rebranded display name** to **Cowrangler** (was "Co-Wrangler") across UI, app/product name, and docs. npm package id (`co-wrangler`) and the `cowrangler` CLI command are unchanged.
+- **Models are now fully dynamic** — the hardcoded model list was removed; models are discovered live from each provider with a configured key (Anthropic, OpenAI, Google, OpenRouter, Groq) and cached for 24h. Desktop **Models & API** puts a manual `provider/model-id` entry on top with the discovered list below.
+- **Desktop UI is fully English.**
+- **Octopus** brand mark replaces the sparkle/Hermes glyphs (welcome screen, assistant avatar in a circle, status-bar lasso mark); the octopus no longer self-animates — it animates on hover only, keeping the active "thinking" loader.
+- **Default model fallback removed** — if no model is configured the user is guided to pick one.
+- Session titles are derived from the first 20 characters of the first prompt.
+
+### Fixed
+- **electron-builder config** — removed the invalid `nativeRebuilder` key and added the missing `author` field so `.dmg`/installer packaging succeeds.
+- Nullish-coalescing/`||` mix in `ModelsTab` that broke the Vite/Babel build.
+
+---
+
 ## [2.0.1] — 2026-05-19
 
 ### Added

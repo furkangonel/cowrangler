@@ -1,4 +1,4 @@
-# Contributing to co-wrangler
+# Contributing to Cowrangler
 
 Thank you for your interest in contributing! This document covers everything you need to get started.
 
@@ -7,8 +7,8 @@ Thank you for your interest in contributing! This document covers everything you
 ## Development Setup
 
 ```bash
-git clone <repo-url>
-cd co-wrangler
+git clone https://github.com/furkangonel/cowrangler.git
+cd cowrangler
 npm install
 npm run build
 npm link          # installs `cowrangler` globally from local build

@@ -1,4 +1,6 @@
-import React, { useEffect } from 'react'
+import React from 'react'
+import { PanelRight } from 'lucide-react'
+import { Octopus } from '../shared/Octopus'
 import { Sidebar } from './Sidebar'
 import { RightPanel } from './RightPanel'
 import { ProjectHome } from '../project/ProjectHome'
@@ -12,69 +14,80 @@ import { useUIStore } from '../../stores/ui.store'
 export function AppShell() {
   const { activeProjectId, projects } = useProjectsStore()
   const { activeSessionId } = useSessionsStore()
-  const { newProjectModalOpen } = useUIStore()
+  const { newProjectModalOpen, rightPanelOpen, toggleRightPanel, setNewProjectModal } = useUIStore()
 
+  const project = projects.find(p => p.id === activeProjectId)
   const showSession = !!activeProjectId && !!activeSessionId
   const showProjectHome = !!activeProjectId && !activeSessionId
 
   return (
     <div className="flex flex-col h-screen bg-bg-primary overflow-hidden">
-      {/* macOS titlebar spacer */}
+      {/* macOS titlebar */}
       <div
-        className="drag-region flex-shrink-0 flex items-center"
-        style={{
-          height: 'var(--titlebar-height)',
-          backgroundColor: '#0f0f0f',
-          borderBottom: '1px solid #1f1f1f',
-          paddingLeft: '80px',  // macOS traffic lights için boşluk
-        }}
+        className="drag-region flex-shrink-0 flex items-center bg-bg-secondary border-b border-border-subtle"
+        style={{ height: 'var(--titlebar-height)', paddingLeft: '82px', paddingRight: '10px' }}
       >
-        <span className="text-text-muted text-xs font-medium no-drag">
-          {activeProjectId
-            ? projects.find(p => p.id === activeProjectId)?.name ?? 'Co-Wrangler'
-            : 'Co-Wrangler'}
+        <span className="text-text-secondary text-sm font-medium truncate flex items-center gap-1.5">
+          {project ? (
+            <>
+              <span className="text-base leading-none">{project.icon}</span>
+              {project.name}
+            </>
+          ) : (
+            <span className="brand-serif text-text-primary text-md">Cowrangler</span>
+          )}
         </span>
+
+        <div className="ml-auto flex items-center gap-1 no-drag">
+          <button
+            onClick={toggleRightPanel}
+            className={`p-1.5 rounded-md transition-colors ${
+              rightPanelOpen ? 'text-text-secondary bg-bg-hover' : 'text-text-muted hover:text-text-secondary hover:bg-bg-hover'
+            }`}
+            title="Toggle side panel"
+          >
+            <PanelRight size={15} />
+          </button>
+        </div>
       </div>
 
       {/* Main content */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left Sidebar */}
         <Sidebar />
 
-        {/* Center area */}
-        <main className="flex flex-col flex-1 overflow-hidden">
-          {!activeProjectId && <EmptyState />}
-          {showProjectHome && <ProjectHome projectId={activeProjectId} />}
-          {showSession && <SessionView projectId={activeProjectId} sessionId={activeSessionId} />}
+        <main className="flex flex-col flex-1 overflow-hidden bg-bg-primary">
+          {!activeProjectId && <EmptyState onNew={() => setNewProjectModal(true)} />}
+          {showProjectHome && <ProjectHome projectId={activeProjectId!} />}
+          {showSession && <SessionView projectId={activeProjectId!} sessionId={activeSessionId!} />}
         </main>
 
-        {/* Right panel */}
         <RightPanel />
       </div>
 
-      {/* Status bar */}
       <StatusBar />
 
-      {/* Modals */}
       {newProjectModalOpen && <NewProjectModal />}
     </div>
   )
 }
 
-function EmptyState() {
-  const { setNewProjectModal } = useUIStore()
+function EmptyState({ onNew }: { onNew: () => void }) {
   return (
-    <div className="flex flex-col items-center justify-center flex-1 gap-4 text-center px-8">
-      <div className="text-5xl mb-2">🤠</div>
-      <h2 className="text-xl font-semibold text-text-primary">Co-Wrangler'a Hoş Geldiniz</h2>
-      <p className="text-text-secondary text-sm max-w-xs">
-        Sol taraftan bir proje seçin ya da yeni bir proje oluşturarak başlayın.
-      </p>
+    <div className="flex flex-col items-center justify-center flex-1 gap-5 text-center px-8 animate-fade-in">
+      <div className="flex items-center justify-center w-16 h-16 rounded-full bg-accent-subtle overflow-hidden ring-1 ring-accent/20">
+        <Octopus size={42} />
+      </div>
+      <div className="space-y-1.5">
+        <h2 className="text-2xl font-semibold text-text-primary brand-serif">Welcome to Cowrangler</h2>
+        <p className="text-text-secondary text-md max-w-sm leading-relaxed">
+          Create a project so the agent can work on your files, take on tasks, and track progress live.
+        </p>
+      </div>
       <button
-        onClick={() => setNewProjectModal(true)}
-        className="mt-2 px-4 py-2 bg-accent text-white rounded-md text-sm font-medium hover:bg-accent-hover transition-colors no-drag"
+        onClick={onNew}
+        className="mt-1 px-5 py-2.5 bg-accent text-accent-fg rounded-xl text-sm font-medium hover:bg-accent-hover transition-colors no-drag shadow-card"
       >
-        + Yeni Proje
+        + Create new project
       </button>
     </div>
   )

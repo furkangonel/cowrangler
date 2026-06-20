@@ -1,164 +1,145 @@
 import React, { useEffect, useState } from 'react'
-import { Plus, Folder, FolderOpen, File, ChevronRight, ChevronDown, ExternalLink, X } from 'lucide-react'
-import { useProjectsStore } from '../../stores/projects.store'
-import { ipc, FileNode } from '../../lib/ipc'
+import { Brain, BookOpen, RefreshCw, Edit2, Save, X, ChevronDown, ChevronRight } from 'lucide-react'
+import { ipc } from '../../lib/ipc'
 
 interface Props { projectId: string | null }
 
 export function ContextPanel({ projectId }: Props) {
-  const { folders, loadFolders, removeFolder } = useProjectsStore()
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
-  const [trees, setTrees] = useState<Record<string, FileNode[]>>({})
+  return (
+    <div className="p-4 space-y-5">
+      <MemorySection projectId={projectId} />
+      <SkillsSection />
+    </div>
+  )
+}
 
-  useEffect(() => {
-    if (projectId) loadFolders(projectId)
-  }, [projectId])
+// ─── Memory ──────────────────────────────────────────────────────────────────
 
-  const projectFolders = projectId ? (folders[projectId] ?? []) : []
+function MemorySection({ projectId }: { projectId: string | null }) {
+  const [content, setContent] = useState('')
+  const [draft, setDraft] = useState('')
+  const [editing, setEditing] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [open, setOpen] = useState(true)
+  const [mode, setMode] = useState<'project' | 'global'>('project')
 
-  async function addFolder() {
-    if (!projectId) return
-    const path = await ipc.fs.pickFolder()
-    if (path) await useProjectsStore.getState().addFolder(projectId, path)
+  async function load() {
+    setLoading(true)
+    try {
+      const text = mode === 'global'
+        ? await ipc.memory.readGlobal()
+        : projectId ? await ipc.memory.readProject(projectId) : ''
+      setContent(text)
+      setDraft(text)
+    } finally {
+      setLoading(false)
+    }
   }
 
-  async function loadTree(folderPath: string) {
-    if (trees[folderPath]) return
-    const nodes = await ipc.fs.fileTree(folderPath, 2)
-    setTrees(t => ({ ...t, [folderPath]: nodes }))
-  }
+  useEffect(() => { load(); setEditing(false) }, [projectId, mode])
 
-  function toggleFolder(folderPath: string) {
-    const next = !expanded[folderPath]
-    setExpanded(e => ({ ...e, [folderPath]: next }))
-    if (next) loadTree(folderPath)
+  async function save() {
+    setSaving(true)
+    try {
+      if (mode === 'global') await ipc.memory.writeGlobal(draft)
+      else if (projectId) await ipc.memory.writeProject(projectId, draft)
+      setContent(draft)
+      setEditing(false)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
-    <div className="p-4">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-xs font-semibold text-text-primary">Context</h3>
-        <button
-          onClick={addFolder}
-          className="p-1 text-text-muted hover:text-accent transition-colors rounded"
-          title="Klasör ekle"
-        >
-          <Plus size={13} />
+    <div>
+      {/* Section header */}
+      <div className="flex items-center gap-2 mb-2">
+        <button onClick={() => setOpen(o => !o)} className="flex items-center gap-1.5 flex-1 min-w-0">
+          {open ? <ChevronDown size={11} className="text-text-muted flex-shrink-0" /> : <ChevronRight size={11} className="text-text-muted flex-shrink-0" />}
+          <Brain size={12} className="text-text-muted flex-shrink-0" />
+          <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide">Memory</span>
         </button>
+        <div className="flex items-center gap-0.5">
+          <button onClick={load} className="p-0.5 text-text-muted hover:text-text-secondary transition-colors rounded">
+            <RefreshCw size={10} className={loading ? 'animate-spin' : ''} />
+          </button>
+          {!editing ? (
+            <button onClick={() => { setDraft(content); setEditing(true); setOpen(true) }}
+              className="p-0.5 text-text-muted hover:text-accent transition-colors rounded">
+              <Edit2 size={10} />
+            </button>
+          ) : (
+            <>
+              <button onClick={() => setEditing(false)} className="p-0.5 text-text-muted rounded"><X size={10} /></button>
+              <button onClick={save} disabled={saving} className="p-0.5 text-accent rounded"><Save size={10} /></button>
+            </>
+          )}
+        </div>
       </div>
 
-      {projectFolders.length === 0 ? (
-        <div className="flex flex-col gap-2 text-center py-4">
-          <span className="text-2xl opacity-40">📂</span>
-          <p className="text-xs text-text-muted">Henüz klasör eklenmedi.</p>
-          <button
-            onClick={addFolder}
-            className="text-xs text-accent hover:text-accent-hover transition-colors"
-          >
-            + Klasör ekle
-          </button>
-        </div>
-      ) : (
-        <div>
-          <p className="text-2xs text-text-muted uppercase tracking-wide mb-2 font-medium">On your computer</p>
-          {projectFolders.map(folder => (
-            <div key={folder.id} className="mb-2">
-              {/* Folder header */}
-              <div className="flex items-center gap-1.5 group cursor-pointer py-1 hover:bg-bg-hover rounded px-1 transition-colors">
-                <button onClick={() => toggleFolder(folder.folder_path)} className="flex items-center gap-1.5 flex-1 min-w-0">
-                  {expanded[folder.folder_path]
-                    ? <ChevronDown size={11} className="text-text-muted flex-shrink-0" />
-                    : <ChevronRight size={11} className="text-text-muted flex-shrink-0" />
-                  }
-                  <FolderOpen size={12} className="text-accent flex-shrink-0" />
-                  <span className="text-xs font-medium text-text-secondary truncate">
-                    {folder.folder_path.split('/').pop() || folder.folder_path}
-                  </span>
-                </button>
-                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={() => ipc.fs.openInFinder(folder.folder_path)}
-                    className="p-0.5 text-text-muted hover:text-text-secondary"
-                    title="Finder'da aç"
-                  >
-                    <ExternalLink size={10} />
-                  </button>
-                  <button
-                    onClick={() => projectId && removeFolder(projectId, folder.folder_path)}
-                    className="p-0.5 text-text-muted hover:text-error"
-                    title="Kaldır"
-                  >
-                    <X size={10} />
-                  </button>
-                </div>
-              </div>
+      {open && (
+        <>
+          {/* Mode toggle */}
+          <div className="flex gap-1 mb-2">
+            {(['project', 'global'] as const).map(m => (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                disabled={m === 'project' && !projectId}
+                className={`px-2 py-0.5 rounded text-2xs font-medium transition-colors disabled:opacity-40 ${
+                  mode === m ? 'bg-accent/20 text-accent' : 'text-text-muted hover:text-text-secondary hover:bg-bg-hover'
+                }`}
+              >
+                {m === 'global' ? 'Global' : 'Proje'}
+              </button>
+            ))}
+          </div>
 
-              {/* File tree */}
-              {expanded[folder.folder_path] && trees[folder.folder_path] && (
-                <div className="ml-4 mt-0.5">
-                  {trees[folder.folder_path].map(node => (
-                    <FileTreeNode key={node.path} node={node} depth={0} />
-                  ))}
-                </div>
-              )}
+          {loading ? (
+            <p className="text-2xs text-text-muted">Loading…</p>
+          ) : editing ? (
+            <textarea
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              rows={6}
+              className="w-full bg-bg-tertiary border border-border rounded-lg p-2.5 text-2xs text-text-primary placeholder-text-muted resize-none focus:border-accent transition-colors font-mono"
+              placeholder="The agent references these notes…"
+            />
+          ) : content ? (
+            <div className="text-2xs text-text-secondary whitespace-pre-wrap leading-relaxed font-mono bg-bg-tertiary/50 rounded-lg p-2.5 max-h-40 overflow-y-auto selectable">
+              {content}
             </div>
-          ))}
-        </div>
+          ) : (
+            <p className="text-2xs text-text-muted italic">
+              Appears here when the agent calls <code className="font-mono text-accent/80">manage_memory</code>.
+            </p>
+          )}
+        </>
       )}
     </div>
   )
 }
 
-function FileTreeNode({ node, depth }: { node: FileNode; depth: number }) {
-  const [open, setOpen] = useState(false)
-  const [children, setChildren] = useState<FileNode[]>(node.children ?? [])
+// ─── Skills ──────────────────────────────────────────────────────────────────
 
-  async function toggle() {
-    if (node.type === 'file') {
-      await ipc.fs.openInFinder(node.path)
-      return
-    }
-    if (!open && node.children === undefined) {
-      const nodes = await ipc.fs.fileTree(node.path, 1)
-      setChildren(nodes)
-    }
-    setOpen(!open)
-  }
-
-  const indent = depth * 12
+function SkillsSection() {
+  const [open, setOpen] = useState(true)
 
   return (
     <div>
-      <div
-        className="flex items-center gap-1.5 py-0.5 px-1 rounded hover:bg-bg-hover cursor-pointer group transition-colors"
-        style={{ paddingLeft: `${indent + 4}px` }}
-        onClick={toggle}
-      >
-        {node.type === 'directory' ? (
-          <>
-            {open ? <ChevronDown size={10} className="text-text-muted flex-shrink-0" /> : <ChevronRight size={10} className="text-text-muted flex-shrink-0" />}
-            <Folder size={11} className="text-yellow-500/70 flex-shrink-0" />
-          </>
-        ) : (
-          <>
-            <span className="w-2.5 flex-shrink-0" />
-            <File size={11} className="text-text-muted flex-shrink-0" />
-          </>
-        )}
-        <span className="text-2xs text-text-secondary truncate group-hover:text-text-primary transition-colors">
-          {node.name}
-        </span>
-        {node.type === 'file' && (
-          <ExternalLink size={9} className="opacity-0 group-hover:opacity-100 text-text-muted ml-auto transition-opacity" />
-        )}
-      </div>
-      {open && children.length > 0 && (
-        <div>
-          {children.map(child => (
-            <FileTreeNode key={child.path} node={child} depth={depth + 1} />
-          ))}
-        </div>
+      <button onClick={() => setOpen(o => !o)} className="flex items-center gap-1.5 mb-2 w-full">
+        {open ? <ChevronDown size={11} className="text-text-muted" /> : <ChevronRight size={11} className="text-text-muted" />}
+        <BookOpen size={12} className="text-text-muted" />
+        <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide">Skills</span>
+      </button>
+
+      {open && (
+        <p className="text-2xs text-text-muted leading-relaxed">
+          Skills invoked via slash command are copied into this session's context.
+          To manage all skills,{' '}
+          <span className="text-accent font-medium">Settings → Skills</span>.
+        </p>
       )}
     </div>
   )

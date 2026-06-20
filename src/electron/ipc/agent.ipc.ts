@@ -1,14 +1,29 @@
 import { IpcMain, BrowserWindow } from 'electron'
-import path from 'path'
-import os from 'os'
 import { agentManager, AgentManager } from '../agent_manager.js'
 import { getProjectDB } from '../project_db.js'
 import { getSessionDB } from '../../core/session_db.js'
 import { getConfig } from '../../core/init.js'
-import { LLM } from '../../core/llm.js'
 import { Agent } from '../../core/agent.js'
 
-const GLOBAL_DIR = path.join(os.homedir(), '.cowrangler')
+/** İlk promptun ilk 20 karakterinden session başlığı türetir (spec madde 3). */
+function deriveSessionTitle(message: string): string {
+  const t = (message || '').trim().replace(/\s+/g, ' ').slice(0, 20)
+  return t || 'Yeni oturum'
+}
+
+/** MISSING_KEY:X / UNSUPPORTED_MODEL:X gibi ham hataları kullanıcı dostu mesaja çevirir. */
+function friendlyError(raw: string): string {
+  if (!raw) return 'Bilinmeyen hata'
+  const missing = raw.match(/MISSING_KEY:(\w+)/)
+  if (missing) {
+    return `${missing[1]} eksik. Ayarlar → Modeller & API'den ilgili API anahtarını ekleyin.`
+  }
+  const unsupported = raw.match(/UNSUPPORTED_MODEL:(.+)/)
+  if (unsupported) {
+    return `Desteklenmeyen model: ${unsupported[1]}. Ayarlar → Modeller & API'den geçerli bir model seçin.`
+  }
+  return raw
+}
 
 function buildSystemPrompt(basePrompt: string, instructions: string): string {
   let prompt = basePrompt
@@ -19,7 +34,7 @@ function buildSystemPrompt(basePrompt: string, instructions: string): string {
 }
 
 function getDefaultSystemPrompt(): string {
-  return `You are Co-Wrangler — a powerful, enterprise-grade AI agent.
+  return `You are Cowrangler — a powerful, enterprise-grade AI agent.
 
 You operate like a senior engineer: methodical, transparent, and accountable.
 
@@ -53,38 +68,47 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
     const instructions = projectDB.getInstructions(projectId)
     const config = getConfig()
 
-    const model = config.model || 'openrouter/google/gemini-2.5-flash'
+    // Hardcoded model default KALDIRILDI: model seçilmemişse kullanıcıyı yönlendir.
+    const model = config.model
+    if (!model) {
+      sender.send('agent:error', 'Henüz bir model seçilmedi. Ayarlar → Modeller & API\'den bir API anahtarı girin ve model seçin.')
+      return
+    }
     const systemPrompt = buildSystemPrompt(getDefaultSystemPrompt(), instructions)
 
     let agent: Agent
     try {
       agent = agentManager.getOrCreate(projectId, { model, systemPrompt }, project?.workdir ?? undefined)
     } catch (err: any) {
-      sender.send('agent:error', err.message)
+      sender.send('agent:error', friendlyError(err.message || String(err)))
       return
     }
 
-    // Proje workdir'e geç (araçlar için)
-    if (project?.workdir) {
-      try { process.chdir(project.workdir) } catch { /* devam */ }
-    }
+    // Proje bağlamını ayarla — manage_todo, memory, COWRNGLR.md doğru dizini kullanır.
+    // process.chdir() yerine project_context singleton'ı kullanılır; bu sayede
+    // birden fazla proje aynı süreçte güvenli şekilde yönetilebilir.
+    agentManager.applyProjectContext(projectId)
 
     // TODO izlemeyi başlat
     agentManager.watchTodo(projectId, (tasks) => {
       sender.send('agent:progress', tasks)
     })
 
-    // Tool call tracking — zamanlama için
-    let currentToolStart = 0
-    let currentToolName = ''
-
-    const onToolCall = (name: string, args: any) => {
-      currentToolName = name
-      currentToolStart = Date.now()
+    // Per-tool events — each tool reports its own start/done/error independently,
+    // with a stable id (SDK toolCallId), so loaders/checkmarks update one by one.
+    const onToolEvent = (e: {
+      id: string
+      name: string
+      args?: any
+      phase: 'start' | 'done' | 'error'
+      durationMs?: number
+    }) => {
       sender.send('agent:toolCall', {
-        name,
-        args,
-        status: 'start',
+        id: e.id,
+        name: e.name,
+        args: e.args ?? {},
+        status: e.phase,
+        durationMs: e.durationMs,
         timestamp: Date.now(),
       })
     }
@@ -94,12 +118,19 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
     }
 
     try {
-      const result = await agent.chat(message, onToolCall, onStepText)
+      const result = await agent.chat(message, undefined, onStepText, onToolEvent)
 
-      // Session'ı projeye bağla
+      // Session'ı projeye bağla + başlığı ilk promptun ilk 20 karakterinden ata
       const currentSessionId = agent.currentSessionId
       if (currentSessionId) {
         projectDB.linkSession(projectId, currentSessionId)
+        try {
+          const sessionDB = getSessionDB()
+          const existing = sessionDB.getSession(currentSessionId)
+          if (existing && !existing.title) {
+            sessionDB.updateSession(currentSessionId, { title: deriveSessionTitle(message) })
+          }
+        } catch { /* başlık ataması kritik değil */ }
       }
 
       sender.send('agent:done', {
@@ -111,7 +142,7 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
         sessionId: currentSessionId,
       })
     } catch (err: any) {
-      sender.send('agent:error', err.message || String(err))
+      sender.send('agent:error', friendlyError(err.message || String(err)))
     }
   })
 

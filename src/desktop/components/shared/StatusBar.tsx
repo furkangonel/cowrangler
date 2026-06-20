@@ -63,7 +63,13 @@ export function StatusBar() {
     >
       {/* Model */}
       <span className="flex items-center gap-1.5 font-medium text-text-secondary">
-        <span className="text-accent">⚕</span>
+        {/* Cowrangler lasso mark — original brand glyph (replaces Hermes ⚕) */}
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
+             className="text-accent flex-shrink-0" aria-hidden="true">
+          <ellipse cx="12" cy="8.5" rx="6.5" ry="5" />
+          <path d="M12 13.5 C 12 17, 10 19, 8 21.5" />
+        </svg>
         {shortModel}
       </span>
 
@@ -72,12 +78,12 @@ export function StatusBar() {
       {/* Status */}
       {status === 'thinking' ? (
         <span className="text-accent animate-pulse">
-          {activeToolName ? `${activeToolName}...` : 'Düşünüyor...'}
+          {activeToolName ? `${activeToolName}...` : 'Thinking...'}
         </span>
       ) : status === 'error' ? (
-        <span className="text-error">Hata</span>
+        <span className="text-error">Error</span>
       ) : (
-        <span className="text-text-muted">Hazır</span>
+        <span className="text-text-muted">Ready</span>
       )}
 
       {/* Context tokens */}
@@ -102,7 +108,7 @@ export function StatusBar() {
           {ctx.compressionCount > 0 && (
             <>
               <span className="text-border">│</span>
-              <span title="Sıkıştırma sayısı">🗜️ {ctx.compressionCount}</span>
+              <span title="Compression count">🗜️ {ctx.compressionCount}</span>
             </>
           )}
         </>

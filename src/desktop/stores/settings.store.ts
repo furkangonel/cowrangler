@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { ipc, ApiKeyInfo, ModelInfo } from '../lib/ipc'
+import { applyTheme, applyFontSize, ThemePref } from '../lib/theme'
 
 interface SettingsState {
   config: Record<string, any>
@@ -13,6 +14,12 @@ interface SettingsState {
   removeApiKey: (provider: string) => Promise<void>
   getModel: () => string
   setModel: (modelId: string) => Promise<void>
+  refreshModels: () => Promise<void>
+
+  getTheme: () => ThemePref
+  setTheme: (theme: ThemePref) => Promise<void>
+  getFontSize: () => string
+  setFontSize: (size: string) => Promise<void>
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -29,6 +36,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       ipc.settings.getModels(),
     ])
     set({ config, apiKeys, models, loading: false })
+    // Tema + font tercihini DOM'a uygula
+    applyTheme((config['desktop.theme'] as ThemePref) || 'light')
+    applyFontSize((config['desktop.fontSize'] as string) || 'normal')
   },
 
   setConfig: async (key, value) => {
@@ -51,10 +61,34 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 
   getModel: () => {
-    return get().config.model || 'openrouter/google/gemini-2.5-flash'
+    // Hardcoded default KALDIRILDI. Yapılandırılmış model yoksa keşfedilen ilk
+    // uygun modele düşülür; o da yoksa boş döner (UI kullanıcıyı seçime yönlendirir).
+    const cfg = get().config.model
+    if (cfg) return cfg
+    const firstAvailable = get().models.find(m => (m as any).available)
+    return firstAvailable?.id ?? ''
   },
 
   setModel: async (modelId) => {
     await get().setConfig('model', modelId)
+  },
+
+  refreshModels: async () => {
+    const models = await ipc.settings.getModels({ refresh: true })
+    set({ models })
+  },
+
+  getTheme: () => (get().config['desktop.theme'] as ThemePref) || 'light',
+
+  setTheme: async (theme) => {
+    applyTheme(theme)
+    await get().setConfig('desktop.theme', theme)
+  },
+
+  getFontSize: () => (get().config['desktop.fontSize'] as string) || 'normal',
+
+  setFontSize: async (size) => {
+    applyFontSize(size)
+    await get().setConfig('desktop.fontSize', size)
   },
 }))

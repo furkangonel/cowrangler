@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { initEnvironment } from '../core/init.js'
+import { initEnvironment, loadEnvironmentVariables } from '../core/init.js'
 import { registerAgentIPC } from './ipc/agent.ipc.js'
 import { registerProjectsIPC } from './ipc/projects.ipc.js'
 import { registerSessionsIPC } from './ipc/sessions.ipc.js'
@@ -17,9 +17,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 let mainWindow: BrowserWindow | null = null
 
 function createWindow(): void {
-  // Co-Wrangler ortamını başlat (config, credentials, dirs)
+  // Cowrangler ortamını başlat (config, credentials, dirs)
   try {
     initEnvironment()
+    // KRİTİK: credentials.env + proje .env içindeki API anahtarlarını
+    // process.env'e yükle. Bu olmadan CLI'de çalışan modeller desktop'ta
+    // MISSING_KEY hatası verir.
+    loadEnvironmentVariables()
   } catch {
     // İlk açılışta credentials olmayabilir — devam et
   }
