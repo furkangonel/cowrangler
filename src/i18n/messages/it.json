@@ -9,10 +9,10 @@
   },
   "commands": {
     "help_desc": "Mostra tutti i comandi disponibili.",
-    "exit_desc": "Esci da Co-Wrangler.",
+    "exit_desc": "Esci da Cowrangler.",
     "reset_desc": "Cancella la cronologia e ricarica la memoria del progetto dal disco.",
     "status_desc": "Mostra la sessione attuale: modello, contesto, memoria, skill, strumenti.",
-    "version_desc": "Mostra la versione di Co-Wrangler.",
+    "version_desc": "Mostra la versione di Cowrangler.",
     "tools_desc": "Elenca tutti gli strumenti disponibili (capacità).",
     "skills_desc": "Elenca tutti gli skill caricati (SOP).",
     "skill_desc": "Usa uno skill: /skill <id> [compito]  o solo /skill <id>",
@@ -22,7 +22,7 @@
     "tip_history": "per sfogliare la cronologia",
     "tip_type": "Digita",
     "tip_press": "Premi",
-    "box_title": "Comandi Co-Wrangler"
+    "box_title": "Comandi Cowrangler"
   },
   "status": {
     "context_cleared": "Contesto cancellato. Memoria ricaricata.",

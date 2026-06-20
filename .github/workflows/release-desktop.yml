@@ -1,0 +1,58 @@
+name: Release Desktop
+
+# v* etiketli (örn. v2.0.2) bir tag push edildiğinde tetiklenir.
+# Üç işletim sistemi için paketler ve GitHub Releases'a yükler.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Rebuild native modules for Electron
+        run: npx @electron/rebuild -f -w better-sqlite3
+
+      - name: Build app bundles
+        run: npm run desktop:build
+
+      - name: Package & publish (electron-builder)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --publish always
+
+      - name: Upload artifacts (build kaydı)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: co-wrangler-${{ matrix.os }}
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.AppImage
+            release/*.exe
+          retention-days: 7
+          if-no-files-found: ignore

@@ -37,14 +37,14 @@ process.on("SIGTERM", () => {
 const args = process.argv.slice(2);
 if (args.includes("--version") || args.includes("-v")) {
   const { getVersion: gv } = await import("./core/init.js");
-  console.log(`Co-Wrangler v${gv()}`);
+  console.log(`Cowrangler v${gv()}`);
   process.exit(0);
 }
 if (args.includes("--help") || args.includes("-h")) {
   console.log(
     [
       "",
-      chalk.hex("#FF4C00").bold(`  Co-Wrangler v${getVersion()}`) +
+      chalk.hex("#FF4C00").bold(`  Cowrangler v${getVersion()}`) +
         chalk.dim(" — Enterprise AI Agent for the terminal"),
       "",
       chalk.bold("  Usage:"),

@@ -9,10 +9,10 @@
   },
   "commands": {
     "help_desc": "Show all available commands.",
-    "exit_desc": "Exit Co-Wrangler.",
+    "exit_desc": "Exit Cowrangler.",
     "reset_desc": "Clear conversation history and reload project memory from disk.",
     "status_desc": "Show current session: model, context, memory, skills, tools.",
-    "version_desc": "Show Co-Wrangler version.",
+    "version_desc": "Show Cowrangler version.",
     "tools_desc": "List all available tools (capabilities).",
     "skills_desc": "List all loaded skills (SOPs).",
     "skill_desc": "Use a skill: /skill <id> [task]  or just /skill <id> to stage it",
@@ -22,7 +22,7 @@
     "tip_history": "to browse history",
     "tip_type": "Type",
     "tip_press": "Press",
-    "box_title": "Co-Wrangler Commands"
+    "box_title": "Cowrangler Commands"
   },
   "status": {
     "context_cleared": "Context cleared. Memory reloaded.",

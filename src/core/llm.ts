@@ -206,7 +206,7 @@ export class LLM {
         baseURL: "https://openrouter.ai/api/v1",
         headers: {
           "HTTP-Referer": "https://cowrangler.com",
-          "X-Title": "Co-Wrangler",
+          "X-Title": "Cowrangler",
         },
       }); // "openrouter/" önekini temizle (varsa), direkt model adını kullan
 

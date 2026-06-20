@@ -87,7 +87,7 @@ export class CommandRouter {
         lines.push(
           `  ${Theme.dim("Tip:")} Press ${Theme.accent("↑↓")} ${Theme.dim("to browse history")}`,
         );
-        UI.box(lines.join("\n"), "Co-Wrangler Commands");
+        UI.box(lines.join("\n"), "Cowrangler Commands");
       },
     });
 
@@ -134,7 +134,7 @@ export class CommandRouter {
     this.commands.set("/version", {
       get description() { return t("commands.version_desc"); },
       execute: () => {
-        UI.info(`Co-Wrangler v${getVersion()}`);
+        UI.info(`Cowrangler v${getVersion()}`);
       },
     });
 
@@ -383,7 +383,7 @@ export class CommandRouter {
           .map(([code, label]) => `    ${Theme.accent(code.padEnd(4))} ${Theme.dim(label)}`)
           .join("\n");
         UI.box(
-          `  To change language run outside Co-Wrangler:\n\n    cowrangler language\n\n  Or set directly: /language <code>\n\n${options}`,
+          `  To change language run outside Cowrangler:\n\n    cowrangler language\n\n  Or set directly: /language <code>\n\n${options}`,
           "Interface Language",
         );
       },
@@ -612,7 +612,7 @@ export class CommandRouter {
           process.env[provider] = key;
           let content = fs.existsSync(DIRS.global.credentials)
             ? fs.readFileSync(DIRS.global.credentials, "utf-8")
-            : "# Co-Wrangler Global API Keys\n";
+            : "# Cowrangler Global API Keys\n";
           const regex = new RegExp(`^${provider}=.*`, "m");
           content = regex.test(content)
             ? content.replace(regex, `${provider}=${key}`)

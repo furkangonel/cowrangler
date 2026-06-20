@@ -22,7 +22,12 @@ registerTool(
   }),
   async ({ skill_name }: { skill_name: string }) => {
     const content = skillManager.readSkill(skill_name);
-    return `═══ SKILL LOADED: ${skill_name.toUpperCase()} ═══\n${content}\n═══ END OF SOP ═══\n\nFollow the above SOP carefully as you complete the task.`;
+    // Spec: SKILL çağrılınca aktif projenin CONTEXT alanına kopyalanır.
+    const copy = skillManager.copySkillToContext(skill_name);
+    const ctxNote = copy.ok
+      ? `\n(↳ Bu skill projenin CONTEXT alanına kopyalandı ve aktif edildi.)`
+      : "";
+    return `═══ SKILL LOADED: ${skill_name.toUpperCase()} ═══\n${content}\n═══ END OF SOP ═══${ctxNote}\n\nFollow the above SOP carefully as you complete the task.`;
   },
 );
 

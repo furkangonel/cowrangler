@@ -73,3 +73,15 @@ coverage/
 # 10. Trajectories (can contain full session transcripts)
 trajectories/
 *.trajectory.json
+
+# 2b. Desktop build & packaging output — NEVER commit (huge binaries; CI rebuilds them)
+out/
+release/
+*.dmg
+*.zip
+*.AppImage
+*.exe
+*.blockmap
+*.snap
+*.deb
+*.rpm

@@ -13,6 +13,7 @@
     "jsx": "react-jsx",
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["node_modules", "dist", "out", "release", "src/desktop", "src/electron"],
   "ts-node": {
     "esm": true,
     "experimentalSpecifierResolution": "node",

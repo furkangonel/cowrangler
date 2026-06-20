@@ -36,7 +36,7 @@ function saveKey(name: string, value: string): void {
   process.env[name] = value;
   let content = fs.existsSync(DIRS.global.credentials)
     ? fs.readFileSync(DIRS.global.credentials, "utf-8")
-    : "# Co-Wrangler Global API Keys\n";
+    : "# Cowrangler Global API Keys\n";
   const regex = new RegExp(`^${name}=.*`, "m");
   content = regex.test(content)
     ? content.replace(regex, `${name}=${value}`)
@@ -98,7 +98,7 @@ const LANGUAGE_OPTIONS = [
 export async function runLanguageWizard(standalone = true): Promise<void> {
   if (standalone) {
     console.log();
-    intro(" Co-Wrangler — Language / Dil / Langue / Sprache ");
+    intro(" Cowrangler — Language / Dil / Langue / Sprache ");
   }
 
   const lang = await select({
@@ -449,7 +449,7 @@ async function setupOpenRouter(): Promise<string | null> {
  */
 export async function runSetupWizard(): Promise<string | null> {
   console.log();
-  intro(" Co-Wrangler — Provider Setup Wizard ");
+  intro(" Cowrangler — Provider Setup Wizard ");
 
   const provider = await select({
     message: "Which provider do you want to set up?",
@@ -596,7 +596,7 @@ export function showSetupGuide(): void {
   const chalk = require("chalk");
   console.log(
     "\n" +
-      chalk.hex("#FF4C00").bold("  Co-Wrangler Provider Setup Guide") +
+      chalk.hex("#FF4C00").bold("  Cowrangler Provider Setup Guide") +
       "\n" +
       lines.map((l) => (l.startsWith("  ──") ? chalk.dim(l) : l)).join("\n") +
       "\n",

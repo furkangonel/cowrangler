@@ -254,7 +254,7 @@ export abstract class GatewayPlatform {
         await this.sendMessage({
           conversationId: msg.conversationId,
           text: [
-            "**Co-Wrangler Gateway Commands:**",
+            "**Cowrangler Gateway Commands:**",
             "/stop — Stop the running agent",
             "/new — Start a new session",
             "/queue — Show pending messages",

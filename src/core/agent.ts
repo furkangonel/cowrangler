@@ -89,6 +89,16 @@ export class Agent {
   /** Interrupt flag — /stop veya Ctrl+C */
   private _interruptRequested = false;
 
+  /** Aktif chat çağrısının araç callback'leri (her execute sarmalayıcısı okur) */
+  private _onToolCall?: (name: string, args: any) => void;
+  private _onToolEvent?: (e: {
+    id: string;
+    name: string;
+    args?: any;
+    phase: "start" | "done" | "error";
+    durationMs?: number;
+  }) => void;
+
   /** Trajectory recorder — null ise kayıt yapılmaz */
   public trajectoryRecorder: TrajectoryRecorder | null = null;
 
@@ -159,7 +169,20 @@ export class Agent {
         .join("\n");
       finalPrompt +=
         `\n\n[AVAILABLE SKILLS]\nYou have the following Standard Operating Procedures (SOPs). ` +
-        `When a user request matches one, load it with \`utilize_skill\` before starting:\n${skillsText}`;
+        `When a user request matches one, load it with \`utilize_skill\` — bu çağrı skill'i ` +
+        `projenin CONTEXT alanına kopyalar ve aktif hale getirir:\n${skillsText}`;
+    }
+
+    // Aktif CONTEXT skill'leri: yalnız bu projeye kopyalanmış olanlar TAM metinle enjekte edilir.
+    // (Spec: SKILL global → çağrılınca CONTEXT'e kopyalanır → CONTEXT = MEMORY + kopyalanan skill'ler)
+    const contextSkills = this.skillManager.getContextSkills();
+    if (contextSkills.length > 0) {
+      const active = contextSkills
+        .map((s) => `### SKILL: ${s.id}\n${s.content}`)
+        .join("\n\n");
+      finalPrompt +=
+        `\n\n[ACTIVE CONTEXT SKILLS]\nThe following SOPs are active in this project's CONTEXT. ` +
+        `Follow them precisely when relevant:\n---\n${active}\n---`;
     }
 
     return finalPrompt;
@@ -177,7 +200,37 @@ export class Agent {
     }
     // Instance'a özgü send_message — global kaydı override eder
     base["send_message"] = createSendMessageTool(this.briefBuffer);
-    return base;
+
+    // Her aracın execute'ını sarmalayarak GERÇEK ZAMANLI, BAĞIMSIZ start/done/error
+    // olayları yayınla (toplu/batch değil). id = SDK'nın toolCallId'si.
+    const wrapped: Record<string, any> = {};
+    for (const [name, t] of Object.entries(base)) {
+      if (!t || typeof (t as any).execute !== "function") {
+        wrapped[name] = t;
+        continue;
+      }
+      const orig = (t as any).execute;
+      wrapped[name] = {
+        ...(t as any),
+        execute: async (args: any, options: any) => {
+          const id =
+            options?.toolCallId ??
+            `${name}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+          const startedAt = Date.now();
+          this._onToolCall?.(name, args);
+          this._onToolEvent?.({ id, name, args, phase: "start" });
+          try {
+            const r = await orig(args, options);
+            this._onToolEvent?.({ id, name, phase: "done", durationMs: Date.now() - startedAt });
+            return r;
+          } catch (err) {
+            this._onToolEvent?.({ id, name, phase: "error", durationMs: Date.now() - startedAt });
+            throw err;
+          }
+        },
+      };
+    }
+    return wrapped;
   }
 
   setModel(newLlm: LLM) {
@@ -212,9 +265,18 @@ export class Agent {
     onToolCall?: (name: string, args: any) => void,
     onStepText?: (text: string) => void,
     onToken?: (delta: string) => void,
+    onToolEvent?: (e: {
+      id: string;
+      name: string;
+      args?: any;
+      phase: "start" | "done" | "error";
+      durationMs?: number;
+    }) => void,
   ): Promise<AgentChatResult> {
     const roundStart = Date.now();
     this._interruptRequested = false;
+    this._onToolCall = onToolCall;
+    this._onToolEvent = onToolEvent;
 
     const log = getLogger();
     log.info("agent", "Chat round started", {
@@ -377,9 +439,8 @@ export class Agent {
                     args: call.args,
                   });
 
-                  if (onToolCall) {
-                    onToolCall(call.toolName, call.args);
-                  }
+                  // UI start/done olayları getTools() execute sarmalayıcısından
+                  // gerçek zamanlı, araç-bazlı yayınlanıyor (onToolCall/onToolEvent).
                 }
               }
 

@@ -136,7 +136,7 @@ const brandLines = [
   Theme.main.bold("  ╚██████╗╚███╔███╔╝"),
   Theme.main.bold("   ╚═════╝ ╚══╝╚══╝ "),
   "",
-  `${Theme.dim("Co-Wrangler")} ${Theme.main.bold(`v${VERSION}`)}`,
+  `${Theme.dim("Cowrangler")} ${Theme.main.bold(`v${VERSION}`)}`,
   `  ${Theme.dim("Your personal AI agent")}`, "",
   `  ${Theme.dim("Model   ")} ${Theme.accent(modelShort)}`,
   `  ${Theme.dim("Project ")} ${Theme.accent(displayPath.length > 28 ? "..." + displayPath.slice(-25) : displayPath)}`
@@ -318,7 +318,7 @@ export const UI = {
       "\n" +
         boxen(content, {
           title:
-            Theme.main.bold(" Co-Wrangler ") + Theme.dim("v" + VERSION + " "),
+            Theme.main.bold(" Cowrangler ") + Theme.dim("v" + VERSION + " "),
           titleAlignment: "left",
           padding: { top: 0, bottom: 0, left: 0, right: 0 },
           margin: { top: 0, bottom: 0, left: 1, right: 0 },

@@ -43,7 +43,7 @@ export const DIRS = {
   },
 };
 
-const DEFAULT_SYSTEM_PROMPT = `You are Co-Wrangler — a powerful, enterprise-grade AI agent running in the terminal.
+const DEFAULT_SYSTEM_PROMPT = `You are Cowrangler — a powerful, enterprise-grade AI agent running in the terminal.
 
 You operate like a senior engineer: methodical, transparent, and accountable. Every action you take is observable and reversible wherever possible.
 
@@ -236,7 +236,7 @@ export function initEnvironment() {
     fs.writeFileSync(
       DIRS.global.credentials,
       [
-        "# Co-Wrangler Global API Keys",
+        "# Cowrangler Global API Keys",
         "# Format: KEY_NAME=value",
         "# Set with: /key set <KEY_NAME> <value>   |   Delete with: /key delete <KEY_NAME>",
         "#",

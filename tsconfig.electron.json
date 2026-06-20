@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "target": "ES2022",
+    "outDir": "out/main",
+    "baseUrl": ".",
+    "paths": {
+      "@core/*": ["src/core/*"],
+      "@tools/*": ["src/tools/*"]
+    }
+  },
+  "include": ["src/electron/**/*", "src/core/**/*", "src/tools/**/*"]
+}

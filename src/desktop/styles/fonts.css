@@ -1,0 +1,72 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   Cowrangler fontları
+   • Arayüz  : SF Pro Rounded  (assets/sfpro → woff2)
+   • LLM mesajları : Charter    (assets/Charter.ttc → woff2)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── SF Pro Rounded (UI) ──────────────────────────────────────────────────── */
+@font-face {
+  font-family: 'SF Pro Rounded';
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+  src: url('../fonts/SFPro-Light.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'SF Pro Rounded';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('../fonts/SFPro-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'SF Pro Rounded';
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+  src: url('../fonts/SFPro-Medium.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'SF Pro Rounded';
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+  src: url('../fonts/SFPro-Semibold.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'SF Pro Rounded';
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url('../fonts/SFPro-Bold.woff2') format('woff2');
+}
+
+/* ── Charter (LLM mesaj gövdesi) ──────────────────────────────────────────── */
+@font-face {
+  font-family: 'Charter';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('../fonts/Charter-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Charter';
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+  src: url('../fonts/Charter-Italic.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Charter';
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url('../fonts/Charter-Bold.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Charter';
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+  src: url('../fonts/Charter-BoldItalic.woff2') format('woff2');
+}

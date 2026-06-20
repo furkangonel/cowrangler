@@ -353,7 +353,7 @@ Use proactively when:
 
 Do NOT use for every step — only for genuinely important milestones.`,
   z.object({
-    title: z.string().default("Co-Wrangler").describe("Notification title"),
+    title: z.string().default("Cowrangler").describe("Notification title"),
     message: z
       .string()
       .describe("Notification body text (keep under 120 chars)"),

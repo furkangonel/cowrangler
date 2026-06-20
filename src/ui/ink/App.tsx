@@ -41,7 +41,7 @@ interface AppProps {
 }
 
 /**
- * Root Ink component for the Co-Wrangler REPL.
+ * Root Ink component for the Cowrangler REPL.
  *
  * State machine:
  *
