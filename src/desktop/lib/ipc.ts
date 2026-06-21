@@ -15,6 +15,14 @@ export interface TaskProgress {
   status: 'pending' | 'in_progress' | 'completed'
 }
 
+export type UpdateStatus =
+  | { state: 'checking' }
+  | { state: 'available'; version: string; notes?: string }
+  | { state: 'not-available'; version: string }
+  | { state: 'progress'; percent: number; transferred: number; total: number; bytesPerSecond: number }
+  | { state: 'downloaded'; version: string }
+  | { state: 'error'; message: string }
+
 export interface ToolCallEvent {
   id?: string
   name: string
@@ -153,6 +161,8 @@ export interface ConnectorCatalogInfo {
   transport: 'stdio' | 'http' | 'sse'
   auth: 'none' | 'apikey' | 'token' | 'oauth'
   popular?: number
+  /** Brand logo URL shown on the card; falls back to the category icon. */
+  logo?: string
   requiresPathArg?: boolean
   authFields?: { envKey: string; label: string; hint?: string }[]
   /** Configured in config.yaml (the user added it) */
@@ -278,6 +288,13 @@ interface ElectronAPI {
     readFile: (filePath: string) => Promise<{ content?: string; error?: string }>
     openInFinder: (filePath: string) => Promise<{ ok: boolean }>
     openExternal: (url: string) => Promise<{ ok: boolean }>
+  }
+  updates: {
+    check: () => Promise<{ ok: boolean; version?: string; reason?: string; error?: string }>
+    download: () => Promise<{ ok: boolean; error?: string }>
+    install: () => Promise<{ ok: boolean }>
+    current: () => Promise<{ version: string }>
+    onStatus: (cb: (status: UpdateStatus) => void) => () => void
   }
 }
 

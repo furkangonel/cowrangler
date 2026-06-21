@@ -34,11 +34,19 @@ export interface ConnectorCatalogEntry {
     | "data"
     | "productivity"
     | "communication"
+    | "design"
+    | "business"
     | "ai";
   transport: ConnectorTransport;
   auth: ConnectorAuth;
   /** Popülerlik sırası (küçük = üstte). Tanımsız → alfabetik. */
   popular?: number;
+  /**
+   * Marka logosu URL'si (kutucukta gösterilir). Yüklenemezse UI otomatik olarak
+   * kategori ikonuna düşer. Genellikle simpleicons CDN'i kullanılır
+   * (marka renginde SVG): `https://cdn.simpleicons.org/<slug>`.
+   */
+  logo?: string;
   /** stdio için komut/argümanlar */
   command?: string;
   args?: string[];
@@ -133,6 +141,7 @@ export const CONNECTORS_CATALOG: ConnectorCatalogEntry[] = [
     transport: "stdio",
     auth: "token",
     popular: 2,
+    logo: "https://cdn.simpleicons.org/github",
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-github"],
     authFields: [
@@ -151,6 +160,7 @@ export const CONNECTORS_CATALOG: ConnectorCatalogEntry[] = [
     transport: "stdio",
     auth: "apikey",
     popular: 6,
+    logo: "https://cdn.simpleicons.org/brave",
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-brave-search"],
     authFields: [
@@ -168,6 +178,7 @@ export const CONNECTORS_CATALOG: ConnectorCatalogEntry[] = [
     category: "data",
     transport: "stdio",
     auth: "token",
+    logo: "https://cdn.simpleicons.org/postgresql",
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-postgres"],
     authFields: [
@@ -186,6 +197,7 @@ export const CONNECTORS_CATALOG: ConnectorCatalogEntry[] = [
     transport: "stdio",
     auth: "token",
     popular: 7,
+    logo: "https://cdn.simpleicons.org/slack",
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-slack"],
     authFields: [
@@ -203,6 +215,7 @@ export const CONNECTORS_CATALOG: ConnectorCatalogEntry[] = [
     transport: "http",
     auth: "oauth",
     popular: 5,
+    logo: "https://cdn.simpleicons.org/notion",
     url: "https://mcp.notion.com/mcp",
   },
   {
@@ -213,7 +226,175 @@ export const CONNECTORS_CATALOG: ConnectorCatalogEntry[] = [
     transport: "http",
     auth: "oauth",
     popular: 10,
+    logo: "https://cdn.simpleicons.org/linear",
     url: "https://mcp.linear.app/mcp",
+  },
+
+  // ── 2.0.5: Resmî remote MCP sunucuları (OAuth) ─────────────────────────────
+  // Endpoint'ler doğrulanmıştır; OAuth 2.1 + dinamik kayıt ile loopback callback.
+  {
+    id: "sentry",
+    name: "Sentry",
+    description: "Hata/issue takibi; olayları ve uyarıları sorgula.",
+    category: "dev",
+    transport: "http",
+    auth: "oauth",
+    popular: 11,
+    logo: "https://cdn.simpleicons.org/sentry",
+    url: "https://mcp.sentry.dev/mcp",
+  },
+  {
+    id: "vercel",
+    name: "Vercel",
+    description: "Dağıtımlar, projeler ve loglarla çalış.",
+    category: "dev",
+    transport: "http",
+    auth: "oauth",
+    popular: 12,
+    logo: "https://cdn.simpleicons.org/vercel",
+    url: "https://mcp.vercel.com",
+  },
+  {
+    id: "supabase",
+    name: "Supabase",
+    description: "Veritabanı, şema ve projelerini yönet (OAuth 2.1).",
+    category: "data",
+    transport: "http",
+    auth: "oauth",
+    popular: 13,
+    logo: "https://cdn.simpleicons.org/supabase",
+    url: "https://mcp.supabase.com/mcp",
+  },
+  {
+    id: "stripe",
+    name: "Stripe",
+    description: "Ödemeler, müşteriler ve faturalarla çalış.",
+    category: "data",
+    transport: "http",
+    auth: "apikey",
+    popular: 14,
+    logo: "https://cdn.simpleicons.org/stripe",
+    url: "https://mcp.stripe.com",
+    authFields: [
+      {
+        envKey: "STRIPE_API_KEY",
+        label: "Stripe Secret Key (Bearer)",
+        hint: "Şu biçimde gir: Bearer sk_live_… (dashboard.stripe.com/apikeys)",
+      },
+    ],
+  },
+  {
+    id: "asana",
+    name: "Asana",
+    description: "Görev, proje ve portföylerle çalış.",
+    category: "productivity",
+    transport: "http",
+    auth: "oauth",
+    popular: 15,
+    logo: "https://cdn.simpleicons.org/asana",
+    url: "https://mcp.asana.com/v2/mcp",
+  },
+  {
+    id: "atlassian",
+    name: "Atlassian (Jira & Confluence)",
+    description: "Jira issue'ları ve Confluence sayfalarıyla çalış.",
+    category: "productivity",
+    transport: "http",
+    auth: "oauth",
+    popular: 16,
+    logo: "https://cdn.simpleicons.org/atlassian",
+    url: "https://mcp.atlassian.com/v1/mcp",
+  },
+  {
+    id: "clickup",
+    name: "ClickUp",
+    description: "Görev, liste ve doc'larla çalış.",
+    category: "productivity",
+    transport: "http",
+    auth: "oauth",
+    popular: 17,
+    logo: "https://cdn.simpleicons.org/clickup",
+    url: "https://mcp.clickup.com/mcp",
+  },
+  {
+    id: "intercom",
+    name: "Intercom",
+    description: "Konuşmaları oku, müşteri verilerini sorgula.",
+    category: "communication",
+    transport: "http",
+    auth: "oauth",
+    popular: 18,
+    logo: "https://cdn.simpleicons.org/intercom",
+    url: "https://mcp.intercom.com/mcp",
+  },
+  {
+    id: "figma",
+    name: "Figma",
+    description: "Tasarım dosyalarını oku, bileşen ve stilleri çıkar.",
+    category: "design",
+    transport: "http",
+    auth: "oauth",
+    popular: 19,
+    logo: "https://cdn.simpleicons.org/figma",
+    url: "https://mcp.figma.com/mcp",
+  },
+  {
+    id: "hubspot",
+    name: "HubSpot",
+    description: "CRM kayıtları, kişiler ve fırsatlarla çalış (OAuth + PKCE).",
+    category: "business",
+    transport: "http",
+    auth: "oauth",
+    popular: 20,
+    logo: "https://cdn.simpleicons.org/hubspot",
+    url: "https://mcp.hubspot.com",
+  },
+
+  // ── 2.0.5: Web & AI arama (API anahtarı; header/env olarak geçer) ──────────
+  {
+    id: "tavily",
+    name: "Tavily",
+    description: "AI ajanları için gerçek zamanlı web araması ve çıkarımı.",
+    category: "web",
+    transport: "stdio",
+    auth: "apikey",
+    popular: 21,
+    logo: "https://cdn.simpleicons.org/tavily",
+    command: "npx",
+    args: ["-y", "tavily-mcp"],
+    authFields: [
+      { envKey: "TAVILY_API_KEY", label: "Tavily API Key", hint: "tavily.com → API keys (tvly-…)" },
+    ],
+  },
+  {
+    id: "exa",
+    name: "Exa",
+    description: "Anlamsal web araması ve içerik çıkarımı.",
+    category: "web",
+    transport: "stdio",
+    auth: "apikey",
+    popular: 22,
+    logo: "https://cdn.simpleicons.org/exa",
+    command: "npx",
+    args: ["-y", "exa-mcp-server"],
+    authFields: [
+      { envKey: "EXA_API_KEY", label: "Exa API Key", hint: "dashboard.exa.ai/api-keys" },
+    ],
+  },
+  {
+    id: "firecrawl",
+    name: "Firecrawl",
+    description: "Web kazıma, tarama ve siteden temiz içerik çıkarımı.",
+    category: "web",
+    transport: "stdio",
+    auth: "apikey",
+    popular: 23,
+    logo: "https://cdn.simpleicons.org/firecrawl",
+    command: "npx",
+    args: ["-y", "firecrawl-mcp"],
+    authFields: [
+      { envKey: "FIRECRAWL_API_KEY", label: "Firecrawl API Key", hint: "firecrawl.dev → API keys (fc-…)" },
+    ],
   },
 ];
 

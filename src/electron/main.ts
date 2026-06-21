@@ -15,6 +15,7 @@ import { registerSkillsIPC } from './ipc/skills.ipc.js'
 import { registerMCPIPC } from './ipc/mcp.ipc.js'
 import { registerMemoryIPC } from './ipc/memory.ipc.js'
 import { registerFSIPC } from './ipc/fs.ipc.js'
+import { registerUpdateIPC, checkForUpdatesOnStartup } from './ipc/update.ipc.js'
 import { agentManager } from './agent_manager.js'
 // KRİTİK: Tüm yerleşik araçları (system/git/web/dev/skill/file/brief/computer_use +
 // mcp_status) registry'ye kaydet. Bu import olmadan desktop agent'ı yalnızca
@@ -66,6 +67,7 @@ function createWindow(): void {
     registerMCPIPC(ipcMain)
     registerMemoryIPC(ipcMain)
     registerFSIPC(ipcMain)
+    registerUpdateIPC(ipcMain, () => mainWindow)
     ipcRegistered = true
   }
 
@@ -115,6 +117,11 @@ app.whenReady().then(async () => {
   } catch (err: any) {
     console.error(`[mcp] init failed: ${err?.message ?? err}`)
   }
+
+  // ── Otomatik güncelleme kontrolü (yalnızca paketlenmiş build) ───────────────
+  // Yeni sürüm varsa renderer'a 'updates:status' eventi gider; kullanıcı UI'daki
+  // banner üzerinden indirip kurar.
+  checkForUpdatesOnStartup()
 })
 
 app.on('window-all-closed', () => {

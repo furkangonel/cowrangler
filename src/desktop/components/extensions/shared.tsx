@@ -1,7 +1,8 @@
-import React from 'react'
+import React, { useState } from 'react'
 import {
   Check, AlertTriangle, Circle, Loader2, Lock, KeyRound, Globe, Terminal,
   FolderGit2, FileText, Database, MessagesSquare, Sparkles, Brain, Search,
+  Palette, Briefcase,
 } from 'lucide-react'
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -62,6 +63,8 @@ const CATEGORY_ICON: Record<string, any> = {
   data: Database,
   productivity: Sparkles,
   communication: MessagesSquare,
+  design: Palette,
+  business: Briefcase,
   ai: Brain,
 }
 
@@ -73,6 +76,36 @@ export function CategoryIcon({ category, transport, size = 16, className = '' }:
 }) {
   const Icon = (category && CATEGORY_ICON[category]) || (transport === 'stdio' ? Terminal : Globe)
   return <Icon size={size} className={className} />
+}
+
+// ── Connector logo (brand mark with graceful fallback) ─────────────────────────
+/**
+ * Shows the connector's brand logo. If no logo URL is provided — or the image
+ * fails to load (offline, 404) — it falls back to the category icon so the card
+ * always renders something meaningful.
+ */
+export function ConnectorLogo({ logo, category, transport, size = 16 }: {
+  logo?: string
+  category?: string
+  transport?: 'stdio' | 'http' | 'sse'
+  size?: number
+}) {
+  const [failed, setFailed] = useState(false)
+  if (!logo || failed) {
+    return <CategoryIcon category={category} transport={transport} size={size} className="text-text-secondary" />
+  }
+  return (
+    <img
+      src={logo}
+      alt=""
+      width={size}
+      height={size}
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      onError={() => setFailed(true)}
+      style={{ width: size, height: size, objectFit: 'contain' }}
+    />
+  )
 }
 
 // ── Segmented sub-navigation ──────────────────────────────────────────────────
