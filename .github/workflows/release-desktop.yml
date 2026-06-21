@@ -42,6 +42,7 @@ jobs:
         run: npm run desktop:build
 
       - name: Package & publish (electron-builder)
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # ── macOS code signing + notarization ──────────────────────────────
@@ -54,7 +55,17 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: npx electron-builder --publish always
+        run: |
+          # macOS'ta imzalama sertifikası (CSC_LINK) tanımlı DEĞİLSE, imzasız
+          # build'e düş ve notarize'ı kapat — böylece secret'lar girilmeden de
+          # mac job'u patlamaz. Secret'lar girilince otomatik imzalı + notarize.
+          if [ "$RUNNER_OS" = "macOS" ] && [ -z "$CSC_LINK" ]; then
+            echo "::warning::No Developer ID cert (CSC_LINK boş) — macOS build imzasız üretilecek, auto-update mac'te çalışmaz."
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            npx electron-builder --publish always -c.mac.notarize=false
+          else
+            npx electron-builder --publish always
+          fi
 
       - name: Upload artifacts (build kaydı)
         if: always()
