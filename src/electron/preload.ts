@@ -132,6 +132,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     readTodo: () => ipcRenderer.invoke('memory:readTodo'),
   },
 
+  // ── Auto-update ──────────────────────────────────────────────────────────────
+  updates: {
+    check: () => ipcRenderer.invoke('updates:check'),
+    download: () => ipcRenderer.invoke('updates:download'),
+    install: () => ipcRenderer.invoke('updates:install'),
+    current: () => ipcRenderer.invoke('updates:current'),
+    onStatus: (cb: (status: any) => void) => {
+      const listener = (_: IpcRendererEvent, status: any) => cb(status)
+      ipcRenderer.on('updates:status', listener)
+      return () => ipcRenderer.removeListener('updates:status', listener)
+    },
+  },
+
   // ── File System ────────────────────────────────────────────────────────────
   fs: {
     pickFolder: () => ipcRenderer.invoke('fs:pickFolder'),

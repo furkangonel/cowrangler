@@ -44,6 +44,16 @@ jobs:
       - name: Package & publish (electron-builder)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # ── macOS code signing + notarization ──────────────────────────────
+          # Yalnızca macOS runner'ında ve secret'lar tanımlıysa devreye girer.
+          # CSC_LINK: base64'lenmiş Developer ID Application .p12 sertifikası
+          # CSC_KEY_PASSWORD: .p12 parolası
+          # APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID: notarytool
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: npx electron-builder --publish always
 
       - name: Upload artifacts (build kaydı)

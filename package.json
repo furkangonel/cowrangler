@@ -1,6 +1,6 @@
 {
   "name": "co-wrangler",
-  "version": "2.0.4",
+  "version": "2.0.5",
   "description": "An enterprise-grade personal AI agent for the terminal — powered by Claude, GPT, Gemini & more",
   "author": "Furkan Gönel <frkngnl000@gmail.com>",
   "type": "module",
@@ -70,9 +70,11 @@
           ]
         }
       ],
-      "identity": null,
-      "hardenedRuntime": false,
-      "gatekeeperAssess": false
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "assets/entitlements.mac.plist",
+      "entitlementsInherit": "assets/entitlements.mac.plist",
+      "notarize": true
     },
     "win": {
       "icon": "assets/icon.png",
@@ -139,6 +141,7 @@
     "cli-table3": "^0.6.5",
     "discord.js": "^14.26.4",
     "dotenv": "^16.4.5",
+    "electron-updater": "^6.3.9",
     "fast-glob": "^3.3.3",
     "fix-path": "^5.0.0",
     "highlight.js": "^11.9.0",

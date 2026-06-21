@@ -6,6 +6,24 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.0.5] — 2026-06-21
+
+### Added
+- **12 new default connectors** in the curated catalog (`src/core/connectors_catalog.ts`), all with verified official endpoints:
+  - **Remote OAuth MCP servers:** Sentry, Vercel, Supabase, Asana, Atlassian (Jira & Confluence), ClickUp, Intercom, Figma, HubSpot.
+  - **Remote API-key MCP:** Stripe.
+  - **Web & AI search (stdio, API key):** Tavily, Exa, Firecrawl.
+- **Two new connector categories** — `design` (Figma) and `business` (HubSpot) — with matching category icons (`Palette`, `Briefcase`).
+- **Brand logos on connector cards** — each catalog entry can carry a `logo` URL (served from the simpleicons CDN in brand colour). New `ConnectorLogo` component renders the brand mark and falls back to the category icon when a logo is missing or fails to load (offline/404). Existing GitHub, Slack, Notion, Linear, PostgreSQL, and Brave entries now show their logos too.
+- **In-app auto-update** (`electron-updater` + GitHub Releases) — on launch (packaged builds only) the app checks for a newer release and shows an `UpdateBanner`: **Yeni sürüm hazır → İndir → Yeniden başlat & güncelle**, with a live download progress bar. New `update.ipc.ts` drives `checkForUpdates` / `downloadUpdate` / `quitAndInstall`; exposed via preload (`window.electronAPI.updates`) and the renderer `ipc.updates` bridge. The release workflow already publishes the `latest*.yml` feeds via `electron-builder --publish always`.
+- **macOS code signing + notarization** — `build.mac` now signs with Developer ID (hardened runtime + `assets/entitlements.mac.plist`) and notarizes (`notarize: true`). The release workflow passes `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` from repo secrets. Required for macOS auto-update to work (Squirrel.Mac refuses unsigned updates). Windows (nsis) and Linux (AppImage) auto-update without signing.
+
+### Notes
+- Endpoints were taken only from verified sources; OAuth connectors use the standard OAuth 2.1 + dynamic-registration loopback flow already wired through `connectors:authorize`. No core MCP/auth plumbing changed — new entries flow through the existing catalog → IPC → UI path.
+- Auto-update is a no-op in dev (`!app.isPackaged`). If macOS signing secrets are absent, electron-builder skips signing **and** notarization gracefully (no build failure), so unsigned local mac packaging still works.
+
+---
+
 ## [2.0.3] — 2026-06-20
 
 ### Added

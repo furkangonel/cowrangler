@@ -6,7 +6,7 @@ import {
 import { ipc, MCPServerInfo, ConnectorCatalogInfo } from '../../lib/ipc'
 import { AuthModal } from './AuthModal'
 import {
-  StatusPill, AuthBadge, CategoryIcon, SearchInput, Chip, EmptyState, SkeletonGrid,
+  StatusPill, AuthBadge, ConnectorLogo, SearchInput, Chip, EmptyState, SkeletonGrid,
   HealthState,
 } from './shared'
 
@@ -135,8 +135,8 @@ export function ConnectorsView({ onChanged }: { onChanged?: () => void }) {
             const isAdding = adding === entry.id
             return (
               <div key={entry.id} className="group flex items-start gap-3 p-3 bg-bg-tertiary border border-border rounded-xl hover:border-border transition-colors">
-                <div className="w-8 h-8 rounded-lg bg-bg-secondary border border-border-subtle flex items-center justify-center flex-shrink-0 text-text-secondary">
-                  <CategoryIcon category={entry.category} transport={entry.transport} size={15} />
+                <div className="w-8 h-8 rounded-lg bg-bg-secondary border border-border-subtle flex items-center justify-center flex-shrink-0 text-text-secondary overflow-hidden">
+                  <ConnectorLogo logo={entry.logo} category={entry.category} transport={entry.transport} size={16} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
