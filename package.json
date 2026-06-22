@@ -74,7 +74,9 @@
       "gatekeeperAssess": false,
       "entitlements": "assets/entitlements.mac.plist",
       "entitlementsInherit": "assets/entitlements.mac.plist",
-      "notarize": true
+      "notarize": {
+        "teamId": "VRH6M7YQT6"
+      }
     },
     "win": {
       "icon": "assets/icon.png",
