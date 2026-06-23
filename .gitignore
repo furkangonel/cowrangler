@@ -2,6 +2,9 @@
 # Co-Wrangler - .gitignore
 # ==========================================
 
+# 0. Internal planning docs (not committed)
+REFACTOR_PLAN.md
+
 # 1. Dependencies
 node_modules/
 
