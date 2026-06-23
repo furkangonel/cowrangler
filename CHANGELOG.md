@@ -6,6 +6,27 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.0.6] — 2026-06-23
+
+### Added
+- **General (project-less) chat** — the sidebar now splits into **Projects** and **Chats** tabs. Chats run under a dedicated `GlobalChatView` with a `__global__` project id and an isolated workspace dir (`~/.cowrangler/global-workspace`), so you can talk to the agent without setting up a project. Global sessions are persisted and listed in the sidebar.
+- **Collapsible sidebar** — toggle the left panel to an icon-only rail from the titlebar.
+- **Per-session model picker** — switch the model for a single session from its header, independent of the global default.
+- **Session management** — rename and delete sessions inline from the sidebar (both project and global chats); deletion now permanently removes the session and its messages (`SessionDB.deleteSession`), not just the project link.
+- **Project actions wired up** — the project header **Pin**, **Edit** (new `EditProjectModal`: name, description, instructions), and **Delete** controls now work.
+- **New verified connectors** in the catalog — **Canva**, **Miro**, **Trimble SketchUp** (official remote OAuth MCP servers), plus **Airtable**, **GitLab**, and **Todoist** (stdio).
+- **Skill file-tree view** — the desktop Skills tab shows a skill's full file/folder structure (`SkillDef.dir` + `skills:fileTree`), alongside upload format hints for `.md` / `.zip` / `.skill`.
+
+### Changed
+- **Instant model switching** — changing the model (in Settings or per session) now applies on the next message by swapping the model in place (`LLM.setModel`) instead of recreating the agent, preserving conversation history.
+- **Entire desktop interface translated to English** (remaining Turkish UI strings, relative-time labels, update banner, panels).
+
+### Fixed
+- **Stop button now cancels provider-side generation** — `requestInterrupt` aborts the in-flight LLM request via `AbortController`; the run ends in a clean "interrupted" state instead of erroring or continuing to stream.
+- **Built-in skills not showing in the desktop dev build** — `bundled_skills` is now resolved through a robust multi-candidate path lookup (covers `electron-vite` dev, tsc build, and packaged `resourcesPath`), so all bundled skills appear again.
+
+---
+
 ## [2.0.5] — 2026-06-21
 
 ### Added
