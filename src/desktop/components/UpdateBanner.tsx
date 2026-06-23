@@ -42,8 +42,11 @@ export function UpdateBanner() {
     try { await ipc.updates.install() } finally { setBusy(false) }
   }
 
+  // `no-drag`: the banner sits inside the macOS titlebar drag-region (top strip);
+  // without it -webkit-app-region:drag swallows the button clicks (window-drag),
+  // so Download / Restart & update never fire.
   const base =
-    'fixed top-3 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-3 ' +
+    'no-drag fixed top-3 left-1/2 -translate-x-1/2 z-[1000] flex items-center gap-3 ' +
     'px-3.5 py-2 rounded-xl border shadow-card text-xs backdrop-blur ' +
     'bg-bg-secondary/95 border-border max-w-[92vw]'
 
