@@ -6,6 +6,32 @@ import { LanguageModelV1 } from "ai";
 
 export class LLM {
   public model: string;
+  private _abortController: AbortController | null = null;
+
+  public abort(): void {
+    this._abortController?.abort();
+    this._abortController = null;
+  }
+
+  public getAbortSignal(): AbortSignal {
+    this._abortController = new AbortController();
+    return this._abortController.signal;
+  }
+
+  public clearAbortController(): void {
+    this._abortController = null;
+  }
+
+  /**
+   * Modeli yerinde değiştirir (agent'ı yeniden oluşturmadan).
+   * getModel() her çağrıda this.model'i taze çözdüğü için bir sonraki mesaj
+   * yeni modeli kullanır; sohbet geçmişi ve oturum korunur.
+   * Gerekli env var yoksa MISSING_KEY/UNSUPPORTED_MODEL fırlatır.
+   */
+  public setModel(model: string): void {
+    this._validateRequiredVars(model);
+    this.model = model;
+  }
 
   constructor(model: string, temperature: number = 0.7) {
     this.model = model;

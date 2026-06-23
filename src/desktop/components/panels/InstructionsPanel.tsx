@@ -56,7 +56,7 @@ export function InstructionsPanel({ projectId }: Props) {
               onClick={save}
               disabled={saving}
               className="p-1 text-accent hover:text-accent-hover transition-colors rounded"
-              title="Kaydet"
+              title="Save"
             >
               <Save size={12} />
             </button>
@@ -89,7 +89,7 @@ e.g. Always respond in English. Use TypeScript when writing code. Follow Convent
             onClick={() => setEditing(true)}
             className="text-xs text-accent hover:text-accent-hover transition-colors"
           >
-            + Talimat ekle
+            + Add instructions
           </button>
         </div>
       )}

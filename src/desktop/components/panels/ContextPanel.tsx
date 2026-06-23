@@ -91,7 +91,7 @@ function MemorySection({ projectId }: { projectId: string | null }) {
                   mode === m ? 'bg-accent/20 text-accent' : 'text-text-muted hover:text-text-secondary hover:bg-bg-hover'
                 }`}
               >
-                {m === 'global' ? 'Global' : 'Proje'}
+                {m === 'global' ? 'Global' : 'Project'}
               </button>
             ))}
           </div>

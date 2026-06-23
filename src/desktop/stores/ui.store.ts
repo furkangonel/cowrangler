@@ -2,6 +2,9 @@ import { create } from 'zustand'
 
 interface UIState {
   rightPanelOpen: boolean
+  sidebarCollapsed: boolean
+  activeTab: 'projects' | 'chats'
+  activeGlobalSessionId: string | null  // 'chats' sekmesinde açık olan projesiz sohbet; null = yeni sohbet
   searchOpen: boolean
   searchQuery: string
   onboardingVisible: boolean
@@ -10,6 +13,10 @@ interface UIState {
 
   toggleRightPanel: () => void
   setRightPanelOpen: (open: boolean) => void
+  toggleSidebar: () => void
+  setSidebarCollapsed: (collapsed: boolean) => void
+  setActiveTab: (tab: 'projects' | 'chats') => void
+  setActiveGlobalSession: (id: string | null) => void
   setSearchOpen: (open: boolean) => void
   setSearchQuery: (q: string) => void
   setOnboardingVisible: (v: boolean) => void
@@ -20,6 +27,9 @@ interface UIState {
 
 export const useUIStore = create<UIState>((set) => ({
   rightPanelOpen: true,
+  sidebarCollapsed: false,
+  activeTab: 'projects',
+  activeGlobalSessionId: null,
   searchOpen: false,
   searchQuery: '',
   onboardingVisible: false,
@@ -28,6 +38,10 @@ export const useUIStore = create<UIState>((set) => ({
 
   toggleRightPanel: () => set(s => ({ rightPanelOpen: !s.rightPanelOpen })),
   setRightPanelOpen: (open) => set({ rightPanelOpen: open }),
+  toggleSidebar: () => set(s => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+  setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
+  setActiveTab: (tab) => set({ activeTab: tab }),
+  setActiveGlobalSession: (id) => set({ activeGlobalSessionId: id }),
   setSearchOpen: (open) => set({ searchOpen: open }),
   setSearchQuery: (q) => set({ searchQuery: q }),
   setOnboardingVisible: (v) => set({ onboardingVisible: v }),
@@ -35,3 +49,4 @@ export const useUIStore = create<UIState>((set) => ({
   openSettings: (page = 'models') => set({ settingsPage: page }),
   closeSettings: () => set({ settingsPage: null }),
 }))
+

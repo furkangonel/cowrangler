@@ -41,7 +41,14 @@ export function registerSessionsIPC(ipcMain: IpcMain): void {
   })
 
   ipcMain.handle('sessions:delete', async (_, projectId: string, sessionId: string) => {
+    // Önce projeyle bağı kaldır, sonra oturumu + mesajlarını kalıcı sil.
     projectDB.unlinkSession(projectId, sessionId)
+    try {
+      getSessionDB().deleteSession(sessionId)
+    } catch (e) {
+      // Silme başarısız olsa da unlink yapıldı; sessizce geç.
+      console.error('[sessions:delete] deleteSession failed', e)
+    }
     return { ok: true }
   })
 

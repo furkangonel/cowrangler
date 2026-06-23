@@ -66,7 +66,7 @@ export function NewProjectModal() {
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border-subtle">
-          <h2 className="text-md font-semibold text-text-primary brand-serif">Yeni proje</h2>
+          <h2 className="text-md font-semibold text-text-primary brand-serif">New project</h2>
           <button
             onClick={() => setNewProjectModal(false)}
             className="p-1.5 text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors rounded-lg"
@@ -162,7 +162,7 @@ export function NewProjectModal() {
             onClick={() => setNewProjectModal(false)}
             className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors rounded-xl hover:bg-bg-hover"
           >
-            İptal
+            Cancel
           </button>
           <button
             onClick={handleCreate}

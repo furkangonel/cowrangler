@@ -176,4 +176,47 @@ export function registerSkillsIPC(ipcMain: IpcMain): void {
       return { ok: false, error: e.message }
     }
   })
+
+  // File tree for a skill — returns recursive directory structure
+  ipcMain.handle('skills:fileTree', async (_, skillId: string) => {
+    const found = skillManager.getAvailableSkills().find(s => s.id === skillId)
+    if (!found) return []
+
+    // SkillManager artık her skill için diskteki kök klasörü (dir) döndürür.
+    // Bu, bundled / global / local tüm kaynaklar için doğru yolu verir.
+    // Geriye dönük güvenlik: dir yoksa global skills dizinine düş.
+    const rootDir = found.dir ?? path.join(SKILLS_DIR, skillId)
+
+    if (!fs.existsSync(rootDir)) return []
+
+    function buildTree(dir: string, depth = 0): any[] {
+      if (depth > 5) return []
+      let entries: any[]
+      try {
+        entries = fs.readdirSync(dir, { withFileTypes: true })
+      } catch { return [] }
+
+      return entries
+        .sort((a, b) => {
+          // Directories first, then alphabetical
+          if (a.isDirectory() && !b.isDirectory()) return -1
+          if (!a.isDirectory() && b.isDirectory()) return 1
+          return a.name.localeCompare(b.name)
+        })
+        .map(entry => {
+          const fullPath = path.join(dir, entry.name)
+          const isDir = entry.isDirectory()
+          const node: any = {
+            name: entry.name,
+            path: fullPath,
+            type: isDir ? 'directory' : 'file',
+          }
+          if (isDir) node.children = buildTree(fullPath, depth + 1)
+          return node
+        })
+    }
+
+    return buildTree(rootDir)
+  })
 }
+

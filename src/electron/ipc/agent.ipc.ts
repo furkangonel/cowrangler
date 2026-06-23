@@ -1,9 +1,26 @@
 import { IpcMain, BrowserWindow } from 'electron'
+import path from 'path'
+import os from 'os'
+import fs from 'fs'
 import { agentManager, AgentManager } from '../agent_manager.js'
 import { getProjectDB } from '../project_db.js'
 import { getSessionDB } from '../../core/session_db.js'
 import { getConfig } from '../../core/init.js'
 import { Agent } from '../../core/agent.js'
+
+/** Projesiz (genel) sohbet için sabit projectId. Renderer'daki GLOBAL_PROJECT_ID ile aynı. */
+const GLOBAL_PROJECT_ID = '__global__'
+
+/**
+ * Global sohbet için adanmış çalışma dizini.
+ * Böylece file_tools / manage_todo en son açık projenin workdir'ini sızdırmaz;
+ * genel sohbet kendi izole klasöründe çalışır.
+ */
+function getGlobalWorkdir(): string {
+  const dir = path.join(os.homedir(), '.cowrangler', 'global-workspace')
+  try { fs.mkdirSync(dir, { recursive: true }) } catch { /* yoksay */ }
+  return dir
+}
 
 /** İlk promptun ilk 20 karakterinden session başlığı türetir (spec madde 3). */
 function deriveSessionTitle(message: string): string {
@@ -61,7 +78,7 @@ Check available skills and load relevant ones with utilize_skill.`
 
 export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
   // ── agent:chat ─────────────────────────────────────────────────────────────
-  ipcMain.handle('agent:chat', async (event, projectId: string, sessionId: string | null, message: string) => {
+  ipcMain.handle('agent:chat', async (event, projectId: string, sessionId: string | null, message: string, sessionModel?: string) => {
     const sender = event.sender
     const projectDB = getProjectDB()
     const project = projectDB.get(projectId)
@@ -69,16 +86,28 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
     const config = getConfig()
 
     // Hardcoded model default KALDIRILDI: model seçilmemişse kullanıcıyı yönlendir.
-    const model = config.model
+    // sessionModel varsa (per-session override), o önceliklidir.
+    const model = sessionModel || config.model
     if (!model) {
       sender.send('agent:error', 'Henüz bir model seçilmedi. Ayarlar → Modeller & API\'den bir API anahtarı girin ve model seçin.')
       return
     }
     const systemPrompt = buildSystemPrompt(getDefaultSystemPrompt(), instructions)
 
+    // Çalışma dizini: proje varsa onun workdir'i; projesiz genel sohbette adanmış global klasör.
+    const workdir = project?.workdir ?? (projectId === GLOBAL_PROJECT_ID ? getGlobalWorkdir() : undefined)
+
     let agent: Agent
     try {
-      agent = agentManager.getOrCreate(projectId, { model, systemPrompt }, project?.workdir ?? undefined)
+      // Agent zaten varsa ve model değiştiyse, modeli YERİNDE değiştir.
+      // (recreate yerine setModel: sohbet geçmişi + oturum korunur, sadece
+      // bir sonraki mesaj yeni modeli kullanır.)
+      const existingAgent = agentManager.get(projectId)
+      if (existingAgent && existingAgent.llm.model !== model) {
+        existingAgent.llm.setModel(model)
+      }
+      // getOrCreate: mevcut agent'ı döndürür (varsa) + workdir map'ini günceller.
+      agent = agentManager.getOrCreate(projectId, { model, systemPrompt }, workdir)
     } catch (err: any) {
       sender.send('agent:error', friendlyError(err.message || String(err)))
       return
@@ -142,7 +171,12 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
         sessionId: currentSessionId,
       })
     } catch (err: any) {
-      sender.send('agent:error', friendlyError(err.message || String(err)))
+      // AbortError means user pressed Stop — not an error, just interrupted
+      if (err?.name === 'AbortError' || err?.message?.includes('aborted') || err?.message?.includes('This operation was aborted')) {
+        sender.send('agent:interrupted')
+      } else {
+        sender.send('agent:error', friendlyError(err.message || String(err)))
+      }
     }
   })
 

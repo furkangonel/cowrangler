@@ -52,14 +52,14 @@ export function UpdateBanner() {
       <div className={base} role="status">
         <Download size={15} className="text-accent flex-shrink-0" />
         <span className="text-text-primary">
-          Yeni sürüm hazır <span className="font-semibold">v{status.version}</span>
+          New version available <span className="font-semibold">v{status.version}</span>
         </span>
         <button
           onClick={download}
           disabled={busy}
           className="flex items-center gap-1 px-2.5 py-1 bg-accent text-accent-fg rounded-lg font-medium hover:bg-accent-hover transition-colors disabled:opacity-60"
         >
-          {busy ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />} İndir
+          {busy ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />} Download
         </button>
         <DismissBtn onClick={() => setDismissed(true)} />
       </div>
@@ -70,7 +70,7 @@ export function UpdateBanner() {
     return (
       <div className={base} role="status">
         <Loader2 size={15} className="text-accent animate-spin flex-shrink-0" />
-        <span className="text-text-primary whitespace-nowrap">Güncelleme indiriliyor</span>
+        <span className="text-text-primary whitespace-nowrap">Downloading update</span>
         <div className="w-32 h-1.5 rounded-full bg-bg-hover overflow-hidden">
           <div className="h-full bg-accent transition-all" style={{ width: `${status.percent}%` }} />
         </div>
@@ -84,14 +84,14 @@ export function UpdateBanner() {
       <div className={base} role="status">
         <CheckCircle2 size={15} className="text-success flex-shrink-0" />
         <span className="text-text-primary">
-          <span className="font-semibold">v{status.version}</span> indirildi
+          <span className="font-semibold">v{status.version}</span> downloaded
         </span>
         <button
           onClick={install}
           disabled={busy}
           className="flex items-center gap-1 px-2.5 py-1 bg-accent text-accent-fg rounded-lg font-medium hover:bg-accent-hover transition-colors disabled:opacity-60"
         >
-          {busy ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} Yeniden başlat & güncelle
+          {busy ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} Restart & update
         </button>
         <DismissBtn onClick={() => setDismissed(true)} />
       </div>
@@ -102,7 +102,7 @@ export function UpdateBanner() {
   return (
     <div className={base} role="alert">
       <AlertTriangle size={15} className="text-error flex-shrink-0" />
-      <span className="text-text-secondary truncate max-w-[60vw]">Güncelleme hatası: {status.message}</span>
+      <span className="text-text-secondary truncate max-w-[60vw]">Update error: {status.message}</span>
       <DismissBtn onClick={() => setDismissed(true)} />
     </div>
   )
@@ -110,7 +110,7 @@ export function UpdateBanner() {
 
 function DismissBtn({ onClick }: { onClick: () => void }) {
   return (
-    <button onClick={onClick} aria-label="Kapat" className="p-1 text-text-muted hover:text-text-secondary rounded-md hover:bg-bg-hover transition-colors flex-shrink-0">
+    <button onClick={onClick} aria-label="Close" className="p-1 text-text-muted hover:text-text-secondary rounded-md hover:bg-bg-hover transition-colors flex-shrink-0">
       <X size={13} />
     </button>
   )

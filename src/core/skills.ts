@@ -7,15 +7,37 @@ import { getProjectLocalSkillsDir, getProjectContextSkillsDir } from "./project_
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Bundled skills live next to this file in src/bundled_skills/
-// After build they will be at dist/bundled_skills/
-let BUNDLED_SKILLS_DIR = path.resolve(__dirname, "../bundled_skills");
+/**
+ * Bundled skills'in çalışma zamanındaki kök dizinini çözer.
+ * Birden fazla çalışma moduyla uyumlu olması için aday yolları sırayla dener:
+ *   - tsc build (dist/bundled_skills) veya kaynaktan çalıştırma   → ../bundled_skills
+ *   - electron-vite dev (main out/main'den çalışır)               → ../../src/bundled_skills
+ *   - paketlenmiş electron (extraResources)                       → resourcesPath/bundled_skills
+ *   - dev fallback (cwd = proje kökü)                             → src/bundled_skills
+ * İlk var olan dizin seçilir; hiçbiri yoksa ilk aday döndürülür.
+ */
+function resolveBundledSkillsDir(): string {
+  const candidates = [
+    path.resolve(__dirname, "../bundled_skills"),
+    path.resolve(__dirname, "../../src/bundled_skills"),
+    (process as any).resourcesPath
+      ? path.join((process as any).resourcesPath, "bundled_skills")
+      : "",
+    path.resolve(process.cwd(), "src/bundled_skills"),
+    path.resolve(process.cwd(), "dist/bundled_skills"),
+  ].filter(Boolean) as string[];
 
-// Electron (desktop) production modunda çalışıyorsa ve resourcesPath mevcutsa
-// extraResources ile paketlenen dizini kullan.
-if (!fs.existsSync(BUNDLED_SKILLS_DIR) && process.versions && process.versions.electron && (process as any).resourcesPath) {
-  BUNDLED_SKILLS_DIR = path.join((process as any).resourcesPath, "bundled_skills");
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) return candidate;
+    } catch {
+      // erişilemeyen aday → sonrakini dene
+    }
+  }
+  return candidates[0];
 }
+
+const BUNDLED_SKILLS_DIR = resolveBundledSkillsDir();
 
 export interface SkillDef {
   id: string;
@@ -23,6 +45,8 @@ export interface SkillDef {
   description: string;
   source: "bundled" | "global" | "local";
   content: string;
+  /** Skill'in diskteki kök klasörü (SKILL.md'nin bulunduğu dizin). Dosya ağacı görünümü için. */
+  dir?: string;
 }
 
 export class SkillManager {
@@ -62,7 +86,7 @@ export class SkillManager {
           const id = item;
           const name = metadata.name || id;
           const description = metadata.description || "No description.";
-          map.set(id, { id, name, description, source, content: body });
+          map.set(id, { id, name, description, source, content: body, dir: itemPath });
         } else {
           // Category folder — recurse one level deeper
           const subItems = fs.readdirSync(itemPath);
@@ -78,7 +102,7 @@ export class SkillManager {
               const id = subItem;
               const name = metadata.name || id;
               const description = metadata.description || "No description.";
-              map.set(id, { id, name, description, source, content: body });
+              map.set(id, { id, name, description, source, content: body, dir: subSkillPath });
             } catch {
               // Skip malformed nested skill directories silently
             }

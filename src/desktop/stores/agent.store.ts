@@ -245,6 +245,20 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     })
     cleanups.push(unsubDone)
 
+    const unsubInterrupted = ipc.agent.onInterrupted(() => {
+      // User pressed stop — agent was aborted cleanly, no error to show
+      const id = assistantMsgId
+      if (id) {
+        get().timelineCloseRunning(id)
+        // Only finalize if there's some accumulated text
+        if (accText) callbacks.onFinalize(id, accText)
+      }
+      set({ status: 'idle', streamingText: '', streamingMessageId: null })
+      assistantMsgId = null
+      accText = ''
+    })
+    cleanups.push(unsubInterrupted)
+
     const unsubError = ipc.agent.onError((err: string) => {
       const id = assistantMsgId
       if (id) {

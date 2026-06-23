@@ -396,6 +396,92 @@ export const CONNECTORS_CATALOG: ConnectorCatalogEntry[] = [
       { envKey: "FIRECRAWL_API_KEY", label: "Firecrawl API Key", hint: "firecrawl.dev → API keys (fc-…)" },
     ],
   },
+
+  // ── Design & Creative (resmi remote MCP sunucuları, OAuth) ─────────────────
+  {
+    id: "canva",
+    name: "Canva",
+    description: "Tasarım oluştur ve düzenle, marka kitini kullan; AI ile sunum ve grafik üret.",
+    category: "design",
+    transport: "http",
+    auth: "oauth",
+    popular: 24,
+    logo: "https://cdn.simpleicons.org/canva",
+    url: "https://mcp.canva.com/mcp",
+  },
+  {
+    id: "miro",
+    name: "Miro",
+    description: "Akıllı tahta: diyagram çiz, yapışkan notlar ekle, pano içeriğini özetle.",
+    category: "design",
+    transport: "http",
+    auth: "oauth",
+    popular: 25,
+    logo: "https://cdn.simpleicons.org/miro",
+    url: "https://mcp.miro.com",
+  },
+  {
+    id: "sketchup",
+    name: "Trimble SketchUp",
+    description: "Konuşma diliyle 3D model oluştur ve düzenle; SketchUp'ta açılabilir sahneler üret.",
+    category: "design",
+    transport: "http",
+    auth: "oauth",
+    popular: 26,
+    logo: "https://cdn.simpleicons.org/sketchup",
+    url: "https://api.sketchup.com/mcp/v1/sketchup/mcp",
+  },
+
+  // ── Data & Analytics ──────────────────────────────────────────────────────
+  {
+    id: "airtable",
+    name: "Airtable",
+    description: "Base, tablo ve kayıtları oku/yaz; esnek veritabanı entegrasyonu.",
+    category: "data",
+    transport: "stdio",
+    auth: "apikey",
+    popular: 27,
+    logo: "https://cdn.simpleicons.org/airtable",
+    command: "npx",
+    args: ["-y", "airtable-mcp-server"],
+    authFields: [
+      { envKey: "AIRTABLE_API_KEY", label: "Airtable Personal Access Token", hint: "airtable.com/create/tokens (pat…)" },
+    ],
+  },
+
+  // ── Developer Tools ───────────────────────────────────────────────────────
+  {
+    id: "gitlab",
+    name: "GitLab",
+    description: "Issue, merge request, pipeline ve repo yönetimi.",
+    category: "dev",
+    transport: "stdio",
+    auth: "token",
+    popular: 28,
+    logo: "https://cdn.simpleicons.org/gitlab",
+    command: "npx",
+    args: ["-y", "@zereight/mcp-gitlab"],
+    authFields: [
+      { envKey: "GITLAB_PERSONAL_ACCESS_TOKEN", label: "GitLab Personal Access Token", hint: "gitlab.com/-/user_settings/personal_access_tokens" },
+    ],
+  },
+
+  // ── Productivity ──────────────────────────────────────────────────────────
+  {
+    id: "todoist",
+    name: "Todoist",
+    description: "Görevler, projeler ve etiketler; doğal dille görev yönetimi.",
+    category: "productivity",
+    transport: "stdio",
+    auth: "apikey",
+    popular: 29,
+    logo: "https://cdn.simpleicons.org/todoist",
+    command: "npx",
+    args: ["-y", "@abhiz123/todoist-mcp-server"],
+    authFields: [
+      { envKey: "TODOIST_API_TOKEN", label: "Todoist API Token", hint: "app.todoist.com/app/settings/integrations/developer" },
+    ],
+  },
 ];
 
 /** Browse sırası: popular (artan) sonra alfabetik. */

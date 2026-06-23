@@ -86,6 +86,14 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 
   renameSession: async (sessionId, title) => {
     await ipc.sessions.rename(sessionId, title)
+    // Yerel listedeki başlığı da güncelle ki sidebar anında yansısın.
+    set(s => {
+      const next: Record<string, SessionRecord[]> = {}
+      for (const [pid, list] of Object.entries(s.sessionsByProject)) {
+        next[pid] = list.map(sess => sess.id === sessionId ? { ...sess, title } : sess)
+      }
+      return { sessionsByProject: next }
+    })
   },
 
   addUserMessage: (content) => {

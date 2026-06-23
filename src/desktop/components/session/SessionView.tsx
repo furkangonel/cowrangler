@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
-import { ArrowLeft, Square, Plus } from 'lucide-react'
+import { ArrowLeft, Square, Plus, ChevronDown } from 'lucide-react'
 import { MessageBubble } from './MessageBubble'
 import { InputArea } from './InputArea'
 import { useSessionsStore } from '../../stores/sessions.store'
 import { useAgentStore } from '../../stores/agent.store'
 import { useProjectsStore } from '../../stores/projects.store'
+import { useSettingsStore } from '../../stores/settings.store'
 import { ipc } from '../../lib/ipc'
 
 interface Props {
@@ -21,10 +22,18 @@ export function SessionView({ projectId, sessionId }: Props) {
 
   const agentStore = useAgentStore()
   const { getActiveProject } = useProjectsStore()
+  const { getModel, models } = useSettingsStore()
   const scrollRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [isNew] = useState(sessionId === '__new__')
   const project = getActiveProject()
+
+  // Per-session model override — null means use global
+  const [sessionModel, setSessionModel] = useState<string | null>(null)
+  const [modelPickerOpen, setModelPickerOpen] = useState(false)
+  const modelPickerRef = useRef<HTMLDivElement>(null)
+
+  const effectiveModel = sessionModel ?? getModel()
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -59,6 +68,17 @@ export function SessionView({ projectId, sessionId }: Props) {
     }
   }, [])
 
+  // Close model picker on outside click
+  useEffect(() => {
+    function onOutside(e: MouseEvent) {
+      if (modelPickerRef.current && !modelPickerRef.current.contains(e.target as Node)) {
+        setModelPickerOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onOutside)
+    return () => document.removeEventListener('mousedown', onOutside)
+  }, [])
+
   const handleSend = useCallback(async (message: string) => {
     if (!message.trim() || agentStore.status === 'thinking') return
     addUserMessage(message)
@@ -66,12 +86,13 @@ export function SessionView({ projectId, sessionId }: Props) {
     agentStore.clearToolCalls()
     const currentSessionId = sessionId === '__new__' ? null : sessionId
     try {
-      await ipc.agent.chat(projectId, currentSessionId, message)
+      // Pass session-level model override if set
+      await ipc.agent.chat(projectId, currentSessionId, message, sessionModel ?? undefined)
     } catch (err: any) {
       agentStore.setStatus('error')
       agentStore.setError(err.message)
     }
-  }, [projectId, sessionId, agentStore.status])
+  }, [projectId, sessionId, agentStore.status, sessionModel])
 
   const handleInterrupt = useCallback(async () => {
     await ipc.agent.interrupt(projectId)
@@ -85,7 +106,15 @@ export function SessionView({ projectId, sessionId }: Props) {
     agentStore.setProgress([])
     clearUIMessages()
     setActiveSession('__new__')
+    setSessionModel(null)
   }, [projectId])
+
+  // Get short model label for display
+  const modelLabel = effectiveModel
+    ? (models.find(m => m.id === effectiveModel)?.label ?? effectiveModel.split('/').pop() ?? effectiveModel)
+    : 'Select model'
+
+  const availableModels = models.filter(m => m.available)
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-bg-primary">
@@ -99,22 +128,66 @@ export function SessionView({ projectId, sessionId }: Props) {
           <ArrowLeft size={15} />
         </button>
         <span className="flex-1 text-sm text-text-secondary font-medium truncate">
-          {isNew ? 'Yeni sohbet' : (uiMessages[0]?.content?.slice(0, 60) || 'Sohbet')}
+          {isNew ? 'New chat' : (uiMessages[0]?.content?.slice(0, 60) || 'Chat')}
         </span>
         <div className="flex items-center gap-1.5">
+          {/* Per-session model picker */}
+          <div className="relative" ref={modelPickerRef}>
+            <button
+              onClick={() => setModelPickerOpen(o => !o)}
+              disabled={agentStore.status === 'thinking'}
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-2xs transition-colors border ${
+                sessionModel
+                  ? 'text-accent border-accent/30 bg-accent/5 font-medium'
+                  : 'text-text-muted border-border hover:text-text-secondary hover:border-accent/30'
+              } disabled:opacity-40`}
+              title="Change session model"
+            >
+              <span className="max-w-[80px] truncate">{modelLabel}</span>
+              <ChevronDown size={10} className={`transition-transform ${modelPickerOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {modelPickerOpen && (
+              <div className="absolute right-0 top-full mt-1 z-30 bg-bg-secondary border border-border rounded-xl shadow-pop overflow-hidden animate-slide-up w-56">
+                <div className="p-2 space-y-0.5 max-h-60 overflow-y-auto">
+                  <button
+                    onClick={() => { setSessionModel(null); setModelPickerOpen(false) }}
+                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left transition-colors ${
+                      !sessionModel ? 'bg-accent-subtle text-accent font-medium' : 'text-text-secondary hover:bg-bg-hover'
+                    }`}
+                  >
+                    <span className="flex-1 truncate">Global ({getModel()?.split('/').pop() ?? 'default'})</span>
+                    {!sessionModel && <span className="text-2xs opacity-60">●</span>}
+                  </button>
+                  {availableModels.map(m => (
+                    <button
+                      key={m.id}
+                      onClick={() => { setSessionModel(m.id); setModelPickerOpen(false) }}
+                      className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left transition-colors ${
+                        sessionModel === m.id ? 'bg-accent-subtle text-accent font-medium' : 'text-text-secondary hover:bg-bg-hover'
+                      }`}
+                    >
+                      <span className="flex-1 truncate">{m.label}</span>
+                      {sessionModel === m.id && <span className="text-2xs opacity-60">●</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           {agentStore.status === 'thinking' && (
             <button
               onClick={handleInterrupt}
               className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-error border border-error/30 rounded-lg hover:bg-error/10 transition-colors"
             >
-              <Square size={11} className="fill-current" /> Durdur
+              <Square size={11} className="fill-current" /> Stop
             </button>
           )}
           <button
             onClick={handleNewSession}
             className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-text-secondary border border-border rounded-lg hover:text-text-primary hover:border-accent/40 transition-colors"
           >
-            <Plus size={12} /> Yeni
+            <Plus size={12} /> New
           </button>
         </div>
       </div>
@@ -159,3 +232,4 @@ export function SessionView({ projectId, sessionId }: Props) {
     </div>
   )
 }
+

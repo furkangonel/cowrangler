@@ -284,6 +284,23 @@ export class SessionDB {
     });
   }
 
+  /**
+   * Bir oturumu ve tüm mesajlarını kalıcı olarak siler (FTS dahil).
+   * Mesajlar açıkça silinir → messages_ad trigger'ı FTS girişlerini temizler.
+   * Bu oturuma parent olarak bağlı child oturumların referansı NULL'a çekilir
+   * (parent_session_id FK'sinin ON DELETE eylemi yok).
+   */
+  deleteSession(sessionId: string): void {
+    const tx = this.db.transaction((id: string) => {
+      this.db
+        .prepare(`UPDATE sessions SET parent_session_id = NULL WHERE parent_session_id = ?`)
+        .run(id);
+      this.db.prepare(`DELETE FROM messages WHERE session_id = ?`).run(id);
+      this.db.prepare(`DELETE FROM sessions WHERE id = ?`).run(id);
+    });
+    tx(sessionId);
+  }
+
   getSession(sessionId: string): SessionRecord | null {
     return (
       (this.db.prepare(`SELECT * FROM sessions WHERE id = ?`).get(sessionId) as
