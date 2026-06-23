@@ -283,23 +283,66 @@ class MCPServerConnection {
     }
 
     try {
-      const result = await this.client!.callTool({
+      const result: any = await this.client!.callTool({
         name: toolName,
         arguments: args,
       });
 
-      // Sonucu string'e dönüştür
-      if (result.content && Array.isArray(result.content)) {
-        return result.content
-          .map((c: any) => {
-            if (c.type === "text") return c.text;
-            if (c.type === "image") return `[image: ${c.mimeType}]`;
-            return JSON.stringify(c);
-          })
-          .join("\n");
+      // Sonucu string'e dönüştür — KAYIPSIZ olmalı. content bloklarının yanında
+      // structuredContent ve resource_link/resource türleri de modele ulaşmalı;
+      // aksi halde (ör. SketchUp save_model) dönen URL/dosya bağlantısı düşer ve
+      // model "kaydettim ama link yok" durumuna girer.
+      const parts: string[] = [];
+
+      if (Array.isArray(result.content)) {
+        for (const c of result.content as any[]) {
+          switch (c?.type) {
+            case "text":
+              parts.push(c.text ?? "");
+              break;
+            case "image":
+              parts.push(`[image: ${c.mimeType ?? "image"}]`);
+              break;
+            case "audio":
+              parts.push(`[audio: ${c.mimeType ?? "audio"}]`);
+              break;
+            case "resource_link":
+              // İndirilebilir/görüntülenebilir bağlantı — URI'yi mutlaka koru.
+              parts.push(
+                `[resource: ${c.name ?? c.uri ?? "link"}]` +
+                  (c.uri ? ` ${c.uri}` : "") +
+                  (c.description ? ` — ${c.description}` : ""),
+              );
+              break;
+            case "resource": {
+              const r = c.resource ?? {};
+              if (r.text) parts.push(r.text);
+              else
+                parts.push(
+                  `[resource: ${r.uri ?? "embedded"}${r.mimeType ? `, ${r.mimeType}` : ""}]`,
+                );
+              break;
+            }
+            default:
+              parts.push(typeof c === "string" ? c : JSON.stringify(c));
+          }
+        }
       }
 
-      return JSON.stringify(result);
+      // Yapısal çıktı (URL, id, istatistik vb.) — content boş olsa bile iletilmeli.
+      if (
+        result.structuredContent &&
+        typeof result.structuredContent === "object" &&
+        Object.keys(result.structuredContent).length > 0
+      ) {
+        parts.push(JSON.stringify(result.structuredContent));
+      }
+
+      let out = parts.join("\n").trim();
+      if (!out) out = JSON.stringify(result);
+      // Araç hata bayrağını modele görünür kıl — sessizce "başarılı" sanmasın.
+      if (result.isError) out = `[tool error] ${out}`;
+      return out;
     } catch (err: any) {
       // Credential bilgilerini hata mesajından temizle
       const cleanMsg = this._scrubCredentials(err.message ?? String(err));

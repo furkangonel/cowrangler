@@ -191,6 +191,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
     let assistantMsgId: string | null = null
     let accText = ''
+    // send_message ile gönderilen son metin — onDone'daki finalText ile birebir
+    // aynıysa tekrar yazmamak için (çift balon olmasın).
+    let lastSentText = ''
 
     // Asistan mesajını (gerekirse) oluşturur — hem tool hem metin olayı bunu kullanır,
     // böylece metinden ÖNCE gelen tool çağrıları da doğru mesaja iliştirilir.
@@ -204,6 +207,22 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
     const unsubToolCall = ipc.agent.onToolCall((data: ToolCallEvent) => {
       const id = ensure()
+      // send_message: agent'ın kullanıcıya yönelik asıl mesajı. Küçük, kırpılmış
+      // bir 💬 tool satırı olarak gömmek yerine normal bir asistan balonu (markdown)
+      // olarak göster — kullanıcı mesajı tam görebilsin.
+      if (data.name === 'send_message') {
+        if (data.status === 'start') {
+          const m = typeof data.args?.message === 'string' ? data.args.message : ''
+          if (m) {
+            lastSentText = m
+            // Önceki metinden net ayrılması için paragraf boşluğu ile ekle.
+            get().timelinePushText(id, `\n\n${m}`)
+            callbacks.onUpdateStreaming(id, accText ? `${accText}\n\n${m}` : m)
+          }
+        }
+        // done/error fazında yapacak bir şey yok — tool satırı oluşturmadık.
+        return
+      }
       if (data.status === 'start') {
         get().timelinePushTool(id, data)
       } else {
@@ -229,12 +248,19 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
     const unsubDone = ipc.agent.onDone((result: AgentDoneResult) => {
       const finalText = result.text || accText
+      // send_message zaten bu metni balon olarak gösterdiyse tekrar ekleme.
+      const alreadyShown = !!finalText && finalText.trim() === lastSentText.trim()
       if (assistantMsgId) {
         // Hiç metin akmadıysa ama nihai metin varsa (ör. yalnız send_message),
         // timeline'a sondan bir metin segmenti ekle.
-        if (finalText && !accText) get().timelinePushText(assistantMsgId, finalText)
+        if (finalText && !accText && !alreadyShown) get().timelinePushText(assistantMsgId, finalText)
         get().timelineCloseRunning(assistantMsgId)
-        if (finalText) callbacks.onFinalize(assistantMsgId, finalText)
+        // Kalıcı mesaj içeriği: akan metin + (varsa) send_message metni.
+        const persisted = alreadyShown
+          ? (accText || finalText)
+          : [accText, lastSentText && !accText.includes(lastSentText) ? lastSentText : '']
+              .filter(Boolean).join('\n\n') || finalText
+        if (persisted) callbacks.onFinalize(assistantMsgId, persisted)
       }
       if (result.sessionId) {
         callbacks.onSessionCreated(result.sessionId, projectId)
@@ -242,6 +268,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       set({ status: 'idle', streamingText: '', streamingMessageId: null })
       assistantMsgId = null
       accText = ''
+      lastSentText = ''
     })
     cleanups.push(unsubDone)
 
@@ -250,12 +277,14 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       const id = assistantMsgId
       if (id) {
         get().timelineCloseRunning(id)
-        // Only finalize if there's some accumulated text
-        if (accText) callbacks.onFinalize(id, accText)
+        // Only finalize if there's some accumulated text (akan metin veya send_message)
+        const persisted = [accText, lastSentText].filter(Boolean).join('\n\n')
+        if (persisted) callbacks.onFinalize(id, persisted)
       }
       set({ status: 'idle', streamingText: '', streamingMessageId: null })
       assistantMsgId = null
       accText = ''
+      lastSentText = ''
     })
     cleanups.push(unsubInterrupted)
 
@@ -269,6 +298,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       set({ status: 'error', lastError: err, streamingText: '', streamingMessageId: null })
       assistantMsgId = null
       accText = ''
+      lastSentText = ''
     })
     cleanups.push(unsubError)
 

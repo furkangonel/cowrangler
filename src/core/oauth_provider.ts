@@ -226,10 +226,14 @@ export async function authorizeConnector(
   try {
     provider = await LoopbackOAuthProvider.createInteractive(id, opener);
     const target = new URL(url);
-    const transport =
+    // Her transport YALNIZCA bir kez start() edilebilir; client.connect() start()'ı
+    // otomatik çağırır. Bu yüzden yeniden bağlanmada taze bir transport üretiriz.
+    const makeTransport = () =>
       kind === "sse"
-        ? new SSEClientTransport(target, { authProvider: provider })
-        : new StreamableHTTPClientTransport(target, { authProvider: provider });
+        ? new SSEClientTransport(target, { authProvider: provider! })
+        : new StreamableHTTPClientTransport(target, { authProvider: provider! });
+
+    let transport = makeTransport();
 
     client = new Client(
       { name: `cowrangler-oauth-${id}`, version: "1.0.0" },
@@ -242,7 +246,11 @@ export async function authorizeConnector(
     } catch (e: any) {
       if (e instanceof UnauthorizedError || /unauthor/i.test(String(e?.message ?? e))) {
         const code = await provider.waitForCode();
+        // Token değişimini başlatılmış transport üzerinde tamamla (PKCE verifier
+        // kasada). Ardından TAZE bir transport ile yeniden bağlan — aynı transport
+        // ikinci kez connect edilemez ("...already started" hatası buradan geliyordu).
         await transport.finishAuth(code);
+        transport = makeTransport();
         await client.connect(transport);
       } else {
         throw e;
