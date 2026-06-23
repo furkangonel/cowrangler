@@ -51,7 +51,7 @@ export function MemoryPanel({ projectId }: Props) {
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-xs font-semibold text-text-primary">Memory</h3>
         <div className="flex items-center gap-1">
-          <button onClick={load} className="p-1 text-text-muted hover:text-text-secondary transition-colors rounded" title="Yenile">
+          <button onClick={load} className="p-1 text-text-muted hover:text-text-secondary transition-colors rounded" title="Refresh">
             <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
           </button>
           {!editing ? (
@@ -83,7 +83,7 @@ export function MemoryPanel({ projectId }: Props) {
               mode === m ? 'bg-accent/20 text-accent' : 'text-text-muted hover:text-text-secondary hover:bg-bg-hover'
             }`}
           >
-            {m === 'global' ? 'Global' : 'Proje'}
+            {m === 'global' ? 'Global' : 'Project'}
           </button>
         ))}
       </div>

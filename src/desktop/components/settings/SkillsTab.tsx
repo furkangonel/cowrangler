@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Search, BookOpen, FolderOpen, Plus, Trash2, X, PenLine, Upload } from 'lucide-react'
+import { Search, BookOpen, FolderOpen, Plus, Trash2, X, PenLine, Upload, ChevronRight, ChevronDown, FileText, FolderIcon, FolderOpenIcon, FileCode, FileJson, Info } from 'lucide-react'
 import { ipc, SkillDef } from '../../lib/ipc'
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -18,6 +18,9 @@ export function SkillsTab() {
   const [creating, setCreating] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [uploadError, setUploadError] = useState('')
+  const [fileTree, setFileTree] = useState<any[]>([])
+  const [detailTab, setDetailTab] = useState<'content' | 'files'>('content')
+  const [showUploadInfo, setShowUploadInfo] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
   function load() {
@@ -46,8 +49,14 @@ export function SkillsTab() {
   async function selectSkill(skill: SkillDef) {
     setSelected(skill)
     setCreating(false)
+    setDetailTab('content')
     const c = await ipc.skills.getContent(skill.id)
     setContent(c ?? skill.content ?? '')
+    // Load file tree
+    try {
+      const tree = await ipc.skills.fileTree(skill.id)
+      setFileTree(Array.isArray(tree) ? tree : [])
+    } catch { setFileTree([]) }
   }
 
   async function toggle(skill: SkillDef, e: React.MouseEvent) {
@@ -109,6 +118,26 @@ export function SkillsTab() {
                   >
                     <Upload size={12} /> Upload a skill
                   </button>
+                  {/* Format info */}
+                  <div className="px-3 py-2 border-t border-border-subtle bg-bg-tertiary/50">
+                    <p className="text-2xs text-text-muted font-semibold mb-1.5 flex items-center gap-1.5">
+                      <Info size={10} /> Supported formats
+                    </p>
+                    <div className="space-y-1">
+                      <div className="text-2xs text-text-muted">
+                        <span className="font-mono text-accent">SKILL.md</span>
+                        {' '}<span>— with YAML frontmatter</span>
+                      </div>
+                      <div className="text-2xs text-text-muted">
+                        <span className="font-mono text-accent">.zip / .skill</span>
+                        {' '}<span>— must contain SKILL.md</span>
+                      </div>
+                      <div className="text-2xs text-text-muted">
+                        <span className="font-mono text-accent">scripts/ examples/ resources/</span>
+                        {' '}— supported
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -186,9 +215,48 @@ export function SkillsTab() {
               </div>
               <Toggle on={!!active[selected.id]} onClick={(e) => toggle(selected, e)} large />
             </div>
-            <div className="bg-bg-tertiary border border-border rounded-xl p-4">
-              <pre className="text-2xs text-text-secondary font-mono whitespace-pre-wrap leading-relaxed selectable">{content}</pre>
+
+            {/* Tab strip */}
+            <div className="flex gap-1 mb-3 border-b border-border-subtle">
+              <button
+                onClick={() => setDetailTab('content')}
+                className={`px-3 py-1.5 text-xs rounded-t-lg transition-colors ${
+                  detailTab === 'content' ? 'text-accent border-b-2 border-accent font-medium' : 'text-text-muted hover:text-text-secondary'
+                }`}
+              >
+                SKILL.md
+              </button>
+              <button
+                onClick={() => setDetailTab('files')}
+                className={`px-3 py-1.5 text-xs rounded-t-lg transition-colors flex items-center gap-1.5 ${
+                  detailTab === 'files' ? 'text-accent border-b-2 border-accent font-medium' : 'text-text-muted hover:text-text-secondary'
+                }`}
+              >
+                <FolderOpen size={11} />
+                Files
+                {fileTree.length > 0 && (
+                  <span className="text-2xs bg-bg-tertiary text-text-muted rounded-full px-1.5 py-0.5 font-mono">{fileTree.length}</span>
+                )}
+              </button>
             </div>
+
+            {detailTab === 'content' ? (
+              <div className="bg-bg-tertiary border border-border rounded-xl p-4">
+                <pre className="text-2xs text-text-secondary font-mono whitespace-pre-wrap leading-relaxed selectable">{content}</pre>
+              </div>
+            ) : (
+              <div className="bg-bg-tertiary border border-border rounded-xl overflow-hidden">
+                {fileTree.length === 0 ? (
+                  <p className="text-xs text-text-muted text-center py-6">No files found</p>
+                ) : (
+                  <div className="p-2">
+                    {fileTree.map(node => (
+                      <FileTreeNode key={node.path} node={node} depth={0} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
@@ -196,6 +264,15 @@ export function SkillsTab() {
             <p className="text-xs text-text-muted max-w-xs leading-relaxed">
               Select a skill to view it, toggle it on/off, or use <span className="text-accent">New skill</span> to write or upload your own.
             </p>
+            {/* Upload format info */}
+            <div className="mt-2 p-3 bg-bg-tertiary border border-border rounded-xl text-left w-full max-w-xs">
+              <p className="text-2xs font-semibold text-text-secondary mb-2 flex items-center gap-1.5"><Info size={10} /> Skill formats</p>
+              <div className="space-y-1.5">
+                <div className="text-2xs text-text-muted"><span className="font-mono text-accent">SKILL.md</span> — single file, YAML frontmatter</div>
+                <div className="text-2xs text-text-muted"><span className="font-mono text-accent">.zip / .skill</span> — folder, must contain SKILL.md</div>
+                <div className="text-2xs text-text-muted"><span className="font-mono text-accent">scripts/ examples/ resources/</span> — supported</div>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -256,7 +333,55 @@ function CreateSkill({ onCancel, onCreated }: { onCancel: () => void; onCreated:
   )
 }
 
+function FileTreeNode({ node, depth }: { node: any; depth: number }) {
+  const [open, setOpen] = useState(depth === 0)
+  const isDir = node.type === 'directory'
+  const indent = depth * 12
+
+  function getFileIcon(name: string) {
+    if (name.endsWith('.md')) return <FileText size={11} className="text-blue-400 flex-shrink-0" />
+    if (name.endsWith('.ts') || name.endsWith('.js') || name.endsWith('.py') || name.endsWith('.sh'))
+      return <FileCode size={11} className="text-green-400 flex-shrink-0" />
+    if (name.endsWith('.json') || name.endsWith('.yaml') || name.endsWith('.yml'))
+      return <FileJson size={11} className="text-yellow-400 flex-shrink-0" />
+    return <FileText size={11} className="text-text-muted flex-shrink-0" />
+  }
+
+  return (
+    <div>
+      <button
+        onClick={() => isDir && setOpen(o => !o)}
+        className={`flex items-center gap-1.5 w-full px-1.5 py-1 rounded-md text-left transition-colors ${
+          isDir ? 'hover:bg-bg-hover cursor-pointer' : 'cursor-default'
+        }`}
+        style={{ paddingLeft: `${4 + indent}px` }}
+      >
+        {isDir ? (
+          open
+            ? <ChevronDown size={11} className="text-text-muted flex-shrink-0" />
+            : <ChevronRight size={11} className="text-text-muted flex-shrink-0" />
+        ) : (
+          <span className="w-[11px] flex-shrink-0" />
+        )}
+        {isDir
+          ? (open
+              ? <FolderOpenIcon size={11} className="text-accent flex-shrink-0" />
+              : <FolderIcon size={11} className="text-accent flex-shrink-0" />)
+          : getFileIcon(node.name)
+        }
+        <span className={`text-2xs truncate ${isDir ? 'text-text-primary font-medium' : 'text-text-secondary'}`}>
+          {node.name}
+        </span>
+      </button>
+      {isDir && open && node.children?.map((child: any) => (
+        <FileTreeNode key={child.path} node={child} depth={depth + 1} />
+      ))}
+    </div>
+  )
+}
+
 function Toggle({ on, onClick, large }: { on: boolean; onClick: (e: React.MouseEvent) => void; large?: boolean }) {
+
   const w = large ? 'w-9 h-5' : 'w-7 h-4'
   const knob = large ? 'w-4 h-4' : 'w-3 h-3'
   const move = large ? 'translate-x-4' : 'translate-x-3'

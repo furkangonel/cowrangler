@@ -205,7 +205,7 @@ export interface OutputFile {
 
 interface ElectronAPI {
   agent: {
-    chat: (projectId: string, sessionId: string | null, message: string) => Promise<void>
+    chat: (projectId: string, sessionId: string | null, message: string, model?: string) => Promise<void>
     interrupt: (projectId: string) => Promise<{ ok: boolean }>
     getContextSnapshot: (projectId: string) => Promise<ContextSnapshot | null>
     newSession: (projectId: string) => Promise<{ ok: boolean }>
@@ -214,6 +214,7 @@ interface ElectronAPI {
     onProgress: (cb: (tasks: TaskProgress[]) => void) => () => void
     onDone: (cb: (result: AgentDoneResult) => void) => () => void
     onError: (cb: (err: string) => void) => () => void
+    onInterrupted: (cb: () => void) => () => void
     onApprovalRequest: (cb: (data: any) => void) => () => void
     removeAllListeners: () => void
   }
@@ -254,6 +255,7 @@ interface ElectronAPI {
     upload: () => Promise<{ ok: boolean; id?: string; error?: string }>
     remove: (skillId: string) => Promise<{ ok: boolean; error?: string }>
     openFolder: () => Promise<{ ok: boolean }>
+    fileTree: (skillId: string) => Promise<{ name: string; path: string; type: 'file' | 'directory'; children?: any[] }[]>
   }
   mcp: {
     list: () => Promise<MCPServerInfo[]>
@@ -305,8 +307,8 @@ export const ipc: ElectronAPI = new Proxy({} as ElectronAPI, {
     const api = (window as any).electronAPI
     if (!api) {
       console.error(
-        `[ipc] window.electronAPI yok — preload yüklenemedi. (erişilen: ${prop})\n` +
-        `Electron main.ts'deki preload yolunu kontrol edin.`
+        `[ipc] window.electronAPI is missing — preload failed to load. (accessed: ${prop})\n` +
+        `Check the preload path in Electron main.ts.`
       )
       // Çağrılabilir dummy döndür — uygulama crash etmesin, sadece hata loglar
       return new Proxy(() => Promise.reject(new Error('electronAPI not available')), {

@@ -5,15 +5,17 @@ import { useSessionsStore } from '../../stores/sessions.store'
 import { useAgentStore } from '../../stores/agent.store'
 import { ipc, OutputFile } from '../../lib/ipc'
 import { formatRelative } from '../../lib/time'
+import { EditProjectModal } from './EditProjectModal'
 
 interface Props { projectId: string }
 
 export function ProjectHome({ projectId }: Props) {
-  const { getActiveProject, loadFolders, folders, loadInstructions } = useProjectsStore()
+  const { getActiveProject, loadFolders, folders, loadInstructions, updateProject, deleteProject, setActiveProject } = useProjectsStore()
   const { sessionsByProject, loadSessions, setActiveSession } = useSessionsStore()
   const [message, setMessage] = useState('')
   const [outputs, setOutputs] = useState<OutputFile[]>([])
   const [menuOpen, setMenuOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const project = getActiveProject()
@@ -37,8 +39,23 @@ export function ProjectHome({ projectId }: Props) {
     setMessage('')
   }
 
+  async function togglePin() {
+    if (!project) return
+    await updateProject(projectId, { pinned: project.pinned ? 0 : 1 })
+  }
+
+  async function handleDelete() {
+    if (!project) return
+    const ok = window.confirm(`Are you sure you want to delete the project "${project.name}"? This action cannot be undone.`)
+    if (!ok) return
+    setMenuOpen(false)
+    await deleteProject(projectId)
+    setActiveProject(null)
+  }
+
   if (!project) return null
   const projectFolders = folders[projectId] ?? []
+  const isPinned = !!project.pinned
 
   return (
     <div className="flex flex-col h-full overflow-y-auto bg-bg-primary">
@@ -53,8 +70,16 @@ export function ProjectHome({ projectId }: Props) {
             )}
           </div>
           <div className="flex items-center gap-1">
-            <button className="p-2 text-text-muted hover:text-text-secondary hover:bg-bg-hover transition-colors rounded-lg" title="Sabitle">
-              <Pin size={15} />
+            <button
+              onClick={togglePin}
+              className={`p-2 rounded-lg transition-colors ${
+                isPinned
+                  ? 'text-accent bg-accent-subtle hover:bg-accent-subtle'
+                  : 'text-text-muted hover:text-text-secondary hover:bg-bg-hover'
+              }`}
+              title={isPinned ? 'Unpin' : 'Pin'}
+            >
+              <Pin size={15} className={isPinned ? 'fill-current' : ''} />
             </button>
             <div className="relative">
               <button
@@ -64,13 +89,23 @@ export function ProjectHome({ projectId }: Props) {
                 <MoreHorizontal size={15} />
               </button>
               {menuOpen && (
-                <div
-                  className="absolute right-0 top-10 z-20 bg-bg-secondary border border-border rounded-xl shadow-pop min-w-[170px] py-1 animate-slide-up"
-                  onClick={() => setMenuOpen(false)}
-                >
-                  <button className="w-full px-3 py-2 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary">Edit project</button>
-                  <button className="w-full px-3 py-2 text-left text-xs text-error hover:bg-error/10">Projeyi sil</button>
-                </div>
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+                  <div className="absolute right-0 top-10 z-20 bg-bg-secondary border border-border rounded-xl shadow-pop min-w-[170px] py-1 animate-slide-up">
+                    <button
+                      onClick={() => { setMenuOpen(false); setEditOpen(true) }}
+                      className="w-full px-3 py-2 text-left text-xs text-text-secondary hover:bg-bg-hover hover:text-text-primary"
+                    >
+                      Edit project
+                    </button>
+                    <button
+                      onClick={handleDelete}
+                      className="w-full px-3 py-2 text-left text-xs text-error hover:bg-error/10"
+                    >
+                      Delete project
+                    </button>
+                  </div>
+                </>
               )}
             </div>
           </div>
@@ -91,7 +126,7 @@ export function ProjectHome({ projectId }: Props) {
             value={message}
             onChange={e => setMessage(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); startSession() } }}
-            placeholder="Bu projede ne yapmak istersiniz?"
+            placeholder="What do you want to do in this project?"
             rows={3}
             className="w-full bg-transparent text-md text-text-primary placeholder-text-muted resize-none outline-none selectable px-4 py-3.5"
           />
@@ -138,7 +173,7 @@ export function ProjectHome({ projectId }: Props) {
 
         {/* Recent chats */}
         {sessions.length > 0 && (
-          <Section title="Son sohbetler">
+          <Section title="Recent chats">
             <div className="grid grid-cols-2 gap-2.5">
               {sessions.slice(0, 6).map(s => (
                 <button
@@ -150,11 +185,11 @@ export function ProjectHome({ projectId }: Props) {
                     <MessageSquare size={13} className="text-text-muted mt-0.5 flex-shrink-0 group-hover:text-accent transition-colors" />
                     <div className="min-w-0">
                       <p className="text-xs font-medium text-text-primary truncate group-hover:text-accent transition-colors">
-                        {s.title || 'Sohbet'}
+                        {s.title || 'Chat'}
                       </p>
                       <p className="text-2xs text-text-muted mt-1 flex items-center gap-1">
                         <Clock size={9} /> {formatRelative(s.started_at)}
-                        {s.message_count > 0 && ` · ${s.message_count} mesaj`}
+                        {s.message_count > 0 && ` · ${s.message_count} messages`}
                       </p>
                     </div>
                   </div>
@@ -164,6 +199,8 @@ export function ProjectHome({ projectId }: Props) {
           </Section>
         )}
       </div>
+
+      {editOpen && <EditProjectModal projectId={projectId} onClose={() => setEditOpen(false)} />}
     </div>
   )
 }

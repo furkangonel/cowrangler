@@ -245,6 +245,7 @@ export class Agent {
 
   requestInterrupt(): void {
     this._interruptRequested = true;
+    this.llm.abort();
   }
 
   clearInterrupt(): void {
@@ -404,6 +405,7 @@ export class Agent {
             : historyMessages;
 
           const callOptions: Parameters<typeof streamText>[0] = {
+            abortSignal: this.llm.getAbortSignal(),
             model: this.llm.getModel(),
             ...(isAnthropic ? {} : { system: this.baseSystemPrompt }),
             messages: messagesWithSystem,
@@ -500,9 +502,16 @@ export class Agent {
           // Cache tokenlarını geçici değişkende sakla (döngü dışında kullanacağız)
           totalCacheReadTokens += stepCacheReadTokens;
           totalCacheWriteTokens += stepCacheWriteTokens;
+          this.llm.clearAbortController();
           break;
         } catch (err) {
           lastError = err;
+
+          // AbortError = user interrupted, do not retry
+          if ((err as any)?.name === 'AbortError' || (err as any)?.message?.includes('aborted')) {
+            this.llm.clearAbortController();
+            throw err;
+          }
 
           // 429 rate limit → credential pool'dan farklı anahtar dene
           const e = err as any;

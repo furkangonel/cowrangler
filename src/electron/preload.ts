@@ -4,8 +4,8 @@ import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
 contextBridge.exposeInMainWorld('electronAPI', {
   // ── Agent ──────────────────────────────────────────────────────────────────
   agent: {
-    chat: (projectId: string, sessionId: string | null, message: string) =>
-      ipcRenderer.invoke('agent:chat', projectId, sessionId, message),
+    chat: (projectId: string, sessionId: string | null, message: string, model?: string) =>
+      ipcRenderer.invoke('agent:chat', projectId, sessionId, message, model),
     interrupt: (projectId: string) =>
       ipcRenderer.invoke('agent:interrupt', projectId),
     getContextSnapshot: (projectId: string) =>
@@ -39,13 +39,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('agent:error', listener)
       return () => ipcRenderer.removeListener('agent:error', listener)
     },
+    onInterrupted: (cb: () => void) => {
+      const listener = () => cb()
+      ipcRenderer.on('agent:interrupted', listener)
+      return () => ipcRenderer.removeListener('agent:interrupted', listener)
+    },
     onApprovalRequest: (cb: (data: any) => void) => {
       const listener = (_: IpcRendererEvent, data: any) => cb(data)
       ipcRenderer.on('agent:approvalRequest', listener)
       return () => ipcRenderer.removeListener('agent:approvalRequest', listener)
     },
     removeAllListeners: () => {
-      ;['agent:toolCall', 'agent:stepText', 'agent:progress', 'agent:done', 'agent:error', 'agent:approvalRequest']
+      ;['agent:toolCall', 'agent:stepText', 'agent:progress', 'agent:done', 'agent:error', 'agent:interrupted', 'agent:approvalRequest']
         .forEach(ch => ipcRenderer.removeAllListeners(ch))
     },
   },
@@ -95,6 +100,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     upload: () => ipcRenderer.invoke('skills:upload'),
     remove: (skillId: string) => ipcRenderer.invoke('skills:delete', skillId),
     openFolder: () => ipcRenderer.invoke('skills:openFolder'),
+    fileTree: (skillId: string) => ipcRenderer.invoke('skills:fileTree', skillId),
   },
 
   // ── MCP / Connectors ───────────────────────────────────────────────────────
