@@ -209,6 +209,7 @@ interface ElectronAPI {
     interrupt: (projectId: string) => Promise<{ ok: boolean }>
     getContextSnapshot: (projectId: string) => Promise<ContextSnapshot | null>
     newSession: (projectId: string) => Promise<{ ok: boolean }>
+    getTodo: (projectId: string) => Promise<TaskProgress[]>
     onToolCall: (cb: (data: ToolCallEvent) => void) => () => void
     onStepText: (cb: (text: string) => void) => () => void
     onProgress: (cb: (tasks: TaskProgress[]) => void) => () => void
@@ -253,6 +254,8 @@ interface ElectronAPI {
     toggle: (skillId: string, active: boolean) => Promise<{ ok: boolean }>
     create: (data: { name: string; description: string; content?: string }) => Promise<{ ok: boolean; id?: string; error?: string }>
     upload: () => Promise<{ ok: boolean; id?: string; error?: string }>
+    importFile: (filePath: string) => Promise<{ ok: boolean; id?: string; error?: string }>
+    downloadGithub: (url: string) => Promise<{ ok: boolean; id?: string; error?: string }>
     remove: (skillId: string) => Promise<{ ok: boolean; error?: string }>
     openFolder: () => Promise<{ ok: boolean }>
     fileTree: (skillId: string) => Promise<{ name: string; path: string; type: 'file' | 'directory'; children?: any[] }[]>

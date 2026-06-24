@@ -84,6 +84,18 @@ const MODEL_REGISTRY: Record<string, ModelMeta> = {
   },
 
   // ── Google Gemini ─────────────────────────────────────────────────────────
+  "gemini-3.1-pro": {
+    contextWindow: 2_000_000, maxOutputTokens: 65_536,
+    inputPricePerMToken: 1.25, outputPricePerMToken: 10,
+    supportsThinking: true, supportsVision: true, supportsCaching: true,
+    provider: "google", displayName: "Gemini 3.1 Pro",
+  },
+  "gemini-3.0-pro": {
+    contextWindow: 1_000_000, maxOutputTokens: 65_536,
+    inputPricePerMToken: 1.25, outputPricePerMToken: 10,
+    supportsThinking: true, supportsVision: true, supportsCaching: true,
+    provider: "google", displayName: "Gemini 3.0 Pro",
+  },
   "gemini-2.5-pro": {
     contextWindow: 1_000_000, maxOutputTokens: 65_536,
     inputPricePerMToken: 1.25, outputPricePerMToken: 10,

@@ -5,12 +5,13 @@ import { ContextPanel } from '../panels/ContextPanel'
 import { WorkingFoldersPanel } from '../panels/WorkingFoldersPanel'
 import { InstructionsPanel } from '../panels/InstructionsPanel'
 import { ScheduledPanel } from '../panels/ScheduledPanel'
+import { PreviewPanel } from '../panels/PreviewPanel'
 import { useUIStore } from '../../stores/ui.store'
 import { useProjectsStore } from '../../stores/projects.store'
 import { useSessionsStore } from '../../stores/sessions.store'
 
 export function RightPanel() {
-  const { rightPanelOpen } = useUIStore()
+  const { rightPanelOpen, previewFile } = useUIStore()
   const { activeProjectId } = useProjectsStore()
   const { activeSessionId } = useSessionsStore()
 
@@ -23,11 +24,18 @@ export function RightPanel() {
       className="flex flex-col flex-shrink-0 border-l border-border-subtle bg-bg-secondary overflow-y-auto animate-slide-in"
       style={{ width: 'var(--right-panel-width)' }}
     >
-      {isSession ? (
+      {previewFile && (
+        <div className="flex-1 flex flex-col min-h-0 border-b border-border-subtle">
+          <PreviewPanel />
+        </div>
+      )}
+
+      <div className="flex-1 overflow-y-auto">
+        {isSession ? (
         // ─── Session view ───────────────────────────────────────────────────
         <>
           <CollapsibleBox title="Tasks" defaultOpen>
-            <ProgressPanel />
+            <ProgressPanel projectId={activeProjectId} />
           </CollapsibleBox>
 
           <CollapsibleBox title="Working Folders" defaultOpen>
@@ -54,6 +62,7 @@ export function RightPanel() {
           </CollapsibleBox>
         </>
       )}
+      </div>
     </aside>
   )
 }

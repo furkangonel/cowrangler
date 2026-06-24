@@ -109,24 +109,32 @@ export class AgentManager {
   }
 
   /**
-   * Proje TODO dosyasını oku ve parse et.
-   * workdir verilirse o dizindeki todo'yu okur; verilmezse project_context'teki güncel yolu kullanır.
+   * TODO dosyasını oku ve parse et.
+   * workdir verilirse o dizindeki tasks.json'u okur; verilmezse project_context'teki güncel yolu kullanır.
    */
   static readTodo(workdir?: string): TaskProgress[] {
     const todoFile = workdir
-      ? path.join(workdir, '.cowrangler', 'AGENT_TODO.md')
-      : getProjectTodoFile()
+      ? path.join(workdir, '.cowrangler', 'tasks.json')
+      : path.join(getProjectTodoFile(), '..', 'tasks.json')
+      
     if (!fs.existsSync(todoFile)) return []
     try {
       const content = fs.readFileSync(todoFile, 'utf-8')
-      return AgentManager.parseTodo(content)
+      const parsed = JSON.parse(content)
+      if (!parsed.tasks || !Array.isArray(parsed.tasks)) return []
+      
+      return parsed.tasks.map((t: any) => ({
+        id: String(t.index || t.id),
+        text: t.title + (t.notes ? ` — ${t.notes}` : ''),
+        status: t.status === 'done' ? 'completed' : (t.status === 'in_progress' ? 'in_progress' : 'pending')
+      }))
     } catch {
       return []
     }
   }
 
   /**
-   * TODO dosyasını izle — değişince callback çağır.
+   * tasks.json dosyasını izle — değişince callback çağır.
    * Proje workdir'ine dayalı per-project dosyayı izler.
    */
   watchTodo(projectId: string, onChange: (tasks: TaskProgress[]) => void): void {
@@ -134,12 +142,14 @@ export class AgentManager {
 
     const workdir = this.workdirs.get(projectId)
     const todoFile = workdir
-      ? path.join(workdir, '.cowrangler', 'AGENT_TODO.md')
-      : getProjectTodoFile()
+      ? path.join(workdir, '.cowrangler', 'tasks.json')
+      : path.join(getProjectTodoFile(), '..', 'tasks.json')
 
     // Dizin + dosyayı hazırla
     fs.mkdirSync(path.dirname(todoFile), { recursive: true })
-    if (!fs.existsSync(todoFile)) fs.writeFileSync(todoFile, '', 'utf-8')
+    if (!fs.existsSync(todoFile)) {
+      fs.writeFileSync(todoFile, JSON.stringify({ version: 1, tasks: [], nextIndex: 1 }, null, 2), 'utf-8')
+    }
 
     let debounce: ReturnType<typeof setTimeout> | null = null
     try {

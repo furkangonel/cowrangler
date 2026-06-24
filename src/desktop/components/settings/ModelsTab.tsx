@@ -2,26 +2,18 @@ import React, { useState } from 'react'
 import { Eye, EyeOff, Check, AlertCircle, ArrowRight, RefreshCw } from 'lucide-react'
 import { useSettingsStore } from '../../stores/settings.store'
 
-const PROVIDER_ORDER = ['anthropic', 'openai', 'google', 'openrouter', 'groq', 'xai', 'mistral']
 
-function providerGroups(models: { provider: string }[]): string[] {
-  const present = Array.from(new Set(models.map(m => m.provider)))
-  const ordered = PROVIDER_ORDER.filter(p => present.includes(p))
-  const rest = present.filter(p => !PROVIDER_ORDER.includes(p)).sort()
-  return [...ordered, ...rest]
-}
 
 export function ModelsTab() {
-  const { apiKeys, models, setApiKey, removeApiKey, setModel, getModel, refreshModels } = useSettingsStore()
+  const { apiKeys, models, setApiKey, removeApiKey, setModel, getModel, config, setConfig } = useSettingsStore()
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({})
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState<Record<string, boolean>>({})
   const [manualModel, setManualModel] = useState('')
-  const [refreshing, setRefreshing] = useState(false)
+  const [manualContextWindow, setManualContextWindow] = useState('')
 
   const currentModel = getModel()
   const currentModelInfo = models.find(m => m.id === currentModel)
-  const groups = providerGroups(models)
 
   async function saveKey(provider: string) {
     const key = keyInputs[provider]?.trim()
@@ -36,13 +28,20 @@ export function ModelsTab() {
     const id = manualModel.trim()
     if (!id) return
     await setModel(id)
+    
+    if (manualContextWindow.trim()) {
+      const cw = parseInt(manualContextWindow.trim(), 10)
+      if (!isNaN(cw)) {
+        const currentCustomCWs = config['custom_context_windows'] || {}
+        await setConfig('custom_context_windows', { ...currentCustomCWs, [id]: cw })
+      }
+    }
+    
     setManualModel('')
+    setManualContextWindow('')
   }
 
-  async function refresh() {
-    setRefreshing(true)
-    try { await refreshModels() } finally { setRefreshing(false) }
-  }
+
 
   return (
     <div className="p-6 space-y-8 max-w-2xl">
@@ -57,8 +56,24 @@ export function ModelsTab() {
             onChange={e => setManualModel(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && useManualModel()}
             placeholder="provider/model-id  (e.g. anthropic/claude-opus-4-6)"
-            className="flex-1 px-3 py-2.5 bg-bg-tertiary border border-border rounded-xl text-sm text-text-primary placeholder-text-muted font-mono focus:border-accent transition-colors"
+            className="flex-[4] px-3 py-2.5 bg-bg-tertiary border border-border rounded-xl text-sm text-text-primary placeholder-text-muted font-mono focus:border-accent transition-colors"
           />
+          <select
+            value={manualContextWindow}
+            onChange={e => setManualContextWindow(e.target.value)}
+            className="flex-1 px-3 py-2.5 bg-bg-tertiary border border-border rounded-xl text-sm text-text-primary font-mono focus:border-accent transition-colors"
+          >
+            <option value="">Default Size</option>
+            <option value="4096">4,096 (4K)</option>
+            <option value="8192">8,192 (8K)</option>
+            <option value="16384">16,384 (16K)</option>
+            <option value="32768">32,768 (32K)</option>
+            <option value="65536">65,536 (64K)</option>
+            <option value="128000">128,000 (128K)</option>
+            <option value="200000">200,000 (200K)</option>
+            <option value="1000000">1,000,000 (1M)</option>
+            <option value="2000000">2,000,000 (2M)</option>
+          </select>
           <button
             onClick={useManualModel}
             disabled={!manualModel.trim()}
@@ -70,7 +85,10 @@ export function ModelsTab() {
 
         <div className="mt-2.5 flex items-center gap-2 text-xs">
           <span className="text-text-muted">Current:</span>
-          <span className="font-mono text-text-primary truncate">{currentModelInfo?.label ?? (currentModel || '— none selected —')}</span>
+          <span className="font-mono text-text-primary truncate">
+            {currentModelInfo?.label ?? (currentModel || '— none selected —')}
+            {config['custom_context_windows']?.[currentModel] ? ` (Custom context: ${config['custom_context_windows'][currentModel]})` : ''}
+          </span>
         </div>
         {currentModelInfo && !currentModelInfo.available && (
           <p className="text-2xs text-warning mt-2 flex items-center gap-1">
@@ -79,56 +97,7 @@ export function ModelsTab() {
         )}
       </section>
 
-      {/* Discovered models list */}
-      <section>
-        <div className="flex items-center justify-between mb-2">
-          <h4 className="text-sm font-semibold text-text-primary">Available models</h4>
-          <button onClick={refresh} className="flex items-center gap-1.5 text-2xs text-text-muted hover:text-text-secondary transition-colors">
-            <RefreshCw size={11} className={refreshing ? 'animate-spin' : ''} /> Refresh
-          </button>
-        </div>
 
-        {models.length === 0 ? (
-          <div className="text-center py-8 bg-bg-tertiary border border-border rounded-xl">
-            <p className="text-xs text-text-muted">No models discovered yet.</p>
-            <p className="text-2xs text-text-muted mt-1">Add an API key below — models are fetched live from each provider.</p>
-          </div>
-        ) : (
-          <div className="border border-border rounded-xl overflow-hidden divide-y divide-border-subtle max-h-80 overflow-y-auto">
-            {groups.map(provider => {
-              const providerModels = models.filter(m => m.provider === provider)
-              if (!providerModels.length) return null
-              return (
-                <div key={provider}>
-                  <p className="px-3 py-1.5 text-2xs text-text-muted uppercase tracking-wider font-semibold bg-bg-primary/60 sticky top-0">
-                    {provider} <span className="text-text-muted/60 normal-case">· {providerModels.length}</span>
-                  </p>
-                  {providerModels.map(m => (
-                    <button
-                      key={m.id}
-                      onClick={() => setModel(m.id)}
-                      disabled={!m.available}
-                      className={`w-full flex items-center justify-between px-3 py-2 text-xs transition-colors ${
-                        m.id === currentModel
-                          ? 'bg-accent-subtle text-accent'
-                          : m.available
-                          ? 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'
-                          : 'text-text-muted opacity-40 cursor-not-allowed'
-                      }`}
-                    >
-                      <span className="truncate flex items-center gap-1.5">
-                        {m.id === currentModel && <Check size={11} className="flex-shrink-0" />}
-                        {m.label}
-                      </span>
-                      <span className="text-2xs text-text-muted flex-shrink-0 ml-2">{m.contextK}k</span>
-                    </button>
-                  ))}
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </section>
 
       {/* API keys */}
       <section>

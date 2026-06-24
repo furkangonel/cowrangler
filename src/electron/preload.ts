@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('agent:contextSnapshot', projectId),
     newSession: (projectId: string) =>
       ipcRenderer.invoke('agent:newSession', projectId),
+    getTodo: (projectId: string) =>
+      ipcRenderer.invoke('agent:getTodo', projectId),
 
     // Streaming events (main → renderer)
     onToolCall: (cb: (data: any) => void) => {
@@ -98,6 +100,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     create: (data: { name: string; description: string; content?: string }) =>
       ipcRenderer.invoke('skills:create', data),
     upload: () => ipcRenderer.invoke('skills:upload'),
+    importFile: (filePath: string) => ipcRenderer.invoke('skills:importFile', filePath),
+    downloadGithub: (url: string) => ipcRenderer.invoke('skills:downloadGithub', url),
     remove: (skillId: string) => ipcRenderer.invoke('skills:delete', skillId),
     openFolder: () => ipcRenderer.invoke('skills:openFolder'),
     fileTree: (skillId: string) => ipcRenderer.invoke('skills:fileTree', skillId),

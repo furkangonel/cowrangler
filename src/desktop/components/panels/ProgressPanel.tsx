@@ -1,16 +1,26 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { CheckCircle2, Circle, Loader2 } from 'lucide-react'
 import { useAgentStore } from '../../stores/agent.store'
-import { TaskProgress } from '../../lib/ipc'
+import { TaskProgress, ipc } from '../../lib/ipc'
 
 /**
  * ProgressPanel — yalnızca GÖREV (task) yönetimi.
  * Canlı durum banner'ı / "Live activity" akışı bilinçli olarak kaldırıldı:
  * tool çağrıları artık sohbet akışında kronolojik olarak gösterilir.
  */
-export function ProgressPanel() {
-  const { progress, status } = useAgentStore()
+export function ProgressPanel({ projectId }: { projectId: string }) {
+  const { progress, status, setProgress } = useAgentStore()
   const working = status === 'thinking'
+
+  useEffect(() => {
+    if (projectId) {
+      ipc.agent.getTodo(projectId).then(tasks => {
+        if (tasks && tasks.length > 0) {
+          setProgress(tasks)
+        }
+      })
+    }
+  }, [projectId, setProgress])
 
   const completed = progress.filter(t => t.status === 'completed').length
   const total = progress.length

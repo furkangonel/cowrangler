@@ -200,7 +200,21 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
 
   // ── agent:newSession ───────────────────────────────────────────────────────
   ipcMain.handle('agent:newSession', async (_, projectId: string) => {
+    const workdir = agentManager.getWorkdir(projectId) || (projectId === GLOBAL_PROJECT_ID ? getGlobalWorkdir() : undefined)
+    if (workdir) {
+      const todoFile = path.join(workdir, '.cowrangler', 'tasks.json')
+      fs.mkdirSync(path.dirname(todoFile), { recursive: true })
+      fs.writeFileSync(todoFile, JSON.stringify({ version: 1, tasks: [], nextIndex: 1 }, null, 2), 'utf-8')
+    }
     agentManager.destroy(projectId)
     return { ok: true }
+  })
+
+  // ── agent:getTodo ──────────────────────────────────────────────────────────
+  ipcMain.handle('agent:getTodo', async (_, projectId: string) => {
+    const project = getProjectDB().get(projectId)
+    const workdir = project?.workdir ?? (projectId === GLOBAL_PROJECT_ID ? getGlobalWorkdir() : undefined)
+    if (!workdir) return []
+    return AgentManager.readTodo(workdir)
   })
 }

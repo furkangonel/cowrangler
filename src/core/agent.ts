@@ -163,8 +163,16 @@ export class Agent {
     }
 
     const skills = this.skillManager.getAvailableSkills();
-    if (skills.length > 0) {
-      const skillsText = skills
+    
+    // Her zaman aktif olması gereken system skill: setup-cowork
+    const setupCowork = skills.find(s => s.id === 'setup-cowork');
+    if (setupCowork) {
+      finalPrompt += `\n\n[SYSTEM DIRECTIVE: SETUP-COWORK]\nThe following is a core operating procedure that must ALWAYS be followed:\n---\n${setupCowork.content}\n---`;
+    }
+
+    const visibleSkills = skills.filter(s => s.id !== 'setup-cowork');
+    if (visibleSkills.length > 0) {
+      const skillsText = visibleSkills
         .map((s) => `- **${s.id}**: ${s.description}`)
         .join("\n");
       finalPrompt +=

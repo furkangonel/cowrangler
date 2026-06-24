@@ -124,7 +124,8 @@ export class DefaultContextEngine extends ContextEngine {
   }
 
   shouldCompress(estimatedContextTokens: number): boolean {
-    const windowSize = getContextWindow(this.model);
+    const customCWs = getConfig().custom_context_windows || {};
+    const windowSize = customCWs[this.model] ?? getContextWindow(this.model);
     const ratio = estimatedContextTokens / windowSize;
     return ratio >= this.thresholdRatio;
   }
@@ -262,7 +263,8 @@ export class DefaultContextEngine extends ContextEngine {
   }
 
   getSnapshot(): ContextSnapshot {
-    const windowSize = getContextWindow(this.model);
+    const customCWs = getConfig().custom_context_windows || {};
+    const windowSize = customCWs[this.model] ?? getContextWindow(this.model);
     const usagePercent = Math.min(100, (this.contextTokens / windowSize) * 100);
 
     return {

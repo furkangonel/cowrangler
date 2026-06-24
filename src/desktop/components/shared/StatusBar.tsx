@@ -15,7 +15,11 @@ export function StatusBar() {
 
   // Refresh context snapshot periodically
   useEffect(() => {
-    if (!activeProjectId) return
+    if (!activeProjectId) {
+      useAgentStore.getState().setContextSnapshot(null)
+      return
+    }
+    useAgentStore.getState().setContextSnapshot(null)
     const id = setInterval(async () => {
       const snap = await ipc.agent.getContextSnapshot(activeProjectId)
       if (snap) useAgentStore.getState().setContextSnapshot(snap)
