@@ -110,13 +110,16 @@ export function WorkingFoldersPanel({ projectId }: Props) {
   )
 }
 
+import { useUIStore } from '../../stores/ui.store'
+
 function FileTreeNode({ node, depth }: { node: FileNode; depth: number }) {
   const [open, setOpen] = useState(false)
   const [children, setChildren] = useState<FileNode[]>(node.children ?? [])
+  const { setPreviewFile } = useUIStore()
 
   async function toggle() {
     if (node.type === 'file') {
-      await ipc.fs.openInFinder(node.path)
+      setPreviewFile(node.path)
       return
     }
     if (!open && node.children === undefined) {
@@ -150,7 +153,13 @@ function FileTreeNode({ node, depth }: { node: FileNode; depth: number }) {
           {node.name}
         </span>
         {node.type === 'file' && (
-          <ExternalLink size={9} className="opacity-0 group-hover:opacity-100 text-text-muted ml-auto transition-opacity" />
+          <button 
+            onClick={(e) => { e.stopPropagation(); ipc.fs.openInFinder(node.path) }}
+            className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-secondary ml-auto transition-opacity"
+            title="Open in Finder"
+          >
+            <ExternalLink size={9} />
+          </button>
         )}
       </div>
       {open && children.length > 0 && (

@@ -180,19 +180,28 @@ export class SessionDB {
         tokenize = 'unicode61'
       );
 
-      CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
+      DROP TRIGGER IF EXISTS messages_ai;
+      CREATE TRIGGER messages_ai AFTER INSERT ON messages BEGIN
         INSERT INTO messages_fts(content, role, session_id, message_id)
-        VALUES (new.content, new.role, new.session_id, new.id);
+        VALUES (
+          CASE WHEN new.role = 'tool' THEN SUBSTR(new.content, 1, 4000) ELSE SUBSTR(new.content, 1, 65536) END,
+          new.role, new.session_id, new.id
+        );
       END;
 
-      CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
+      DROP TRIGGER IF EXISTS messages_ad;
+      CREATE TRIGGER messages_ad AFTER DELETE ON messages BEGIN
         DELETE FROM messages_fts WHERE message_id = old.id;
       END;
 
-      CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE OF content ON messages BEGIN
+      DROP TRIGGER IF EXISTS messages_au;
+      CREATE TRIGGER messages_au AFTER UPDATE OF content ON messages BEGIN
         DELETE FROM messages_fts WHERE message_id = old.id;
         INSERT INTO messages_fts(content, role, session_id, message_id)
-        VALUES (new.content, new.role, new.session_id, new.id);
+        VALUES (
+          CASE WHEN new.role = 'tool' THEN SUBSTR(new.content, 1, 4000) ELSE SUBSTR(new.content, 1, 65536) END,
+          new.role, new.session_id, new.id
+        );
       END;
     `);
   }

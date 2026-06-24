@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Search, BookOpen, FolderOpen, Plus, Trash2, X, PenLine, Upload, ChevronRight, ChevronDown, FileText, FolderIcon, FolderOpenIcon, FileCode, FileJson, Info } from 'lucide-react'
 import { ipc, SkillDef } from '../../lib/ipc'
+import { MarkdownRenderer } from '../shared/MarkdownRenderer'
 
 const SOURCE_LABEL: Record<string, string> = {
   bundled: 'Built-in',
@@ -19,7 +20,7 @@ export function SkillsTab() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [uploadError, setUploadError] = useState('')
   const [fileTree, setFileTree] = useState<any[]>([])
-  const [detailTab, setDetailTab] = useState<'content' | 'files'>('content')
+  const [detailTab, setDetailTab] = useState<'content' | 'preview' | 'files'>('preview')
   const [showUploadInfo, setShowUploadInfo] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
@@ -49,7 +50,7 @@ export function SkillsTab() {
   async function selectSkill(skill: SkillDef) {
     setSelected(skill)
     setCreating(false)
-    setDetailTab('content')
+    setDetailTab('preview')
     const c = await ipc.skills.getContent(skill.id)
     setContent(c ?? skill.content ?? '')
     // Load file tree
@@ -77,11 +78,59 @@ export function SkillsTab() {
   }
 
   async function uploadSkill() {
-    setMenuOpen(false)
     setUploadError('')
     const res = await ipc.skills.upload()
-    if (res.ok) { load() }
+    if (res.ok) { 
+      setShowUploadModal(false)
+      load() 
+    }
     else if (res.error && res.error !== 'canceled') setUploadError(res.error)
+  }
+
+  const [showUploadModal, setShowUploadModal] = useState(false)
+  const [showGithubModal, setShowGithubModal] = useState(false)
+  const [githubUrl, setGithubUrl] = useState('')
+  const [githubBusy, setGithubBusy] = useState(false)
+
+  const [isDragging, setIsDragging] = useState(false)
+
+  // Drag & drop handlers
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault()
+    setIsDragging(true)
+  }
+  function handleDragLeave(e: React.DragEvent) {
+    e.preventDefault()
+    setIsDragging(false)
+  }
+  async function handleDrop(e: React.DragEvent) {
+    e.preventDefault()
+    setIsDragging(false)
+    const file = e.dataTransfer.files[0]
+    if (!file) return
+    setUploadError('')
+    setMenuOpen(false)
+    const res = await ipc.skills.importFile(file.path)
+    if (res.ok) {
+      setShowUploadModal(false)
+      load()
+    }
+    else setUploadError(res.error || 'Failed to import dropped file')
+  }
+
+  async function submitGithub() {
+    if (!githubUrl.trim()) return
+    setGithubBusy(true)
+    setUploadError('')
+    const res = await ipc.skills.downloadGithub(githubUrl.trim())
+    setGithubBusy(false)
+    if (res.ok) {
+      setShowGithubModal(false)
+      setGithubUrl('')
+      load()
+    } else {
+      setUploadError(res.error || 'Failed to download GitHub repository')
+    }
   }
 
   const filtered = skills.filter(s =>
@@ -92,7 +141,95 @@ export function SkillsTab() {
   const activeCount = Object.values(active).filter(Boolean).length
 
   return (
-    <div className="flex h-full">
+    <div 
+      className={`flex h-full relative ${isDragging ? 'bg-bg-hover/20' : ''}`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Drag Overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-bg-primary/80 backdrop-blur-sm border-2 border-dashed border-accent rounded-xl m-4 pointer-events-none">
+          <div className="flex flex-col items-center text-accent">
+            <Upload size={48} className="mb-4 animate-bounce" />
+            <h3 className="text-xl font-bold">Drop skill file or folder to install</h3>
+            <p className="text-sm mt-2 opacity-80">Supports folders, .md, .zip, and .skill files</p>
+          </div>
+        </div>
+      )}
+
+      {/* GitHub Modal */}
+      {showGithubModal && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-bg-secondary border border-border rounded-xl p-5 shadow-2xl w-96 max-w-full">
+            <h3 className="text-sm font-semibold mb-2">Import from GitHub</h3>
+            <p className="text-xs text-text-muted mb-4">Enter the URL of a GitHub repository containing a SKILL.md.</p>
+            <input 
+              autoFocus
+              value={githubUrl}
+              onChange={e => setGithubUrl(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && submitGithub()}
+              placeholder="https://github.com/user/repo"
+              className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary placeholder-text-muted focus:border-accent transition-colors mb-4"
+            />
+            {uploadError && <p className="text-xs text-warning mb-4">{uploadError}</p>}
+            <div className="flex justify-end gap-2">
+              <button 
+                onClick={() => { setShowGithubModal(false); setGithubUrl('') }}
+                className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary rounded-lg hover:bg-bg-hover transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={submitGithub}
+                disabled={!githubUrl.trim() || githubBusy}
+                className="px-4 py-2 text-sm font-medium bg-accent text-accent-fg rounded-lg disabled:opacity-40 hover:bg-accent-hover transition-colors"
+              >
+                {githubBusy ? 'Importing…' : 'Import'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Upload Modal */}
+      {showUploadModal && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-bg-secondary border border-border rounded-xl p-6 shadow-2xl w-[440px] max-w-full relative">
+            <button 
+              onClick={() => setShowUploadModal(false)}
+              className="absolute top-4 right-4 text-text-muted hover:text-text-primary transition-colors"
+            >
+              <X size={16} />
+            </button>
+            <h3 className="text-base font-semibold mb-6">Upload skill</h3>
+            
+            <div 
+              className={`border border-dashed rounded-xl p-10 flex flex-col items-center justify-center text-center cursor-pointer transition-colors mb-6
+                ${isDragging ? 'border-accent bg-accent/5' : 'border-border-subtle hover:border-accent/50 hover:bg-bg-tertiary'}`}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={uploadSkill}
+            >
+              <div className="w-10 h-10 rounded-lg bg-bg-tertiary flex items-center justify-center mb-4 border border-border-subtle">
+                <Plus size={20} className="text-text-secondary" />
+              </div>
+              <p className="text-sm text-text-secondary">Drag and drop or click to upload</p>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs text-text-muted font-medium">File requirements</p>
+              <ul className="text-xs text-text-muted list-disc list-inside space-y-1">
+                <li>.md file must contain skill name and description formatted in YAML</li>
+                <li>.zip or .skill file must include a SKILL.md file</li>
+              </ul>
+            </div>
+            {uploadError && <p className="text-xs text-warning mt-4">{uploadError}</p>}
+          </div>
+        </div>
+      )}
+
       {/* List */}
       <div className="w-60 flex-shrink-0 border-r border-border-subtle flex flex-col">
         <div className="p-3 border-b border-border-subtle space-y-2">
@@ -113,10 +250,16 @@ export function SkillsTab() {
                     <PenLine size={12} /> Write instructions
                   </button>
                   <button
-                    onClick={uploadSkill}
+                    onClick={() => { setMenuOpen(false); setShowUploadModal(true); setUploadError(''); }}
                     className="w-full flex items-center gap-2 px-3 py-2 text-2xs text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors border-t border-border-subtle"
                   >
                     <Upload size={12} /> Upload a skill
+                  </button>
+                  <button
+                    onClick={() => { setMenuOpen(false); setShowGithubModal(true); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-2xs text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors border-t border-border-subtle"
+                  >
+                    <BookOpen size={12} /> Import from GitHub
                   </button>
                   {/* Format info */}
                   <div className="px-3 py-2 border-t border-border-subtle bg-bg-tertiary/50">
@@ -129,12 +272,12 @@ export function SkillsTab() {
                         {' '}<span>— with YAML frontmatter</span>
                       </div>
                       <div className="text-2xs text-text-muted">
-                        <span className="font-mono text-accent">.zip / .skill</span>
+                        <span className="font-mono text-accent">.zip / .skill / folder</span>
                         {' '}<span>— must contain SKILL.md</span>
                       </div>
                       <div className="text-2xs text-text-muted">
-                        <span className="font-mono text-accent">scripts/ examples/ resources/</span>
-                        {' '}— supported
+                        <span className="font-mono text-accent">GitHub URL</span>
+                        {' '}<span>— repo with SKILL.md</span>
                       </div>
                     </div>
                   </div>
@@ -227,6 +370,14 @@ export function SkillsTab() {
                 SKILL.md
               </button>
               <button
+                onClick={() => setDetailTab('preview')}
+                className={`px-3 py-1.5 text-xs rounded-t-lg transition-colors ${
+                  detailTab === 'preview' ? 'text-accent border-b-2 border-accent font-medium' : 'text-text-muted hover:text-text-secondary'
+                }`}
+              >
+                Preview
+              </button>
+              <button
                 onClick={() => setDetailTab('files')}
                 className={`px-3 py-1.5 text-xs rounded-t-lg transition-colors flex items-center gap-1.5 ${
                   detailTab === 'files' ? 'text-accent border-b-2 border-accent font-medium' : 'text-text-muted hover:text-text-secondary'
@@ -243,6 +394,10 @@ export function SkillsTab() {
             {detailTab === 'content' ? (
               <div className="bg-bg-tertiary border border-border rounded-xl p-4">
                 <pre className="text-2xs text-text-secondary font-mono whitespace-pre-wrap leading-relaxed selectable">{content}</pre>
+              </div>
+            ) : detailTab === 'preview' ? (
+              <div className="bg-bg-tertiary border border-border rounded-xl p-4">
+                <MarkdownRenderer content={content} className="text-sm text-text-secondary" />
               </div>
             ) : (
               <div className="bg-bg-tertiary border border-border rounded-xl overflow-hidden">
@@ -269,7 +424,7 @@ export function SkillsTab() {
               <p className="text-2xs font-semibold text-text-secondary mb-2 flex items-center gap-1.5"><Info size={10} /> Skill formats</p>
               <div className="space-y-1.5">
                 <div className="text-2xs text-text-muted"><span className="font-mono text-accent">SKILL.md</span> — single file, YAML frontmatter</div>
-                <div className="text-2xs text-text-muted"><span className="font-mono text-accent">.zip / .skill</span> — folder, must contain SKILL.md</div>
+                <div className="text-2xs text-text-muted"><span className="font-mono text-accent">.zip / .skill / folder</span> — must contain SKILL.md</div>
                 <div className="text-2xs text-text-muted"><span className="font-mono text-accent">scripts/ examples/ resources/</span> — supported</div>
               </div>
             </div>

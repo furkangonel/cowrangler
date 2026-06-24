@@ -6,6 +6,20 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.0.7] — 2026-06-25
+
+### Added
+- **Skill Upload Modal** — Introduced a custom drag-and-drop modal for skill uploads matching the native app experience.
+- **Context Size Dropdown** — Replaced manual text input with a predefined selection dropdown (4K to 2M) for model context sizes.
+
+### Changed
+- **System Skills** — Hidden the internal `setup-cowork` skill from the UI and auto-injected it as a core system directive for the agent.
+- **Task Management** — Replaced the global `AGENT_TODO.md` file with a session-specific `tasks.json` to ensure isolated agent task tracking per chat session.
+- **Skill Imports** — Enhanced `.zip` and folder upload logic to recursively find nested `SKILL.md` files; added `jszip` dependency.
+
+### Fixed
+- **Connector Icons** — Updated Content Security Policy (CSP) to allow loading external images over HTTPS, fixing broken icons in the Connectors tab.
+
 ## [2.0.6] — 2026-06-23
 
 ### Added

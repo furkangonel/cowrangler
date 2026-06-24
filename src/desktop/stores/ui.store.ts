@@ -10,6 +10,7 @@ interface UIState {
   onboardingVisible: boolean
   newProjectModalOpen: boolean
   settingsPage: string | null  // null = settings kapalı, 'models' | 'connectors' | 'skills' | 'appearance'
+  previewFile: string | null
 
   toggleRightPanel: () => void
   setRightPanelOpen: (open: boolean) => void
@@ -23,6 +24,7 @@ interface UIState {
   setNewProjectModal: (open: boolean) => void
   openSettings: (page?: string) => void
   closeSettings: () => void
+  setPreviewFile: (file: string | null) => void
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -35,6 +37,7 @@ export const useUIStore = create<UIState>((set) => ({
   onboardingVisible: false,
   newProjectModalOpen: false,
   settingsPage: null,
+  previewFile: null,
 
   toggleRightPanel: () => set(s => ({ rightPanelOpen: !s.rightPanelOpen })),
   setRightPanelOpen: (open) => set({ rightPanelOpen: open }),
@@ -48,5 +51,6 @@ export const useUIStore = create<UIState>((set) => ({
   setNewProjectModal: (open) => set({ newProjectModalOpen: open }),
   openSettings: (page = 'models') => set({ settingsPage: page }),
   closeSettings: () => set({ settingsPage: null }),
+  setPreviewFile: (file) => set({ previewFile: file }),
 }))
 

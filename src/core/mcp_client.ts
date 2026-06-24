@@ -468,17 +468,68 @@ export function getMCPManager(): MCPManager {
   return _manager;
 }
 
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+
 /**
- * config.yaml (global + proje-yerel birleşik) içindeki `mcp_servers` girdilerini
- * okuyup MCP yöneticisini başlatır. Hem CLI hem Electron (desktop) boot yolundan
- * çağrılabilir; idempotent'tir (zaten başlatılmışsa tekrar bağlanmaz).
- *
- * @returns insan-okunur özet (ör. "1/1 MCP servers connected, 12 tools available")
+ * Reads MCP server configurations using Claude Desktop's directory structure format.
+ * Looks for:
+ * 1. ~/.cowrangler/claude_desktop_config.json (mcpServers field)
+ * 2. ~/.cowrangler/extensions-installations.json (extensions map)
+ */
+function loadClaudeStyleMcpServers(): Record<string, MCPServerConfig> {
+  const globalDir = path.join(os.homedir(), '.cowrangler');
+  const servers: Record<string, MCPServerConfig> = {};
+
+  // 1. Read claude_desktop_config.json
+  const claudeConfigPath = path.join(globalDir, 'claude_desktop_config.json');
+  if (fs.existsSync(claudeConfigPath)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(claudeConfigPath, 'utf-8'));
+      if (data.mcpServers && typeof data.mcpServers === 'object') {
+        for (const [name, cfg] of Object.entries(data.mcpServers)) {
+          servers[name] = cfg as MCPServerConfig;
+        }
+      }
+    } catch (e) {
+      console.error(`Failed to parse claude_desktop_config.json:`, e);
+    }
+  }
+
+  // 2. Read extensions-installations.json
+  const extPath = path.join(globalDir, 'extensions-installations.json');
+  if (fs.existsSync(extPath)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(extPath, 'utf-8'));
+      if (data.extensions && typeof data.extensions === 'object') {
+        for (const [id, ext] of Object.entries(data.extensions)) {
+          const mcpConfig = (ext as any)?.manifest?.server?.mcp_config;
+          if (mcpConfig) {
+            servers[id] = mcpConfig as MCPServerConfig;
+          }
+        }
+      }
+    } catch (e) {
+      console.error(`Failed to parse extensions-installations.json:`, e);
+    }
+  }
+
+  return servers;
+}
+
+/**
+ * Boot the MCP manager using Claude's extension directory structure.
  */
 export async function bootMcp(): Promise<string> {
   const { getConfig } = await import("./init.js");
   const cfg = getConfig();
-  const servers: Record<string, MCPServerConfig> = cfg.mcp_servers || {};
+  
+  // Merge traditional config.yaml servers with Claude-style config
+  const legacyServers: Record<string, MCPServerConfig> = cfg.mcp_servers || {};
+  const claudeStyleServers = loadClaudeStyleMcpServers();
+  
+  const servers = { ...legacyServers, ...claudeStyleServers };
   const mgr = getMCPManager();
 
   if (Object.keys(servers).length === 0) {
@@ -490,15 +541,16 @@ export async function bootMcp(): Promise<string> {
 }
 
 /**
- * MCP sunucularını config'ten yeniden yükler. Kullanıcı UI'dan bir connector
- * ekleyip/kaldırdığında çağrılır — uygulamayı yeniden başlatmaya gerek yoktur.
- * Yeni keşfedilen araçlar global tool registry'ye girer; Agent her chat'te
- * registry'yi taze okuduğu için mevcut oturumlar bile yeni araçları görür.
+ * Reloads MCP servers using Claude's directory structure.
  */
 export async function reloadMcp(): Promise<string> {
   const { getConfig } = await import("./init.js");
   const cfg = getConfig();
-  const servers: Record<string, MCPServerConfig> = cfg.mcp_servers || {};
+  
+  const legacyServers: Record<string, MCPServerConfig> = cfg.mcp_servers || {};
+  const claudeStyleServers = loadClaudeStyleMcpServers();
+  
+  const servers = { ...legacyServers, ...claudeStyleServers };
   const mgr = getMCPManager();
 
   await mgr.reload(servers);

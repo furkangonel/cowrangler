@@ -54,8 +54,9 @@ export function SessionView({ projectId, sessionId }: Props) {
   }, [projectId])
 
   useEffect(() => {
-    // Oturum değişince önceki turların tool izlerini temizle.
+    // Oturum değişince önceki turların tool izlerini ve context snapshot'ı temizle.
     agentStore.clearTimelines()
+    agentStore.setContextSnapshot(null)
     if (!isNew && sessionId && sessionId !== '__new__') loadMessages(sessionId)
     else clearUIMessages()
   }, [sessionId])
