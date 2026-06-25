@@ -146,3 +146,16 @@ Yapılandırılmış hata raporu oluştur:
 3. Tahminde bulunma — ekran görüntüsü al, gözlemle, belgele
 4. Önce kritik hatalar, sonra diğerleri — kapsam odaklı tut
 5. Pozitif test de yap — çalışanları da belgele
+
+
+## Why/Failure Modes
+
+[TODO: Explain the reasoning behind this skill's approach and common failure modes to avoid.]
+
+## Standalone vs Supercharged
+
+[TODO: Describe how this skill works on its own vs when combined with other tools/context.]
+
+## Cross-References
+
+[TODO: Link to other relevant skills or documentation.]

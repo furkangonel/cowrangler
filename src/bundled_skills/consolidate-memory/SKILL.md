@@ -1,6 +1,13 @@
 ---
 name: "consolidate-memory"
-description: "Reflective pass over your memory files — merge duplicates, fix stale facts, prune the index."
+description: |
+  Reflective pass over your memory files — merge duplicates, fix stale facts, prune the index.
+  
+  Trigger for:
+  - [TODO: Add specific triggers for when to use this skill]
+  
+  Don't trigger for:
+  - [TODO: Add anti-triggers for when NOT to use this skill]
 ---
 
 # Memory Consolidation
@@ -33,3 +40,15 @@ Update `MEMORY.md` so it stays under 200 lines and ~25KB. One line per entry, un
 - Add anything newly important
 
 Finish with a short summary: how many files you touched and what changed.
+
+## Why/Failure Modes
+
+[TODO: Explain the reasoning behind this skill's approach and common failure modes to avoid.]
+
+## Standalone vs Supercharged
+
+[TODO: Describe how this skill works on its own vs when combined with other tools/context.]
+
+## Cross-References
+
+[TODO: Link to other relevant skills or documentation.]

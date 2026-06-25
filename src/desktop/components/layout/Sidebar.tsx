@@ -7,6 +7,7 @@ import { useAgentStore } from '../../stores/agent.store'
 import { ipc } from '../../lib/ipc'
 import { GLOBAL_PROJECT_ID } from '../session/GlobalChatView'
 import { formatRelative } from '../../lib/time'
+import { UpdateBanner } from '../UpdateBanner'
 
 export function Sidebar() {
   const { projects, activeProjectId, setActiveProject, loading } = useProjectsStore()
@@ -52,6 +53,7 @@ export function Sidebar() {
           <MessagesSquare size={16} />
         </button>
         <div className="flex-1" />
+        <UpdateBanner collapsed />
         <button
           onClick={() => openSettings('models')}
           title="Settings"
@@ -182,14 +184,17 @@ export function Sidebar() {
       )}
 
       {/* Footer — settings */}
-      <div className="border-t border-border-subtle px-2 py-2">
-        <button
-          onClick={() => openSettings('models')}
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-xs"
-        >
-          <Settings size={14} />
-          <span>Settings</span>
-        </button>
+      <div className="border-t border-border-subtle pt-2 pb-2 flex flex-col">
+        <UpdateBanner />
+        <div className="px-2">
+          <button
+            onClick={() => openSettings('models')}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-xs"
+          >
+            <Settings size={14} />
+            <span>Settings</span>
+          </button>
+        </div>
       </div>
     </aside>
   )

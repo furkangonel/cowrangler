@@ -42,3 +42,16 @@ Return the edited version in a code block or quoted block, then add a **Changes*
 
 ### 4. Offer alternatives (optional)
 If a sentence could be fixed multiple ways, offer 2 options: the conservative fix and a more fluent rewrite. Let the user choose.
+
+
+## Why/Failure Modes
+
+[TODO: Explain the reasoning behind this skill's approach and common failure modes to avoid.]
+
+## Standalone vs Supercharged
+
+[TODO: Describe how this skill works on its own vs when combined with other tools/context.]
+
+## Cross-References
+
+[TODO: Link to other relevant skills or documentation.]

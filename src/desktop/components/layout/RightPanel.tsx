@@ -35,7 +35,7 @@ export function RightPanel() {
         // ─── Session view ───────────────────────────────────────────────────
         <>
           <CollapsibleBox title="Tasks" defaultOpen>
-            <ProgressPanel projectId={activeProjectId} />
+            <ProgressPanel projectId={activeProjectId} sessionId={activeSessionId} />
           </CollapsibleBox>
 
           <CollapsibleBox title="Working Folders" defaultOpen>

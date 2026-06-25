@@ -208,3 +208,16 @@ curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
 - **Onayla** — kritik veya uyarı seviyesi sorun yok, yalnızca küçük öneriler
 - **Değişiklik İste** — merge öncesi düzeltilmesi gereken kritik/uyarı seviyesi sorun var
 - **Yorum** — gözlemler ve öneriler, engelleyici değil (taslak PR'lar için)
+
+
+## Why/Failure Modes
+
+[TODO: Explain the reasoning behind this skill's approach and common failure modes to avoid.]
+
+## Standalone vs Supercharged
+
+[TODO: Describe how this skill works on its own vs when combined with other tools/context.]
+
+## Cross-References
+
+[TODO: Link to other relevant skills or documentation.]

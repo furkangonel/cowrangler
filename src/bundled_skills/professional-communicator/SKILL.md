@@ -61,3 +61,16 @@ Always provide:
 - A suggested subject line
 - The message body
 - A one-line note on the strategic choice made (e.g., "Led with their concern before stating the decision — makes the 'no' easier to accept")
+
+
+## Why/Failure Modes
+
+[TODO: Explain the reasoning behind this skill's approach and common failure modes to avoid.]
+
+## Standalone vs Supercharged
+
+[TODO: Describe how this skill works on its own vs when combined with other tools/context.]
+
+## Cross-References
+
+[TODO: Link to other relevant skills or documentation.]

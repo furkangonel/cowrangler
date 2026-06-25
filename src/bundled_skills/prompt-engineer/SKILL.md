@@ -79,3 +79,16 @@ Return:
 3. Suggested variables/parameters if the prompt should be templated
 
 **Success criteria**: User can copy-paste and get reliable results without further changes.
+
+
+## Why/Failure Modes
+
+[TODO: Explain the reasoning behind this skill's approach and common failure modes to avoid.]
+
+## Standalone vs Supercharged
+
+[TODO: Describe how this skill works on its own vs when combined with other tools/context.]
+
+## Cross-References
+
+[TODO: Link to other relevant skills or documentation.]

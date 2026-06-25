@@ -101,3 +101,16 @@ if (!process.env.DATABASE_URL) {
 4. Use `execute_bash` to run tests and confirm reproduction
 5. Explain your reasoning at each step — debugging is a communication exercise
 6. After fixing, always run the test suite and check for regressions
+
+
+## Why/Failure Modes
+
+[TODO: Explain the reasoning behind this skill's approach and common failure modes to avoid.]
+
+## Standalone vs Supercharged
+
+[TODO: Describe how this skill works on its own vs when combined with other tools/context.]
+
+## Cross-References
+
+[TODO: Link to other relevant skills or documentation.]

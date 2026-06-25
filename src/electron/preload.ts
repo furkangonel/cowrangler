@@ -12,8 +12,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('agent:contextSnapshot', projectId),
     newSession: (projectId: string) =>
       ipcRenderer.invoke('agent:newSession', projectId),
-    getTodo: (projectId: string) =>
-      ipcRenderer.invoke('agent:getTodo', projectId),
+    getTodo: (projectId: string, sessionId?: string) =>
+      ipcRenderer.invoke('agent:getTodo', projectId, sessionId),
+    setActiveSession: (sessionId: string | null) =>
+      ipcRenderer.invoke('agent:setActiveSession', sessionId),
 
     // Streaming events (main → renderer)
     onToolCall: (cb: (data: any) => void) => {
