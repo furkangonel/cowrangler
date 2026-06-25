@@ -209,7 +209,8 @@ interface ElectronAPI {
     interrupt: (projectId: string) => Promise<{ ok: boolean }>
     getContextSnapshot: (projectId: string) => Promise<ContextSnapshot | null>
     newSession: (projectId: string) => Promise<{ ok: boolean }>
-    getTodo: (projectId: string) => Promise<TaskProgress[]>
+    getTodo: (projectId: string, sessionId?: string) => Promise<TaskProgress[]>
+    setActiveSession: (sessionId: string | null) => Promise<void>
     onToolCall: (cb: (data: ToolCallEvent) => void) => () => void
     onStepText: (cb: (text: string) => void) => () => void
     onProgress: (cb: (tasks: TaskProgress[]) => void) => () => void

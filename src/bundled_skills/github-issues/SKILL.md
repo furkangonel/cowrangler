@@ -182,3 +182,16 @@ gh issue list --search "created:>$(date -d '7 days ago' +%Y-%m-%d 2>/dev/null ||
 # Belirli keyword ile ara
 gh issue list --search "bellek sızıntısı" --state all
 ```
+
+
+## Why/Failure Modes
+
+[TODO: Explain the reasoning behind this skill's approach and common failure modes to avoid.]
+
+## Standalone vs Supercharged
+
+[TODO: Describe how this skill works on its own vs when combined with other tools/context.]
+
+## Cross-References
+
+[TODO: Link to other relevant skills or documentation.]

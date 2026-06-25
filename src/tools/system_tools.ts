@@ -431,12 +431,12 @@ TWO-TIER TASK SYSTEM — choose the right tier:
                   Use for: project-level work, delegation to subagents, user-visible backlogs.
 
 Actions:
-  create  — Add a task (required: title; optional: priority low/normal/high, notes)
-  start   — Mark a task as in_progress (required: ref — task number or keyword)
-  done    — Mark a task as completed (required: ref; optional: notes — outcome summary)
-  block   — Mark a task as blocked (required: ref; optional: notes — reason)
+  create  — Add a task (required: subject; optional: description, activeForm, blocks, blockedBy)
+  start   — Mark a task as in_progress (required: ref — task id or keyword; optional: activeForm)
+  done    — Mark a task as completed (required: ref; optional: description — outcome summary)
+  block   — Mark a task as blocked (required: ref; optional: blockedBy — task IDs)
   unblock — Move blocked task back to todo (required: ref)
-  list    — Show all tasks (optional: filter todo/in_progress/done/blocked)
+  list    — Show all tasks (optional: filter todo/in_progress/completed/blocked)
   clear   — Remove all completed tasks
 
 RULES:
@@ -448,62 +448,73 @@ RULES:
     action: z
       .enum(["create", "start", "done", "block", "unblock", "list", "clear"])
       .describe("Action to perform"),
-    title: z
+    subject: z
       .string()
       .optional()
       .describe("Task title (required for create)"),
     ref: z
       .string()
       .optional()
-      .describe("Task reference: 1-based index ('1', '2') or keyword match"),
-    priority: z
-      .enum(["low", "normal", "high"])
-      .optional()
-      .default("normal")
-      .describe("Task priority (default: normal)"),
-    notes: z
+      .describe("Task reference: ID ('1', '2') or keyword match"),
+    description: z
       .string()
       .optional()
       .describe("For done: outcome summary. For block: reason. For create: context."),
+    activeForm: z
+      .string()
+      .optional()
+      .describe("Spinner text for UI when active (e.g. 'Running tests...')"),
+    blocks: z
+      .array(z.string())
+      .optional()
+      .describe("Task IDs this task blocks"),
+    blockedBy: z
+      .array(z.string())
+      .optional()
+      .describe("Task IDs blocking this task"),
     filter: z
-      .enum(["todo", "in_progress", "done", "blocked"])
+      .enum(["todo", "in_progress", "completed", "blocked"])
       .optional()
       .describe("For list: filter by status"),
   }),
   async ({
     action,
-    title,
+    subject,
     ref,
-    priority,
-    notes,
+    description,
+    activeForm,
+    blocks,
+    blockedBy,
     filter,
   }: {
     action: string;
-    title?: string;
+    subject?: string;
     ref?: string;
-    priority?: "low" | "normal" | "high";
-    notes?: string;
-    filter?: "todo" | "in_progress" | "done" | "blocked";
+    description?: string;
+    activeForm?: string;
+    blocks?: string[];
+    blockedBy?: string[];
+    filter?: "todo" | "in_progress" | "completed" | "blocked";
   }) => {
     const { getTaskManager } = await import("../core/task_manager.js");
     const tm = getTaskManager();
 
     switch (action) {
       case "create":
-        if (!title) return "ERROR: 'create' requires title.";
-        return tm.create({ title, priority: priority ?? "normal", notes });
+        if (!subject) return "ERROR: 'create' requires subject.";
+        return tm.create({ subject, description, activeForm, blocks, blockedBy });
 
       case "start":
         if (!ref) return "ERROR: 'start' requires ref.";
-        return tm.start(ref);
+        return tm.start(ref, activeForm);
 
       case "done":
         if (!ref) return "ERROR: 'done' requires ref.";
-        return tm.done(ref, notes);
+        return tm.done(ref, description);
 
       case "block":
         if (!ref) return "ERROR: 'block' requires ref.";
-        return tm.block(ref, notes);
+        return tm.block(ref, blockedBy);
 
       case "unblock":
         if (!ref) return "ERROR: 'unblock' requires ref.";

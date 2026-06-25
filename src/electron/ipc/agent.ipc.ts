@@ -5,7 +5,7 @@ import fs from 'fs'
 import { agentManager, AgentManager } from '../agent_manager.js'
 import { getProjectDB } from '../project_db.js'
 import { getSessionDB } from '../../core/session_db.js'
-import { getConfig } from '../../core/init.js'
+import { getConfig, DEFAULT_SYSTEM_PROMPT } from '../../core/init.js'
 import { Agent } from '../../core/agent.js'
 
 /** Projesiz (genel) sohbet için sabit projectId. Renderer'daki GLOBAL_PROJECT_ID ile aynı. */
@@ -51,29 +51,7 @@ function buildSystemPrompt(basePrompt: string, instructions: string): string {
 }
 
 function getDefaultSystemPrompt(): string {
-  return `You are Cowrangler — a powerful, enterprise-grade AI agent.
-
-You operate like a senior engineer: methodical, transparent, and accountable.
-
-## CORE BEHAVIOR RULES
-
-### 1. Reason before acting
-Before every non-trivial tool call, write one sentence explaining WHY.
-
-### 2. Read before write (ALWAYS)
-- Always use read_file before edit_file or write_file.
-- Always use git_status before git_commit.
-
-### 3. TODO discipline — MANDATORY for multi-step tasks
-If a task requires 3 or more steps:
-1. Call manage_todo(action="update") as your VERY FIRST action.
-2. Mark each item done with manage_todo(action="mark_done") IMMEDIATELY after completing it.
-
-### 4. Use send_message to communicate
-After completing your work, ALWAYS call send_message to deliver your final response.
-
-### 5. Skills — use them
-Check available skills and load relevant ones with utilize_skill.`
+  return DEFAULT_SYSTEM_PROMPT
 }
 
 export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
@@ -118,10 +96,12 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
     // birden fazla proje aynı süreçte güvenli şekilde yönetilebilir.
     agentManager.applyProjectContext(projectId)
 
-    // TODO izlemeyi başlat
-    agentManager.watchTodo(projectId, (tasks) => {
-      sender.send('agent:progress', tasks)
-    })
+    // TODO izlemeyi başlat — workdir'i doğrudan geçir ki agent instance'a bağımlı olmasın
+    if (workdir) {
+      agentManager.watchTodo(projectId, workdir, sessionId || '__new__', (tasks) => {
+        sender.send('agent:progress', tasks)
+      })
+    }
 
     // Per-tool events — each tool reports its own start/done/error independently,
     // with a stable id (SDK toolCallId), so loaders/checkmarks update one by one.
@@ -200,21 +180,26 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
 
   // ── agent:newSession ───────────────────────────────────────────────────────
   ipcMain.handle('agent:newSession', async (_, projectId: string) => {
-    const workdir = agentManager.getWorkdir(projectId) || (projectId === GLOBAL_PROJECT_ID ? getGlobalWorkdir() : undefined)
-    if (workdir) {
-      const todoFile = path.join(workdir, '.cowrangler', 'tasks.json')
-      fs.mkdirSync(path.dirname(todoFile), { recursive: true })
-      fs.writeFileSync(todoFile, JSON.stringify({ version: 1, tasks: [], nextIndex: 1 }, null, 2), 'utf-8')
-    }
     agentManager.destroy(projectId)
     return { ok: true }
   })
 
   // ── agent:getTodo ──────────────────────────────────────────────────────────
-  ipcMain.handle('agent:getTodo', async (_, projectId: string) => {
+  ipcMain.handle('agent:getTodo', async (_, projectId: string, sessionId?: string) => {
+    if (!sessionId) return []
+    // Workdir'i project DB'den çöz — agent instance olmadan da çalışır
     const project = getProjectDB().get(projectId)
     const workdir = project?.workdir ?? (projectId === GLOBAL_PROJECT_ID ? getGlobalWorkdir() : undefined)
     if (!workdir) return []
-    return AgentManager.readTodo(workdir)
+    return AgentManager.readTodo(workdir, sessionId)
+  })
+
+  // ── agent:setActiveSession ──────────────────────────────────────────────────
+  // Kullanıcı mevcut bir oturumu açtığında frontend'den bildirim alır.
+  // Bu sayede watchTodo poller ve readTodo, agent.chat() öncesinde de doğru
+  // session dizinini kullanabilir.
+  ipcMain.handle('agent:setActiveSession', async (_, sessionId: string | null) => {
+    const { setActiveSessionId } = await import('../../core/project_context.js')
+    setActiveSessionId(sessionId)
   })
 }

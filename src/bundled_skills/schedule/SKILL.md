@@ -1,6 +1,13 @@
 ---
 name: "schedule"
-description: "Create or update a scheduled task that runs automatically. Use when the user says things like \"every day\", \"each morning\", \"remind me in an hour\", \"run this at noon\", or wants to reschedule an existing task."
+description: |
+  Create or update a scheduled task that runs automatically. Use when the user says things like \
+  
+  Trigger for:
+  - [TODO: Add specific triggers for when to use this skill]
+  
+  Don't trigger for:
+  - [TODO: Add anti-triggers for when NOT to use this skill]every day\", \"each morning\", \"remind me in an hour\", \"run this at noon\", or wants to reschedule an existing task."
 ---
 
 First, decide whether the user wants to **create a new** scheduled task or **change an existing** one.
@@ -39,3 +46,15 @@ Pick a short, descriptive name in kebab-case (e.g. "daily-inbox-summary", "weekl
 The `create_scheduled_task` tool description explains the options (`cronExpression` for recurring, `fireAt` for one-time, omit both for ad-hoc) and their formats. If the user didn't give a clear schedule, propose one and ask them to confirm before proceeding.
 
 Finally, call the `create_scheduled_task` tool.
+
+## Why/Failure Modes
+
+[TODO: Explain the reasoning behind this skill's approach and common failure modes to avoid.]
+
+## Standalone vs Supercharged
+
+[TODO: Describe how this skill works on its own vs when combined with other tools/context.]
+
+## Cross-References
+
+[TODO: Link to other relevant skills or documentation.]

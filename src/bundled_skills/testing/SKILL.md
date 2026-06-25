@@ -115,3 +115,16 @@ npm test -- --watch
 4. Run tests with execute_bash after writing to confirm they pass
 5. If a test is hard to write, it's a signal the code needs refactoring
 6. Add tests for the specific bug being fixed (regression tests)
+
+
+## Why/Failure Modes
+
+[TODO: Explain the reasoning behind this skill's approach and common failure modes to avoid.]
+
+## Standalone vs Supercharged
+
+[TODO: Describe how this skill works on its own vs when combined with other tools/context.]
+
+## Cross-References
+
+[TODO: Link to other relevant skills or documentation.]

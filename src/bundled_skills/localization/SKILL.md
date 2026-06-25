@@ -55,3 +55,16 @@ Return the localized text, then add a **Localization Notes** section explaining:
 - Length warnings for UI strings
 
 **Success criteria**: Developer/designer can implement without guessing at intent.
+
+
+## Why/Failure Modes
+
+[TODO: Explain the reasoning behind this skill's approach and common failure modes to avoid.]
+
+## Standalone vs Supercharged
+
+[TODO: Describe how this skill works on its own vs when combined with other tools/context.]
+
+## Cross-References
+
+[TODO: Link to other relevant skills or documentation.]

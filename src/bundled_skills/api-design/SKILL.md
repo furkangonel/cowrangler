@@ -126,3 +126,16 @@ When designing or reviewing APIs:
 4. Confirm authentication is applied to all protected endpoints
 5. Check that status codes match the documented conventions
 6. Verify pagination is implemented for list endpoints
+
+
+## Why/Failure Modes
+
+[TODO: Explain the reasoning behind this skill's approach and common failure modes to avoid.]
+
+## Standalone vs Supercharged
+
+[TODO: Describe how this skill works on its own vs when combined with other tools/context.]
+
+## Cross-References
+
+[TODO: Link to other relevant skills or documentation.]

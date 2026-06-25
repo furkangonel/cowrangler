@@ -65,3 +65,16 @@ Add 2–3 sentences of background only if the reader needs it to understand why 
 - No passive voice where avoidable
 - No "in conclusion" or "as mentioned above" filler phrases
 - If you're unsure what the bottom line is, ask the user before summarizing
+
+
+## Why/Failure Modes
+
+[TODO: Explain the reasoning behind this skill's approach and common failure modes to avoid.]
+
+## Standalone vs Supercharged
+
+[TODO: Describe how this skill works on its own vs when combined with other tools/context.]
+
+## Cross-References
+
+[TODO: Link to other relevant skills or documentation.]

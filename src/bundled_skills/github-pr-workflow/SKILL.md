@@ -163,3 +163,16 @@ git checkout main && git pull origin main && git branch -d $BRANCH
 | İnceleme iste | `gh pr edit N --add-reviewer kullanici` | `curl -X POST .../requested_reviewers` |
 | PR kapat | `gh pr close N` | `curl -X PATCH .../pulls/N -d '{"state":"closed"}'` |
 | PR'ı checkout et | `gh pr checkout N` | `git fetch origin pull/N/head:pr-N && git checkout pr-N` |
+
+
+## Why/Failure Modes
+
+[TODO: Explain the reasoning behind this skill's approach and common failure modes to avoid.]
+
+## Standalone vs Supercharged
+
+[TODO: Describe how this skill works on its own vs when combined with other tools/context.]
+
+## Cross-References
+
+[TODO: Link to other relevant skills or documentation.]

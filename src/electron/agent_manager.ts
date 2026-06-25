@@ -11,7 +11,7 @@ import path from 'path'
 import fs from 'fs'
 import { Agent } from '../core/agent.js'
 import { LLM } from '../core/llm.js'
-import { setProjectContext, getProjectTodoFile } from '../core/project_context.js'
+import { setProjectContext, getActiveSessionId } from '../core/project_context.js'
 import { setWorkspace } from '../tools/file_tools.js'
 
 export interface TaskProgress {
@@ -24,6 +24,7 @@ export class AgentManager {
   private agents = new Map<string, Agent>()
   private workdirs = new Map<string, string>()
   private todoWatchers = new Map<string, fs.FSWatcher>()
+  private todoPollers = new Map<string, ReturnType<typeof setInterval>>()
 
   /**
    * Proje için Agent instance'ı döndürür veya oluşturur.
@@ -109,65 +110,107 @@ export class AgentManager {
   }
 
   /**
-   * TODO dosyasını oku ve parse et.
-   * workdir verilirse o dizindeki tasks.json'u okur; verilmezse project_context'teki güncel yolu kullanır.
+   * Reads and parses tasks for a specific session.
+   * Does NOT depend on an active Agent instance — works after app restart.
+   *
+   * @param workdir  Project root directory (e.g. /Users/x/my-project)
+   * @param sessionId  Session ID whose tasks to read
    */
-  static readTodo(workdir?: string): TaskProgress[] {
-    const todoFile = workdir
-      ? path.join(workdir, '.cowrangler', 'tasks.json')
-      : path.join(getProjectTodoFile(), '..', 'tasks.json')
-      
-    if (!fs.existsSync(todoFile)) return []
+  static readTodo(workdir: string, sessionId: string): TaskProgress[] {
     try {
-      const content = fs.readFileSync(todoFile, 'utf-8')
-      const parsed = JSON.parse(content)
-      if (!parsed.tasks || !Array.isArray(parsed.tasks)) return []
-      
-      return parsed.tasks.map((t: any) => ({
-        id: String(t.index || t.id),
-        text: t.title + (t.notes ? ` — ${t.notes}` : ''),
-        status: t.status === 'done' ? 'completed' : (t.status === 'in_progress' ? 'in_progress' : 'pending')
-      }))
+      if (!workdir || !sessionId) return [];
+
+      const dir = path.join(workdir, '.cowrangler', 'tasks', sessionId);
+
+      if (!fs.existsSync(dir)) return [];
+
+      const files = fs.readdirSync(dir).filter(f => f.endsWith('.json') && !f.startsWith('.'));
+      const tasks: any[] = [];
+
+      for (const file of files) {
+        try {
+          const content = fs.readFileSync(path.join(dir, file), 'utf-8');
+          tasks.push(JSON.parse(content));
+        } catch { /* ignore malformed files */ }
+      }
+
+      tasks.sort((a, b) => {
+        const numA = parseInt(a.id, 10);
+        const numB = parseInt(b.id, 10);
+        if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+        return String(a.id).localeCompare(String(b.id));
+      });
+
+      return tasks.map(t => ({
+        id: String(t.id),
+        text: t.subject + (t.description ? ` — ${t.description}` : ''),
+        status: t.status === 'completed' ? 'completed' : (t.status === 'in_progress' ? 'in_progress' : 'pending')
+      }));
     } catch {
-      return []
+      return [];
     }
   }
 
   /**
-   * tasks.json dosyasını izle — değişince callback çağır.
-   * Proje workdir'ine dayalı per-project dosyayı izler.
+   * Watches a specific session's tasks directory for changes.
+   * Does NOT depend on an active Agent instance — works after app restart.
+   *
+   * @param projectId  Used as key for the watcher map
+   * @param workdir    Project root directory
+   * @param sessionId  Session ID whose tasks directory to watch
+   * @param onChange   Callback when tasks change
    */
-  watchTodo(projectId: string, onChange: (tasks: TaskProgress[]) => void): void {
-    if (this.todoWatchers.has(projectId)) return
+  watchTodo(projectId: string, workdir: string, sessionId: string, onChange: (tasks: TaskProgress[]) => void): void {
+    // Varsa önceki watcher ve poller'ı temizle
+    this.stopWatchTodo(projectId);
 
-    const workdir = this.workdirs.get(projectId)
-    const todoFile = workdir
-      ? path.join(workdir, '.cowrangler', 'tasks.json')
-      : path.join(getProjectTodoFile(), '..', 'tasks.json')
+    if (!workdir || !sessionId) return;
 
-    // Dizin + dosyayı hazırla
-    fs.mkdirSync(path.dirname(todoFile), { recursive: true })
-    if (!fs.existsSync(todoFile)) {
-      fs.writeFileSync(todoFile, JSON.stringify({ version: 1, tasks: [], nextIndex: 1 }, null, 2), 'utf-8')
-    }
+    const dir = path.join(workdir, '.cowrangler', 'tasks', sessionId);
 
-    let debounce: ReturnType<typeof setTimeout> | null = null
+    let debounce: ReturnType<typeof setTimeout> | null = null;
     try {
-      const watcher = fs.watch(todoFile, () => {
-        if (debounce) clearTimeout(debounce)
-        debounce = setTimeout(() => {
-          onChange(AgentManager.readTodo(workdir))
-        }, 100)
-      })
-      this.todoWatchers.set(projectId, watcher)
-    } catch {
-      // Watch başlatılamazsa sessizce geç
-    }
+      fs.mkdirSync(dir, { recursive: true });
+      const watcher = fs.watch(dir, () => {
+        if (debounce) clearTimeout(debounce);
+        debounce = setTimeout(() => onChange(AgentManager.readTodo(workdir, sessionId)), 100);
+      });
+      this.todoWatchers.set(projectId, watcher);
+
+      // İlk okuma
+      onChange(AgentManager.readTodo(workdir, sessionId));
+    } catch { /* watch başlatılamazsa sessizce geç */ }
+
+    // Ayrıca getActiveSessionId poller'ı: agent.chat() sırasında yeni
+    // session açıldığında watcher'ı otomatik yenile.
+    let lastPolledSid = sessionId;
+    const poller = setInterval(() => {
+      const sid = getActiveSessionId();
+      if (sid && sid !== lastPolledSid) {
+        lastPolledSid = sid;
+        // Yeni session açıldı — watcher'ı yeni dizine taşı
+        const newDir = path.join(workdir, '.cowrangler', 'tasks', sid);
+        const w = this.todoWatchers.get(projectId);
+        if (w) { try { w.close() } catch { } }
+        try {
+          fs.mkdirSync(newDir, { recursive: true });
+          const newWatcher = fs.watch(newDir, () => {
+            if (debounce) clearTimeout(debounce);
+            debounce = setTimeout(() => onChange(AgentManager.readTodo(workdir, sid)), 100);
+          });
+          this.todoWatchers.set(projectId, newWatcher);
+          onChange(AgentManager.readTodo(workdir, sid));
+        } catch { /* sessizce devam */ }
+      }
+    }, 800);
+    this.todoPollers.set(projectId, poller);
   }
 
   stopWatchTodo(projectId: string): void {
     const w = this.todoWatchers.get(projectId)
-    if (w) { w.close(); this.todoWatchers.delete(projectId) }
+    if (w) { try { w.close() } catch { } this.todoWatchers.delete(projectId) }
+    const p = this.todoPollers.get(projectId)
+    if (p) { clearInterval(p); this.todoPollers.delete(projectId) }
   }
 }
 

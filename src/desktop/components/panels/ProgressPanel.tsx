@@ -8,19 +8,19 @@ import { TaskProgress, ipc } from '../../lib/ipc'
  * Canlı durum banner'ı / "Live activity" akışı bilinçli olarak kaldırıldı:
  * tool çağrıları artık sohbet akışında kronolojik olarak gösterilir.
  */
-export function ProgressPanel({ projectId }: { projectId: string }) {
+export function ProgressPanel({ projectId, sessionId }: { projectId: string; sessionId?: string | null }) {
   const { progress, status, setProgress } = useAgentStore()
   const working = status === 'thinking'
 
   useEffect(() => {
-    if (projectId) {
-      ipc.agent.getTodo(projectId).then(tasks => {
-        if (tasks && tasks.length > 0) {
-          setProgress(tasks)
-        }
+    // Session değişince önce temizle — bir önceki session'ın task'ları görünmesin
+    setProgress([])
+    if (projectId && sessionId && sessionId !== '__new__') {
+      ipc.agent.getTodo(projectId, sessionId).then(tasks => {
+        setProgress(tasks ?? [])
       })
     }
-  }, [projectId, setProgress])
+  }, [projectId, sessionId, setProgress])
 
   const completed = progress.filter(t => t.status === 'completed').length
   const total = progress.length

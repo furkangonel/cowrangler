@@ -25,7 +25,7 @@ export function SessionView({ projectId, sessionId }: Props) {
   const { getModel, models } = useSettingsStore()
   const scrollRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const [isNew] = useState(sessionId === '__new__')
+  const isNew = sessionId === '__new__'
   const project = getActiveProject()
 
   // Per-session model override — null means use global
@@ -57,8 +57,15 @@ export function SessionView({ projectId, sessionId }: Props) {
     // Oturum değişince önceki turların tool izlerini ve context snapshot'ı temizle.
     agentStore.clearTimelines()
     agentStore.setContextSnapshot(null)
-    if (!isNew && sessionId && sessionId !== '__new__') loadMessages(sessionId)
-    else clearUIMessages()
+    if (!isNew && sessionId && sessionId !== '__new__') {
+      loadMessages(sessionId)
+      // Backend'e aktif session'ı bildir: watchTodo poller ve readTodo
+      // agent.chat() çağrısından önce de doğru dizini kullanabilsin.
+      ipc.agent.setActiveSession(sessionId).catch(() => {})
+    } else {
+      clearUIMessages()
+      ipc.agent.setActiveSession(null).catch(() => {})
+    }
   }, [sessionId])
 
   useEffect(() => {

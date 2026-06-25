@@ -12,11 +12,13 @@
 
 import { streamText, CoreMessage } from "ai";
 import fs from "fs";
+import path from "path";
 import { LLM } from "./llm.js";
 import { SkillManager } from "./skills.js";
 import { TOOL_SCHEMAS } from "../tools/registry.js";
 import { BriefBuffer, createSendMessageTool } from "../tools/brief_tool.js";
 import { DIRS, COWRNGLR_MD, getConfig } from "./init.js";
+import { setActiveSessionId } from "./project_context.js";
 import { DefaultContextEngine, ContextSnapshot } from "./context_engine.js";
 import { getSessionDB } from "./session_db.js";
 import { getPluginManager } from "./plugins.js";
@@ -135,9 +137,11 @@ export class Agent {
         model: this.llm.model,
         workdir: process.cwd(),
       });
+      setActiveSessionId(this.sessionId);
     } catch {
       // Session DB kullanılamıyorsa sessizce devam et
       this.sessionId = null;
+      setActiveSessionId(null);
     }
   }
 
@@ -154,11 +158,25 @@ export class Agent {
     }
 
     if (fs.existsSync(DIRS.local.memory)) {
-      const memoryContent = fs.readFileSync(DIRS.local.memory, "utf-8").trim();
+      const stat = fs.statSync(DIRS.local.memory);
+      let memoryContent = "";
+      if (stat.isDirectory()) {
+        const files = fs.readdirSync(DIRS.local.memory).filter(f => f.endsWith(".md"));
+        for (const file of files) {
+          const content = fs.readFileSync(path.join(DIRS.local.memory, file), "utf-8").trim();
+          if (content) {
+            memoryContent += `\n--- [${file}] ---\n${content}\n`;
+          }
+        }
+      } else {
+        memoryContent = fs.readFileSync(DIRS.local.memory, "utf-8").trim();
+      }
+      
+      memoryContent = memoryContent.trim();
       if (memoryContent) {
         finalPrompt +=
           `\n\n[PROJECT MEMORY]\nThe following contains authoritative facts about the project. ` +
-          `Always respect these:\n---\n${memoryContent}\n---`;
+          `Always respect these:\n${memoryContent}`;
       }
     }
 
@@ -179,18 +197,6 @@ export class Agent {
         `\n\n[AVAILABLE SKILLS]\nYou have the following Standard Operating Procedures (SOPs). ` +
         `When a user request matches one, load it with \`utilize_skill\` — bu çağrı skill'i ` +
         `projenin CONTEXT alanına kopyalar ve aktif hale getirir:\n${skillsText}`;
-    }
-
-    // Aktif CONTEXT skill'leri: yalnız bu projeye kopyalanmış olanlar TAM metinle enjekte edilir.
-    // (Spec: SKILL global → çağrılınca CONTEXT'e kopyalanır → CONTEXT = MEMORY + kopyalanan skill'ler)
-    const contextSkills = this.skillManager.getContextSkills();
-    if (contextSkills.length > 0) {
-      const active = contextSkills
-        .map((s) => `### SKILL: ${s.id}\n${s.content}`)
-        .join("\n\n");
-      finalPrompt +=
-        `\n\n[ACTIVE CONTEXT SKILLS]\nThe following SOPs are active in this project's CONTEXT. ` +
-        `Follow them precisely when relevant:\n---\n${active}\n---`;
     }
 
     return finalPrompt;
@@ -308,8 +314,19 @@ export class Agent {
       );
     }
 
+    // Aktif CONTEXT skill'lerini kullanıcı mesajından hemen önce enjekte et.
+    // Bu sayede baseSystemPrompt sabit kalır ve Anthropic/Gemini prompt caching korunur.
+    const contextSkills = this.skillManager.getContextSkills();
+    let finalUserMessage = userMessage;
+    if (contextSkills.length > 0) {
+      const active = contextSkills
+        .map((s) => `### SKILL: ${s.id}\n${s.content}`)
+        .join("\n\n");
+      finalUserMessage = `[ACTIVE CONTEXT SKILLS]\nThe following SOPs are active in this project's CONTEXT. Follow them precisely when relevant:\n---\n${active}\n---\n\n[USER REQUEST]\n${userMessage}`;
+    }
+
     // Kullanıcı mesajını ekle
-    this.messages.push({ role: "user", content: userMessage });
+    this.messages.push({ role: "user", content: finalUserMessage });
 
     // Session DB'ye yaz
     if (this.sessionId) {

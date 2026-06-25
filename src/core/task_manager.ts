@@ -5,59 +5,45 @@
  * JSON tabanlı, kalıcı, model-dostu tasarım.
  *
  * Tasarım ilkesi:
- *   Her action sonucunda model numaralı, okunabilir bir liste görür.
+ *   Her session için ayrı klasör, her task için ayrı JSON dosyası (örn: 1.json)
  *   Model task ID'leri ezberlemek zorunda kalmaz — index veya keyword ile erişir.
  *
- * Depolama: .cowrangler/tasks.json (human-readable, git-ignorable)
+ * Depolama: .cowrangler/tasks/<session_id>/<task_id>.json
  */
 
 import fs from "fs";
 import path from "path";
-import crypto from "crypto";
-import { LOCAL_DIR } from "./init.js";
+import { getProjectTasksDir } from "./project_context.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type TaskStatus = "todo" | "in_progress" | "done" | "blocked";
-export type TaskPriority = "low" | "normal" | "high";
+export type TaskStatus = "todo" | "in_progress" | "completed" | "blocked";
 
 export interface SessionTask {
-  id: string;
-  index: number; // 1-based, stable within session
-  title: string;
+  id: string; // "1", "2", vb. (Dosya adı ile eşleşir: 1.json)
+  subject: string;
+  description?: string;
+  activeForm?: string;
   status: TaskStatus;
-  priority: TaskPriority;
-  notes?: string;
-  createdAt: number;
-  updatedAt: number;
-  completedAt?: number;
-}
-
-interface TaskStore {
-  version: 1;
-  tasks: SessionTask[];
-  nextIndex: number;
+  blocks?: string[];
+  blockedBy?: string[];
+  
+  // Internal fields
+  createdAt?: number;
+  updatedAt?: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
 
-const TASKS_FILE = path.join(LOCAL_DIR, "tasks.json");
-
 const STATUS_ICON: Record<TaskStatus, string> = {
   todo: "○",
   in_progress: "◉",
-  done: "✓",
+  completed: "✓",
   blocked: "✗",
-};
-
-const PRIORITY_BADGE: Record<TaskPriority, string> = {
-  low: "",
-  normal: "",
-  high: " [HIGH]",
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -65,33 +51,57 @@ const PRIORITY_BADGE: Record<TaskPriority, string> = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export class TaskManager {
-  private store: TaskStore;
+  
+  // ── File System ─────────────────────────────────────────────────────────────
 
-  constructor() {
-    this.store = this._load();
-  }
-
-  // ── Persistence ─────────────────────────────────────────────────────────────
-
-  private _load(): TaskStore {
-    try {
-      if (fs.existsSync(TASKS_FILE)) {
-        const raw = fs.readFileSync(TASKS_FILE, "utf-8");
-        const parsed = JSON.parse(raw) as TaskStore;
-        if (parsed.version === 1 && Array.isArray(parsed.tasks)) {
-          return parsed;
-        }
-      }
-    } catch {
-      // Corrupt file — start fresh
+  private _getDir(): string {
+    const dir = getProjectTasksDir();
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
     }
-    return { version: 1, tasks: [], nextIndex: 1 };
+    return dir;
   }
 
-  private _save(): void {
+  private _loadAll(): SessionTask[] {
+    const dir = this._getDir();
+    const tasks: SessionTask[] = [];
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
+
+    for (const file of files) {
+      try {
+        const p = path.join(dir, file);
+        const raw = fs.readFileSync(p, "utf-8");
+        const parsed = JSON.parse(raw) as SessionTask;
+        tasks.push(parsed);
+      } catch {
+        // Corrupt file, ignore
+      }
+    }
+
+    // Numarik sıralama (ID'ler string ama numara gibi artıyor)
+    return tasks.sort((a, b) => {
+      const numA = parseInt(a.id, 10);
+      const numB = parseInt(b.id, 10);
+      if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+      return a.id.localeCompare(b.id);
+    });
+  }
+
+  private _save(task: SessionTask): void {
     try {
-      fs.mkdirSync(LOCAL_DIR, { recursive: true });
-      fs.writeFileSync(TASKS_FILE, JSON.stringify(this.store, null, 2), "utf-8");
+      const dir = this._getDir();
+      const p = path.join(dir, `${task.id}.json`);
+      fs.writeFileSync(p, JSON.stringify(task, null, 2), "utf-8");
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  private _delete(id: string): void {
+    try {
+      const dir = this._getDir();
+      const p = path.join(dir, `${id}.json`);
+      if (fs.existsSync(p)) fs.unlinkSync(p);
     } catch {
       // Non-fatal
     }
@@ -100,31 +110,28 @@ export class TaskManager {
   // ── Lookup ──────────────────────────────────────────────────────────────────
 
   /**
-   * Görev bul: 1-based index (string "1", "2"...) veya başlık keyword ile.
+   * Görev bul: ID (string "1", "2"...) veya başlık (subject) keyword ile.
    */
   private _find(ref: string): SessionTask | null {
+    const tasks = this._loadAll();
     const trimmed = ref.trim();
 
-    // Numeric index
-    if (/^\d+$/.test(trimmed)) {
-      const idx = parseInt(trimmed, 10);
-      return this.store.tasks.find((t) => t.index === idx) ?? null;
-    }
+    // ID match
+    const byId = tasks.find((t) => t.id === trimmed);
+    if (byId) return byId;
 
-    // Text match (case-insensitive, partial)
+    // Text match (case-insensitive, partial on subject)
     const lower = trimmed.toLowerCase();
-    return (
-      this.store.tasks.find((t) => t.title.toLowerCase().includes(lower)) ??
-      null
-    );
+    return tasks.find((t) => t.subject.toLowerCase().includes(lower)) ?? null;
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
 
   private _render(filter?: TaskStatus[]): string {
+    const allTasks = this._loadAll();
     const tasks = filter
-      ? this.store.tasks.filter((t) => filter.includes(t.status))
-      : this.store.tasks;
+      ? allTasks.filter((t) => filter.includes(t.status))
+      : allTasks;
 
     if (tasks.length === 0) {
       return filter
@@ -134,18 +141,19 @@ export class TaskManager {
 
     const lines = tasks.map((t) => {
       const icon = STATUS_ICON[t.status];
-      const badge = PRIORITY_BADGE[t.priority];
-      const notes = t.notes ? ` — ${t.notes}` : "";
-      return `  ${t.index}. ${icon} ${t.title}${badge}${notes}`;
+      const desc = t.description ? ` — ${t.description}` : "";
+      const form = t.activeForm ? ` [Active: ${t.activeForm}]` : "";
+      const blocked = t.blockedBy && t.blockedBy.length > 0 ? ` (Blocked by: ${t.blockedBy.join(',')})` : "";
+      return `  ${t.id}. ${icon} ${t.subject}${form}${blocked}${desc}`;
     });
 
     const active = tasks.filter((t) =>
       ["todo", "in_progress"].includes(t.status)
     ).length;
-    const done = tasks.filter((t) => t.status === "done").length;
+    const completed = tasks.filter((t) => t.status === "completed").length;
 
     lines.push("");
-    lines.push(`  Active: ${active}  Done: ${done}  Total: ${tasks.length}`);
+    lines.push(`  Active: ${active}  Completed: ${completed}  Total: ${tasks.length}`);
 
     return lines.join("\n");
   }
@@ -153,60 +161,75 @@ export class TaskManager {
   // ── Actions ─────────────────────────────────────────────────────────────────
 
   create(opts: {
-    title: string;
-    priority?: TaskPriority;
-    notes?: string;
+    subject: string;
+    description?: string;
+    activeForm?: string;
+    blocks?: string[];
+    blockedBy?: string[];
   }): string {
+    const tasks = this._loadAll();
+    
+    // Find next numeric ID
+    let maxId = 0;
+    for (const t of tasks) {
+      const num = parseInt(t.id, 10);
+      if (!isNaN(num) && num > maxId) maxId = num;
+    }
+    const nextId = (maxId + 1).toString();
+
     const task: SessionTask = {
-      id: crypto.randomUUID().slice(0, 8),
-      index: this.store.nextIndex++,
-      title: opts.title,
+      id: nextId,
+      subject: opts.subject,
+      description: opts.description,
+      activeForm: opts.activeForm,
       status: "todo",
-      priority: opts.priority ?? "normal",
-      notes: opts.notes,
+      blocks: opts.blocks || [],
+      blockedBy: opts.blockedBy || [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    this.store.tasks.push(task);
-    this._save();
+    
+    this._save(task);
 
-    return `Created task #${task.index}: "${task.title}"\n\n${this._render()}`;
+    return `Created task #${task.id}: "${task.subject}"\n\n${this._render()}`;
   }
 
-  start(ref: string): string {
+  start(ref: string, activeForm?: string): string {
     const task = this._find(ref);
     if (!task) return `ERROR: Task not found: "${ref}".\n\n${this._render()}`;
 
     task.status = "in_progress";
+    if (activeForm) task.activeForm = activeForm;
     task.updatedAt = Date.now();
-    this._save();
+    this._save(task);
 
-    return `Started #${task.index}: "${task.title}"\n\n${this._render()}`;
+    return `Started #${task.id}: "${task.subject}"\n\n${this._render()}`;
   }
 
-  done(ref: string, notes?: string): string {
+  done(ref: string, description?: string): string {
     const task = this._find(ref);
     if (!task) return `ERROR: Task not found: "${ref}".\n\n${this._render()}`;
 
-    task.status = "done";
+    task.status = "completed";
     task.updatedAt = Date.now();
-    task.completedAt = Date.now();
-    if (notes) task.notes = notes;
-    this._save();
+    if (description) task.description = description;
+    this._save(task);
 
-    return `Completed #${task.index}: "${task.title}"\n\n${this._render()}`;
+    return `Completed #${task.id}: "${task.subject}"\n\n${this._render()}`;
   }
 
-  block(ref: string, reason?: string): string {
+  block(ref: string, blockedBy?: string[]): string {
     const task = this._find(ref);
     if (!task) return `ERROR: Task not found: "${ref}".\n\n${this._render()}`;
 
     task.status = "blocked";
+    if (blockedBy && blockedBy.length > 0) {
+      task.blockedBy = Array.from(new Set([...(task.blockedBy || []), ...blockedBy]));
+    }
     task.updatedAt = Date.now();
-    if (reason) task.notes = reason;
-    this._save();
+    this._save(task);
 
-    return `Blocked #${task.index}: "${task.title}"${reason ? ` — ${reason}` : ""}\n\n${this._render()}`;
+    return `Blocked #${task.id}: "${task.subject}"\n\n${this._render()}`;
   }
 
   unblock(ref: string): string {
@@ -214,10 +237,11 @@ export class TaskManager {
     if (!task) return `ERROR: Task not found: "${ref}".\n\n${this._render()}`;
 
     task.status = "todo";
+    task.blockedBy = [];
     task.updatedAt = Date.now();
-    this._save();
+    this._save(task);
 
-    return `Unblocked #${task.index}: "${task.title}"\n\n${this._render()}`;
+    return `Unblocked #${task.id}: "${task.subject}"\n\n${this._render()}`;
   }
 
   list(filter?: TaskStatus[]): string {
@@ -228,20 +252,27 @@ export class TaskManager {
    * Tamamlanan görevleri temizle. Aktif görevlere dokunmaz.
    */
   clear(): string {
-    const before = this.store.tasks.length;
-    this.store.tasks = this.store.tasks.filter((t) => t.status !== "done");
-    const removed = before - this.store.tasks.length;
-    this._save();
+    const tasks = this._loadAll();
+    let removed = 0;
+    
+    for (const t of tasks) {
+      if (t.status === "completed") {
+        this._delete(t.id);
+        removed++;
+      }
+    }
 
     return `Cleared ${removed} completed task(s).\n\n${this._render()}`;
   }
 
   /**
-   * Tüm görevleri sil. Yeni oturum başlangıcında kullanılır.
+   * Tüm görevleri sil.
    */
   reset(): string {
-    this.store = { version: 1, tasks: [], nextIndex: 1 };
-    this._save();
+    const tasks = this._loadAll();
+    for (const t of tasks) {
+      this._delete(t.id);
+    }
     return "Task list reset.";
   }
 }

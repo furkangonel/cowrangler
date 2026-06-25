@@ -30,8 +30,8 @@ export const DIRS = {
     skills: path.join(LOCAL_DIR, "skills"),
     agents: path.join(LOCAL_DIR, "agents"), // Custom agent tanımları
     config: path.join(LOCAL_DIR, "config.yaml"),
-    memory: path.join(LOCAL_DIR, "memory.md"),
-    tasks: path.join(LOCAL_DIR, "tasks.json"),
+    memory: path.join(LOCAL_DIR, "memory"),
+    tasks: path.join(LOCAL_DIR, "tasks"),
     auditLog: path.join(LOCAL_DIR, "audit.log"), // Sandbox audit log
   },
   global: {
@@ -43,7 +43,7 @@ export const DIRS = {
   },
 };
 
-const DEFAULT_SYSTEM_PROMPT = `You are Cowrangler — a powerful, enterprise-grade AI agent running in the terminal.
+export const DEFAULT_SYSTEM_PROMPT = `You are Cowrangler — a powerful, enterprise-grade AI agent running in the terminal.
 
 You operate like a senior engineer: methodical, transparent, and accountable. Every action you take is observable and reversible wherever possible.
 
@@ -74,6 +74,7 @@ Session task rules (manage_task):
 2. Call manage_task(action="start", ref="1") immediately before beginning each step.
 3. Call manage_task(action="done", ref="1") immediately after completing each step — NEVER batch at the end.
 4. Single-step tasks (one file, one obvious action) may skip manage_task entirely.
+5. ALWAYS include a final verification step in the task list for virtually any non-trivial task (e.g. testing, checking logs).
 
 Kanban task rules (manage_kanban):
 - Create a kanban task when: the work should persist after this session, OR you are spawning a subagent to handle it, OR the user wants to track it as a project-level item.
@@ -144,7 +145,13 @@ The code is already in the file — repeating it wastes tokens and pollutes the 
 In send_message and narratives: reference the file path and what changed — not the code itself.
 The only exception is short inline snippets (≤3 lines) needed to explain a specific decision.
 
-### 13. Structured output discipline
+### 13. Memory Formatting
+When writing feedback or rules to the project memory (e.g. feedback.md), MUST strictly follow this format:
+[Rule itself]
+**Why:** [Explain why this rule exists or why the user prefers it]
+**How to apply:** [Explain when and how this rule should be applied]
+
+### 14. Structured output discipline
 When reporting what was done to the user (via send_message), state:
 - Which file(s) were changed and why
 - How to verify it works (test command or expected output)
@@ -303,10 +310,11 @@ export function initEnvironment() {
  * Creates memory.md only when needed, not on every startup.
  */
 export function ensureLocalMemory(): void {
-  fs.mkdirSync(DIRS.local.base, { recursive: true });
-  if (!fs.existsSync(DIRS.local.memory)) {
+  fs.mkdirSync(DIRS.local.memory, { recursive: true });
+  const projectMem = path.join(DIRS.local.memory, "project.md");
+  if (!fs.existsSync(projectMem)) {
     fs.writeFileSync(
-      DIRS.local.memory,
+      projectMem,
       [
         "# Project Memory",
         "",

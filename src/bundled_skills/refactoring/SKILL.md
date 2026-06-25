@@ -124,3 +124,16 @@ Never make more than one refactoring at a time between test runs.
 4. Run tests after EACH change with execute_bash
 5. Write descriptive commit messages for each step
 6. If tests don't exist, write them before refactoring
+
+
+## Why/Failure Modes
+
+[TODO: Explain the reasoning behind this skill's approach and common failure modes to avoid.]
+
+## Standalone vs Supercharged
+
+[TODO: Describe how this skill works on its own vs when combined with other tools/context.]
+
+## Cross-References
+
+[TODO: Link to other relevant skills or documentation.]

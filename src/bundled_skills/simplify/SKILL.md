@@ -73,3 +73,16 @@ For each "Fix now" item, apply the change using `edit_file`. After all edits:
 Summarize what was changed and why, grouped by the three audit lenses. Include before/after snippets for the most significant changes.
 
 Use `send_message` to present the summary.
+
+
+## Why/Failure Modes
+
+[TODO: Explain the reasoning behind this skill's approach and common failure modes to avoid.]
+
+## Standalone vs Supercharged
+
+[TODO: Describe how this skill works on its own vs when combined with other tools/context.]
+
+## Cross-References
+
+[TODO: Link to other relevant skills or documentation.]

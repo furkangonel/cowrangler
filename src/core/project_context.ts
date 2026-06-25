@@ -13,6 +13,9 @@ import path from 'path'
 // Başlangıç değeri: CLI için process.cwd() doğru davranışı verir
 let _workdir: string = process.cwd()
 
+// Şu anki aktif session ID'si. Agent veya dispatcher tarafından ayarlanır.
+let _activeSessionId: string | null = null
+
 /**
  * Aktif proje çalışma dizinini ayarla.
  * Desktop: agent chat başlamadan önce çağrılır.
@@ -27,14 +30,32 @@ export function getProjectWorkdir(): string {
   return _workdir
 }
 
+/**
+ * Aktif session ID'yi ayarla.
+ * Bu ID, task manager gibi session bazlı dosyalara erişmesi gereken modüller tarafından kullanılır.
+ */
+export function setActiveSessionId(sessionId: string | null): void {
+  _activeSessionId = sessionId
+}
+
+export function getActiveSessionId(): string | null {
+  return _activeSessionId
+}
+
 /** Aktif proje TODO dosyası ({workdir}/.cowrangler/AGENT_TODO.md) */
 export function getProjectTodoFile(): string {
   return path.join(_workdir, '.cowrangler', 'AGENT_TODO.md')
 }
 
-/** Aktif proje bellek dosyası ({workdir}/.cowrangler/memory.md) */
-export function getProjectMemoryFile(): string {
-  return path.join(_workdir, '.cowrangler', 'memory.md')
+/** Aktif proje bellek dizini ({workdir}/.cowrangler/memory) */
+export function getProjectMemoryDir(): string {
+  return path.join(_workdir, '.cowrangler', 'memory')
+}
+
+/** Aktif proje tasks dizini ({workdir}/.cowrangler/tasks/<sessionId>) */
+export function getProjectTasksDir(sessionId?: string): string {
+  const sid = sessionId ?? _activeSessionId ?? "default"
+  return path.join(_workdir, '.cowrangler', 'tasks', sid)
 }
 
 /** Aktif proje COWRNGLR.md dosyası ({workdir}/COWRNGLR.md) */

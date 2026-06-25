@@ -1,6 +1,13 @@
 ---
 name: "setup-cowork"
-description: "Guided Cowork setup — install role-matched plugins, connect your tools, try a skill."
+description: |
+  Guided Cowork setup — install role-matched plugins, connect your tools, try a skill.
+  
+  Trigger for:
+  - [TODO: Add specific triggers for when to use this skill]
+  
+  Don't trigger for:
+  - [TODO: Add anti-triggers for when NOT to use this skill]
 ---
 
 # Setup Cowork
@@ -68,3 +75,16 @@ Close short: "You're set. Start a new task from the sidebar anytime, or type `/`
 - Keep each message short. Two or three sentences plus the widget, not a wall.
 - Never write text that presumes a tool result before the tool runs. Don't say "you already have…" or "you're connected to…" above a widget — call the tool first, then react to what came back below it. The widget shows the data; your sentence reacts to it.
 - The user trying a skill mid-flow is expected. Help with it, then return to where you left off. Don't let a skill invocation end the setup.
+
+
+## Why/Failure Modes
+
+[TODO: Explain the reasoning behind this skill's approach and common failure modes to avoid.]
+
+## Standalone vs Supercharged
+
+[TODO: Describe how this skill works on its own vs when combined with other tools/context.]
+
+## Cross-References
+
+[TODO: Link to other relevant skills or documentation.]

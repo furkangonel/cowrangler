@@ -103,3 +103,16 @@ When helping with Git tasks:
 3. Suggest conventional commit messages based on the actual changes
 4. Warn before any destructive operations (force push, rebase on shared branches)
 5. Never commit directly to `main` or `master`
+
+
+## Why/Failure Modes
+
+[TODO: Explain the reasoning behind this skill's approach and common failure modes to avoid.]
+
+## Standalone vs Supercharged
+
+[TODO: Describe how this skill works on its own vs when combined with other tools/context.]
+
+## Cross-References
+
+[TODO: Link to other relevant skills or documentation.]
