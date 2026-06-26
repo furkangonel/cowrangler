@@ -7,6 +7,7 @@ import { registerTool } from "./registry.js";
 import { SUB_AGENTS } from "../core/subagents.js";
 import { Agent } from "../core/agent.js";
 import { LLM } from "../core/llm.js";
+import { getProjectTodoFile, getProjectPlanFile } from "../core/project_context.js";
 import { getConfig } from "../core/init.js";
 import { PROJECT_ROOT, LOCAL_DIR } from "../core/init.js";
 import {
@@ -325,8 +326,9 @@ Never skip the user approval step after writing a plan.`,
 
     // Persist to disk
     try {
-      fs.mkdirSync(LOCAL_DIR, { recursive: true });
-      fs.writeFileSync(path.join(LOCAL_DIR, "plan.md"), planContent, "utf-8");
+      const planFile = getProjectPlanFile();
+      fs.mkdirSync(path.dirname(planFile), { recursive: true });
+      fs.writeFileSync(planFile, planContent, "utf-8");
     } catch {
       // Non-fatal — plan still returned in-memory
     }

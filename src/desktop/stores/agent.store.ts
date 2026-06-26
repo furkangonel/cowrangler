@@ -34,6 +34,7 @@ interface AgentState {
   contextSnapshot: ContextSnapshot | null
   lastError: string | null
   isListening: boolean
+  qaPrompt: any | null
 
   setStatus: (s: AgentState['status']) => void
   appendStreamText: (text: string) => void
@@ -45,6 +46,8 @@ interface AgentState {
   setContextSnapshot: (snap: ContextSnapshot | null) => void
   setError: (err: string | null) => void
   setStreamingMessageId: (id: string | null) => void
+  setQaPrompt: (prompt: any | null) => void
+  answerQaPrompt: (answer: string) => Promise<void>
 
   // Timeline
   timelinePushText: (msgId: string, text: string) => void
@@ -61,6 +64,8 @@ interface AgentState {
     onSessionCreated: (sessionId: string, projectId: string) => void
   }) => void
   stopListening: () => void
+
+  rebuildTimelinesFromHistory: (msgs: any[]) => void
 }
 
 export const useAgentStore = create<AgentState>((set, get) => ({
@@ -73,6 +78,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   contextSnapshot: null,
   lastError: null,
   isListening: false,
+  qaPrompt: null,
 
   setStatus: (status) => set({ status }),
   appendStreamText: (text) => set(s => ({ streamingText: s.streamingText + text })),
@@ -104,6 +110,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   setProgress: (tasks) => set({ progress: tasks }),
   setContextSnapshot: (snap) => set({ contextSnapshot: snap }),
   setError: (err) => set({ lastError: err }),
+  setQaPrompt: (prompt) => set({ qaPrompt: prompt }),
+  answerQaPrompt: async (answer) => {
+    set({ qaPrompt: null })
+    await ipc.agent.answerQuestion(answer)
+  },
 
   // ── Timeline actions ────────────────────────────────────────────────────────
   timelinePushText: (msgId, text) => {
@@ -182,6 +193,69 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   clearTimelines: () => set({ timelines: {} }),
 
+  rebuildTimelinesFromHistory: (msgs: any[]) => {
+    set(s => {
+      const newTimelines: Record<string, TimelineSegment[]> = {}
+      let currentAsstMsgId: string | null = null
+
+      for (const m of msgs) {
+        if (m.role === 'user' || m.role === 'assistant') {
+          if (m.role === 'assistant') {
+            currentAsstMsgId = m.id
+            if (m.content) {
+              const segs = newTimelines[currentAsstMsgId] || []
+              segs.push({ kind: 'text', id: `t-${currentAsstMsgId}-${segs.length}`, text: m.content })
+              newTimelines[currentAsstMsgId] = segs
+            }
+          }
+        } else if (m.role === 'tool_call' && currentAsstMsgId) {
+          const segs = newTimelines[currentAsstMsgId] || []
+          let args = {}
+          try { args = JSON.parse(m.content) } catch {}
+          const call: ActiveToolCall = {
+            id: m.tool_call_id || m.id,
+            name: m.tool_name || 'unknown',
+            args,
+            status: 'running', // Will be marked 'done' if we see a tool_result
+            startedAt: m.timestamp,
+          }
+          
+          const last = segs[segs.length - 1]
+          if (last && last.kind === 'tools') {
+            last.calls.push(call)
+          } else {
+            segs.push({ kind: 'tools', id: `g-${currentAsstMsgId}-${segs.length}`, calls: [call] })
+          }
+          newTimelines[currentAsstMsgId] = segs
+        } else if (m.role === 'tool_result' && currentAsstMsgId) {
+          const segs = newTimelines[currentAsstMsgId] || []
+          for (const seg of segs) {
+            if (seg.kind === 'tools') {
+              for (const c of seg.calls) {
+                if (c.id === m.tool_call_id) {
+                  c.status = 'done'
+                  c.durationMs = m.timestamp - c.startedAt
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      // Kapatılmamış tool'ları done yap
+      for (const msgId in newTimelines) {
+        newTimelines[msgId] = newTimelines[msgId].map(seg => {
+          if (seg.kind === 'tools') {
+            seg.calls = seg.calls.map(c => c.status === 'running' ? { ...c, status: 'done', durationMs: 0 } : c)
+          }
+          return seg
+        })
+      }
+
+      return { timelines: newTimelines }
+    })
+  },
+
   startListening: (projectId, callbacks) => {
     // Stop any existing listeners first
     if (_cleanupFn) { _cleanupFn(); _cleanupFn = null }
@@ -245,6 +319,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       set({ progress: tasks })
     })
     cleanups.push(unsubProgress)
+
+    const unsubQa = ipc.agent.onQaPrompt((question: string) => {
+      get().setQaPrompt(question)
+    })
+    cleanups.push(unsubQa)
 
     const unsubDone = ipc.agent.onDone((result: AgentDoneResult) => {
       const finalText = result.text || accText

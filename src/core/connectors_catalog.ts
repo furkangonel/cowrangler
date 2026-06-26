@@ -41,6 +41,12 @@ export interface ConnectorCatalogEntry {
   auth: ConnectorAuth;
   /** Popülerlik sırası (küçük = üstte). Tanımsız → alfabetik. */
   popular?: number;
+  author?: string;
+  repoUrl?: string;
+  docsUrl?: string;
+  supportUrl?: string;
+  privacyUrl?: string;
+  capabilities?: string[];
   /**
    * Marka logosu URL'si (kutucukta gösterilir). Yüklenemezse UI otomatik olarak
    * kategori ikonuna düşer. Genellikle simpleicons CDN'i kullanılır
@@ -337,6 +343,12 @@ export const CONNECTORS_CATALOG: ConnectorCatalogEntry[] = [
     popular: 19,
     logo: "https://cdn.simpleicons.org/figma",
     url: "https://mcp.figma.com/mcp",
+    author: "Figma",
+    repoUrl: "https://mcp.figma.com/mcp",
+    docsUrl: "https://www.figma.com/docs",
+    supportUrl: "https://help.figma.com",
+    privacyUrl: "https://www.figma.com/privacy",
+    capabilities: ["Interactive"],
   },
   {
     id: "hubspot",

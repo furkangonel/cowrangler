@@ -99,11 +99,14 @@ function decryptCell(cell: Cell): string {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /** Bir namespace (ör. connector id) için verilen anahtarları şifreleyip yazar (merge). */
-export function setSecrets(namespace: string, secrets: Record<string, string>): void {
+export function setSecrets(namespace: string, secrets: Record<string, string | null | undefined>): void {
   const store = readStore();
   const bucket = { ...(store[namespace] ?? {}) };
   for (const [k, v] of Object.entries(secrets)) {
-    if (v == null || v === "") continue;
+    if (v == null || v === "") {
+      delete bucket[k];
+      continue;
+    }
     bucket[k] = encryptCell(v);
   }
   store[namespace] = bucket;
@@ -111,7 +114,7 @@ export function setSecrets(namespace: string, secrets: Record<string, string>): 
 }
 
 /** Tek bir gizli değeri yazar. */
-export function setSecret(namespace: string, key: string, value: string): void {
+export function setSecret(namespace: string, key: string, value: string | null | undefined): void {
   setSecrets(namespace, { [key]: value });
 }
 

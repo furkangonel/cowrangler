@@ -21,6 +21,7 @@ import yaml from "js-yaml";
 import chalk from "chalk";
 import https from "https";
 import { DIRS } from "../core/init.js";
+import { setSecrets } from "../core/credential_vault.js";
 
 // ── Yardımcı fonksiyonlar ────────────────────────────────────────────────────
 
@@ -162,10 +163,12 @@ async function setupTelegram(rl: readline.Interface): Promise<void> {
   const cfg = loadConfig();
   if (!cfg.gateway) cfg.gateway = {};
   cfg.gateway.telegram = {
-    token,
     ...(allowedIds.length ? { allowed_user_ids: allowedIds } : {}),
   };
   saveConfig(cfg);
+
+  // Token'ı vault'a kaydet
+  setSecrets("gateway:telegram", { token });
 
   console.log(chalk.green("\n  ✓ Telegram gateway yapılandırıldı!\n"));
   console.log(`  Bot:     ${chalk.bold(`@${botInfo.username}`)}`);
@@ -195,10 +198,12 @@ async function setupDiscord(rl: readline.Interface): Promise<void> {
   const cfg = loadConfig();
   if (!cfg.gateway) cfg.gateway = {};
   cfg.gateway.discord = {
-    token,
     ...(guildId ? { guild_id: guildId } : {}),
   };
   saveConfig(cfg);
+
+  // Token'ı vault'a kaydet
+  setSecrets("gateway:discord", { token });
 
   console.log(chalk.green("\n  ✓ Discord gateway yapılandırıldı!\n"));
   console.log(chalk.cyan("  Gateway'i başlatmak için:"));

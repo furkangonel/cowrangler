@@ -6,6 +6,19 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.0.8] — 2026-06-26
+
+### Added
+- **Custom Connectors** — Restored support for manually adding custom MCP connectors via standard stdio, HTTP, or SSE configurations.
+- **Dynamic Session Selection** — Connectors and plugins can now be seamlessly selected directly from the prompt area's inline menu.
+
+### Changed
+- **Connector UX Enhancements** — Transformed the connectors interface to support rich markdown descriptions and metadata display (capabilities, author info, privacy policies).
+- **Connector Configuration Flow** — Enhanced connection logic by requiring user-supplied parameters (local path arguments, auth secrets) before validating connection steps for non-OAuth connectors.
+- **UI Simplifications** — Streamlined sidebar and message input (`+` menu) to match standard visual layouts.
+
+---
+
 ## [2.0.7] — 2026-06-25
 
 ### Added

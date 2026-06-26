@@ -35,43 +35,28 @@ export function WorkingFoldersPanel({ projectId }: Props) {
   }
 
   return (
-    <div className="p-4">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-xs font-semibold text-text-primary">Context</h3>
-        <button
-          onClick={addFolder}
-          className="p-1 text-text-muted hover:text-accent transition-colors rounded"
-          title="Add folder"
-        >
-          <Plus size={13} />
-        </button>
-      </div>
-
+    <div className="py-2 pb-3">
       {projectFolders.length === 0 ? (
-        <div className="flex flex-col gap-2 text-center py-4">
-          <span className="text-2xl opacity-40">📂</span>
-          <p className="text-xs text-text-muted">No folders added yet.</p>
+        <div className="flex flex-col gap-2 text-center py-2">
+          <p className="text-xs text-text-muted">No folders added.</p>
           <button
             onClick={addFolder}
-            className="text-xs text-accent hover:text-accent-hover transition-colors"
+            className="text-xs text-accent hover:underline"
           >
             + Add folder
           </button>
         </div>
       ) : (
-        <div>
-          <p className="text-2xs text-text-muted uppercase tracking-wide mb-2 font-medium">On your computer</p>
+        <div className="flex flex-col">
           {projectFolders.map(folder => (
-            <div key={folder.id} className="mb-2">
+            <div key={folder.id}>
               {/* Folder header */}
-              <div className="flex items-center gap-1.5 group cursor-pointer py-1 hover:bg-bg-hover rounded px-1 transition-colors">
-                <button onClick={() => toggleFolder(folder.folder_path)} className="flex items-center gap-1.5 flex-1 min-w-0">
+              <div className="flex items-center gap-2 group cursor-pointer py-1.5 hover:bg-bg-hover/50 px-3 transition-colors">
+                <button onClick={() => toggleFolder(folder.folder_path)} className="flex items-center gap-2 flex-1 min-w-0">
                   {expanded[folder.folder_path]
-                    ? <ChevronDown size={11} className="text-text-muted flex-shrink-0" />
-                    : <ChevronRight size={11} className="text-text-muted flex-shrink-0" />
+                    ? <ChevronDown size={14} className="text-text-muted flex-shrink-0" />
+                    : <ChevronRight size={14} className="text-text-muted flex-shrink-0" />
                   }
-                  <FolderOpen size={12} className="text-accent flex-shrink-0" />
                   <span className="text-xs font-medium text-text-secondary truncate">
                     {folder.folder_path.split('/').pop() || folder.folder_path}
                   </span>
@@ -96,7 +81,7 @@ export function WorkingFoldersPanel({ projectId }: Props) {
 
               {/* File tree */}
               {expanded[folder.folder_path] && trees[folder.folder_path] && (
-                <div className="ml-4 mt-0.5">
+                <div className="ml-2">
                   {trees[folder.folder_path].map(node => (
                     <FileTreeNode key={node.path} node={node} depth={0} />
                   ))}
@@ -134,22 +119,17 @@ function FileTreeNode({ node, depth }: { node: FileNode; depth: number }) {
   return (
     <div>
       <div
-        className="flex items-center gap-1.5 py-0.5 px-1 rounded hover:bg-bg-hover cursor-pointer group transition-colors"
-        style={{ paddingLeft: `${indent + 4}px` }}
+        className="flex items-center gap-2 py-1.5 pr-2 rounded hover:bg-bg-hover/50 cursor-pointer group transition-colors"
+        style={{ paddingLeft: `${indent + 12}px` }}
         onClick={toggle}
       >
-        {node.type === 'directory' ? (
-          <>
-            {open ? <ChevronDown size={10} className="text-text-muted flex-shrink-0" /> : <ChevronRight size={10} className="text-text-muted flex-shrink-0" />}
-            <Folder size={11} className="text-yellow-500/70 flex-shrink-0" />
-          </>
-        ) : (
-          <>
-            <span className="w-2.5 flex-shrink-0" />
-            <File size={11} className="text-text-muted flex-shrink-0" />
-          </>
+        {node.type === 'directory' && (
+          <>{open ? <ChevronDown size={14} className="text-text-muted flex-shrink-0" /> : <ChevronRight size={14} className="text-text-muted flex-shrink-0" />}</>
         )}
-        <span className="text-2xs text-text-secondary truncate group-hover:text-text-primary transition-colors">
+        {node.type === 'file' && (
+          <File size={14} className="text-text-muted flex-shrink-0" />
+        )}
+        <span className="text-[13px] text-text-secondary truncate group-hover:text-text-primary transition-colors">
           {node.name}
         </span>
         {node.type === 'file' && (

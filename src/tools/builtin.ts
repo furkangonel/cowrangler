@@ -19,3 +19,4 @@ import "./dev_tools.js";
 import "./brief_tool.js";
 import "./computer_use.js";
 import "./mcp_status_tool.js";
+import "./ask_user.js";

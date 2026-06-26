@@ -19,6 +19,7 @@ import { execSync, spawnSync } from "child_process";
 import yaml from "js-yaml";
 import chalk from "chalk";
 import { DIRS } from "../core/init.js";
+import { getSecrets } from "../core/credential_vault.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Marketplace Data
@@ -677,24 +678,22 @@ async function installServer(server: McpServerEntry): Promise<void> {
   const envValues: Record<string, string> = {};
   const argValues: Record<string, string> = {};
 
-  // Collect env vars
+  // Notify about env vars (Core redirection)
   if (server.envVars && server.envVars.length > 0) {
-    console.log(chalk.bold("  API Keys & Environment Variables:\n"));
+    console.log(chalk.bold("  API Keys & Environment Variables:"));
+    const vaultSecrets = getSecrets(server.id);
     for (const ev of server.envVars) {
-      const existing = process.env[ev.key];
+      const existing = process.env[ev.key] || vaultSecrets[ev.key];
       if (existing) {
-        console.log(chalk.green(`  ✓ ${ev.key} already set`));
-        envValues[ev.key] = existing;
-        continue;
+        console.log(chalk.green(`  ✓ ${ev.key} (found in environment or Vault)`));
+      } else {
+        const hint = ev.example ? chalk.dim(` (e.g. ${ev.example})`) : "";
+        const req = ev.required ? chalk.red(" *required") : chalk.dim(" (optional)");
+        console.log(`  ○ ${chalk.bold(ev.key)}${req}${hint}`);
       }
-      const hint = ev.example ? chalk.dim(` (e.g. ${ev.example})`) : "";
-      const req = ev.required ? chalk.red(" *required") : chalk.dim(" (optional)");
-      console.log(`  ${chalk.bold(ev.key)}${req}${hint}`);
-      console.log(chalk.dim(`  ${ev.label}`));
-      const val = await ask("  Value");
-      if (val) envValues[ev.key] = val;
-      console.log();
     }
+    console.log(chalk.dim("\n  Note: API keys are now managed securely via the Cowrangler Desktop UI."));
+    console.log(chalk.dim("  Please configure them in 'Settings → Extensions' if not already set.\n"));
   }
 
   // Collect config args
@@ -739,7 +738,7 @@ async function installServer(server: McpServerEntry): Promise<void> {
         args: serverConfig.args || [],
         env: { ...process.env, ...serverConfig.env },
       });
-      const client = new Client({ name: "cowrangler-test", version: "1.0.0" }, { capabilities: {} });
+      const client = new Client({ name: "cowrangler-test", version: "2.0.8" }, { capabilities: {} });
       const connectPromise = client.connect(transport);
       const timeout = new Promise<never>((_, rej) => setTimeout(() => rej(new Error("timeout")), 8000));
       await Promise.race([connectPromise, timeout]);
@@ -757,22 +756,7 @@ async function installServer(server: McpServerEntry): Promise<void> {
   if (!cfg.mcp_servers) cfg.mcp_servers = {};
   cfg.mcp_servers[server.id] = serverConfig;
 
-  // Also write env vars to credentials.env
-  if (Object.keys(envValues).length > 0) {
-    const credPath = DIRS.global.credentials;
-    let existing = "";
-    try { existing = fs.readFileSync(credPath, "utf-8"); } catch {}
-    const newLines: string[] = [];
-    for (const [k, v] of Object.entries(envValues)) {
-      if (!existing.includes(k + "=")) {
-        newLines.push(`${k}=${v}`);
-      }
-    }
-    if (newLines.length > 0) {
-      fs.appendFileSync(credPath, "\n" + newLines.join("\n") + "\n");
-      console.log(chalk.green(`  ✓ API keys added to ~/.cowrangler/credentials.env`));
-    }
-  }
+  // Credential.env generation removed in favor of CredentialVault.
 
   saveConfig(cfg);
 

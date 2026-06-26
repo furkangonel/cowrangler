@@ -7,6 +7,7 @@ import { getProjectDB } from '../project_db.js'
 import { getSessionDB } from '../../core/session_db.js'
 import { getConfig, DEFAULT_SYSTEM_PROMPT } from '../../core/init.js'
 import { Agent } from '../../core/agent.js'
+import { setAskUserListener, resolveAskUser } from '../../tools/ask_user.js'
 
 /** Projesiz (genel) sohbet için sabit projectId. Renderer'daki GLOBAL_PROJECT_ID ile aynı. */
 const GLOBAL_PROJECT_ID = '__global__'
@@ -194,12 +195,19 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
     return AgentManager.readTodo(workdir, sessionId)
   })
 
-  // ── agent:setActiveSession ──────────────────────────────────────────────────
-  // Kullanıcı mevcut bir oturumu açtığında frontend'den bildirim alır.
-  // Bu sayede watchTodo poller ve readTodo, agent.chat() öncesinde de doğru
-  // session dizinini kullanabilir.
   ipcMain.handle('agent:setActiveSession', async (_, sessionId: string | null) => {
     const { setActiveSessionId } = await import('../../core/project_context.js')
     setActiveSessionId(sessionId)
+  })
+
+  // ── agent:answerQuestion ───────────────────────────────────────────────────
+  ipcMain.handle('agent:answerQuestion', async (_, answer: string) => {
+    resolveAskUser(answer)
+    return { ok: true }
+  })
+
+  // ── QA Tool Listener Setup ─────────────────────────────────────────────────
+  setAskUserListener((payload: any) => {
+    win.webContents.send('agent:qaPrompt', payload)
   })
 }

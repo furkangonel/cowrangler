@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Settings, Plus, Search, Pin, MessageSquare, Home, FolderPlus, ChevronRight, MessagesSquare, FolderKanban, PenLine, Trash2 } from 'lucide-react'
+import { Settings, Plus, Search, Pin, MessageSquare, Home, FolderPlus, ChevronRight, MessagesSquare, FolderKanban, PenLine, Trash2, Boxes } from 'lucide-react'
 import { useProjectsStore } from '../../stores/projects.store'
 import { useSessionsStore } from '../../stores/sessions.store'
 import { useUIStore } from '../../stores/ui.store'
@@ -12,7 +12,7 @@ import { UpdateBanner } from '../UpdateBanner'
 export function Sidebar() {
   const { projects, activeProjectId, setActiveProject, loading } = useProjectsStore()
   const { setActiveSession, activeSessionId, sessionsByProject, loadSessions } = useSessionsStore()
-  const { setNewProjectModal, openSettings, sidebarCollapsed, activeTab, setActiveTab } = useUIStore()
+  const { setNewProjectModal, openSettings, openCustomize, sidebarCollapsed, activeTab, setActiveTab } = useUIStore()
   const [search, setSearch] = useState('')
 
   const filtered = projects.filter(p =>
@@ -55,6 +55,13 @@ export function Sidebar() {
         <div className="flex-1" />
         <UpdateBanner collapsed />
         <button
+          onClick={() => openCustomize()}
+          title="Customize"
+          className="w-9 h-9 flex items-center justify-center rounded-lg text-text-muted hover:text-text-secondary hover:bg-bg-hover transition-colors"
+        >
+          <Boxes size={16} />
+        </button>
+        <button
           onClick={() => openSettings('models')}
           title="Settings"
           className="w-9 h-9 flex items-center justify-center rounded-lg text-text-muted hover:text-text-secondary hover:bg-bg-hover transition-colors"
@@ -70,60 +77,85 @@ export function Sidebar() {
       className="flex flex-col flex-shrink-0 border-r border-border-subtle bg-bg-secondary transition-all duration-200"
       style={{ width: 'var(--sidebar-width)' }}
     >
-      {/* Tab navigation */}
-      <div className="flex border-b border-border-subtle px-2 pt-2">
+      {/* Top Actions */}
+      <div className="px-3 pt-3 pb-2 space-y-2">
         <button
-          onClick={() => setActiveTab('projects')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-t-lg text-xs font-medium transition-colors flex-1 justify-center ${
-            activeTab === 'projects'
-              ? 'bg-bg-primary text-text-primary border border-b-0 border-border-subtle'
-              : 'text-text-muted hover:text-text-secondary'
-          }`}
+          onClick={async () => {
+            const agentStore = useAgentStore.getState();
+            await ipc.agent.newSession(GLOBAL_PROJECT_ID);
+            agentStore.setStatus('idle');
+            agentStore.clearToolCalls();
+            agentStore.clearTimelines();
+            useSessionsStore.getState().clearUIMessages();
+            useUIStore.getState().setActiveGlobalSession(null);
+            setActiveProject(null);
+            setActiveSession(null);
+          }}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-bg-tertiary text-text-primary hover:bg-bg-hover transition-colors text-sm font-medium border border-border-subtle"
         >
-          <FolderKanban size={12} />
-          Projects
-        </button>
-        <button
-          onClick={() => setActiveTab('chats')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-t-lg text-xs font-medium transition-colors flex-1 justify-center ${
-            activeTab === 'chats'
-              ? 'bg-bg-primary text-text-primary border border-b-0 border-border-subtle'
-              : 'text-text-muted hover:text-text-secondary'
-          }`}
-        >
-          <MessagesSquare size={12} />
-          Chats
+          <Plus size={15} />
+          <span>New chat</span>
         </button>
       </div>
 
-      {activeTab === 'projects' ? (
-        <>
-          {/* New project */}
-          <div className="px-3 pt-3 pb-2">
-            <button
-              onClick={() => setNewProjectModal(true)}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-accent text-accent-fg hover:bg-accent-hover transition-colors text-sm font-medium shadow-card"
-            >
-              <FolderPlus size={15} />
-              <span>New project</span>
-            </button>
-          </div>
+      {/* Tab Switcher */}
+      <div className="px-3 pb-1">
+        <div className="flex rounded-lg bg-bg-tertiary border border-border-subtle p-0.5">
+          <button
+            onClick={() => setActiveTab('chats')}
+            className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium transition-colors ${
+              activeTab === 'chats' ? 'bg-bg-hover text-text-primary shadow-sm' : 'text-text-muted hover:text-text-secondary'
+            }`}
+          >
+            <MessagesSquare size={13} />
+            Chat
+          </button>
+          <button
+            onClick={() => setActiveTab('projects')}
+            className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium transition-colors ${
+              activeTab === 'projects' ? 'bg-bg-hover text-text-primary shadow-sm' : 'text-text-muted hover:text-text-secondary'
+            }`}
+          >
+            <FolderKanban size={13} />
+            Projects
+          </button>
+        </div>
+      </div>
 
-          {/* Search */}
-          <div className="px-3 pb-2">
-            <div className="flex items-center gap-2 px-2.5 py-1.5 bg-bg-tertiary rounded-lg border border-border-subtle focus-within:border-accent/40 transition-colors">
-              <Search size={13} className="text-text-muted flex-shrink-0" />
-              <input
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Search projects"
-                className="flex-1 bg-transparent text-xs text-text-primary placeholder-text-muted outline-none"
-              />
+      <div className="flex-1 overflow-y-auto px-2 pb-2">
+        {activeTab === 'chats' && (
+          <GlobalChatsList />
+        )}
+
+        {activeTab === 'projects' && (
+          <>
+            {/* Projects Header */}
+            <div className="mb-1 px-2.5 flex items-center justify-between">
+              <p className="text-2xs text-text-muted font-semibold uppercase tracking-wider">
+                Projects
+              </p>
+              <button
+                onClick={() => setNewProjectModal(true)}
+                className="text-text-muted hover:text-text-primary p-1 rounded transition-colors"
+                title="New Project"
+              >
+                <FolderPlus size={12} />
+              </button>
             </div>
-          </div>
 
-          {/* Project list */}
-          <div className="flex-1 overflow-y-auto px-2 pb-2">
+            {/* Search Projects */}
+            <div className="px-2 pb-2">
+              <div className="flex items-center gap-2 px-2.5 py-1.5 bg-bg-tertiary rounded-lg border border-border-subtle focus-within:border-accent/40 transition-colors">
+                <Search size={13} className="text-text-muted flex-shrink-0" />
+                <input
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="Search projects"
+                  className="flex-1 bg-transparent text-xs text-text-primary placeholder-text-muted outline-none"
+                />
+              </div>
+            </div>
+
             {loading && (
               <div className="space-y-1.5 px-1 py-2">
                 {[0, 1, 2].map(i => (
@@ -133,15 +165,8 @@ export function Sidebar() {
             )}
 
             {!loading && projects.length === 0 && (
-              <div className="flex flex-col items-center justify-center py-10 gap-2 text-center px-4">
-                <span className="text-3xl opacity-70">📂</span>
+              <div className="flex flex-col items-center justify-center py-4 gap-2 text-center px-4">
                 <p className="text-xs text-text-muted">No projects yet</p>
-                <button
-                  onClick={() => setNewProjectModal(true)}
-                  className="text-xs text-accent hover:text-accent-hover font-medium"
-                >
-                  Create your first project
-                </button>
               </div>
             )}
 
@@ -162,7 +187,7 @@ export function Sidebar() {
             )}
 
             {unpinned.length > 0 && (
-              <Section label={pinned.length > 0 ? 'Projects' : undefined}>
+              <Section>
                 {unpinned.map(p => (
                   <ProjectItem
                     key={p.id}
@@ -176,17 +201,21 @@ export function Sidebar() {
                 ))}
               </Section>
             )}
-          </div>
-        </>
-      ) : (
-        /* Chats tab — global sessions */
-        <GlobalChatsPanel />
-      )}
+          </>
+        )}
+      </div>
 
       {/* Footer — settings */}
       <div className="border-t border-border-subtle pt-2 pb-2 flex flex-col">
         <UpdateBanner />
-        <div className="px-2">
+        <div className="px-2 space-y-0.5">
+          <button
+            onClick={() => openCustomize()}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-xs"
+          >
+            <Boxes size={14} />
+            <span>Customize</span>
+          </button>
           <button
             onClick={() => openSettings('models')}
             className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors text-xs"
@@ -200,24 +229,16 @@ export function Sidebar() {
   )
 }
 
-function GlobalChatsPanel() {
-  const { sessionsByProject, loadSessions, clearUIMessages, renameSession, deleteSession } = useSessionsStore()
+function GlobalChatsList() {
+  const { sessionsByProject, loadSessions, renameSession, deleteSession } = useSessionsStore()
   const { activeGlobalSessionId, setActiveGlobalSession } = useUIStore()
+  const { setActiveProject } = useProjectsStore()
   const agentStore = useAgentStore()
   const sessions = sessionsByProject[GLOBAL_PROJECT_ID] ?? []
 
   useEffect(() => {
     loadSessions(GLOBAL_PROJECT_ID)
   }, [])
-
-  async function newChat() {
-    await ipc.agent.newSession(GLOBAL_PROJECT_ID)
-    agentStore.setStatus('idle')
-    agentStore.clearToolCalls()
-    agentStore.clearTimelines()
-    clearUIMessages()
-    setActiveGlobalSession(null)
-  }
 
   async function handleDeleteSession(sid: string) {
     if (!window.confirm('Are you sure you want to delete this chat and all its messages?')) return
@@ -228,45 +249,29 @@ function GlobalChatsPanel() {
       agentStore.setStatus('idle')
       agentStore.clearToolCalls()
       agentStore.clearTimelines()
-      clearUIMessages()
+      useSessionsStore.getState().clearUIMessages()
       setActiveGlobalSession(null)
     }
   }
 
-  return (
-    <div className="flex-1 flex flex-col overflow-hidden">
-      <div className="px-3 pt-3 pb-2">
-        <button
-          onClick={newChat}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-accent text-accent-fg hover:bg-accent-hover transition-colors text-sm font-medium shadow-card"
-        >
-          <Plus size={15} />
-          <span>New chat</span>
-        </button>
-      </div>
+  if (sessions.length === 0) return null;
 
-      <div className="flex-1 overflow-y-auto px-2 pb-2">
-        {sessions.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 gap-3 text-center px-4">
-            <MessagesSquare size={28} className="text-text-muted opacity-50" />
-            <p className="text-xs text-text-muted leading-relaxed max-w-[160px]">
-              Start a general chat without a project. Your history appears here.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-0.5 pt-1">
-            {sessions.map(s => (
-              <SessionRow
-                key={s.id}
-                title={s.title || formatRelative(s.started_at)}
-                active={activeGlobalSessionId === s.id}
-                onSelect={() => setActiveGlobalSession(s.id)}
-                onRename={(t) => renameSession(s.id, t)}
-                onDelete={() => handleDeleteSession(s.id)}
-              />
-            ))}
-          </div>
-        )}
+  return (
+    <div className="mb-4">
+      <div className="space-y-0.5">
+        {sessions.map(s => (
+          <SessionRow
+            key={s.id}
+            title={s.title || formatRelative(s.started_at)}
+            active={activeGlobalSessionId === s.id}
+            onSelect={() => {
+              setActiveGlobalSession(s.id)
+              setActiveProject(null)
+            }}
+            onRename={(t) => renameSession(s.id, t)}
+            onDelete={() => handleDeleteSession(s.id)}
+          />
+        ))}
       </div>
     </div>
   )

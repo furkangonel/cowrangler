@@ -58,6 +58,12 @@ export function getProjectTasksDir(sessionId?: string): string {
   return path.join(_workdir, '.cowrangler', 'tasks', sid)
 }
 
+/** Aktif proje plans dosyası ({workdir}/.cowrangler/plans/<sessionId>.md) */
+export function getProjectPlanFile(sessionId?: string): string {
+  const sid = sessionId ?? _activeSessionId ?? "default"
+  return path.join(_workdir, '.cowrangler', 'plans', `${sid}.md`)
+}
+
 /** Aktif proje COWRNGLR.md dosyası ({workdir}/COWRNGLR.md) */
 export function getProjectCowrnglrMd(): string {
   return path.join(_workdir, 'COWRNGLR.md')

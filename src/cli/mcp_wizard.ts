@@ -15,6 +15,7 @@ import fs from "fs";
 import yaml from "js-yaml";
 import chalk from "chalk";
 import { DIRS } from "../core/init.js";
+import { setSecrets } from "../core/credential_vault.js";
 
 // ── Küçük readline yardımcısı ────────────────────────────────────────────────
 
@@ -96,7 +97,7 @@ async function testMcpConnection(serverConfig: any): Promise<boolean> {
       transport = new StreamableHTTPClientTransport(new URL(serverConfig.url));
     }
 
-    const client = new Client({ name: "cowrangler-test", version: "1.0.0" }, { capabilities: {} });
+    const client = new Client({ name: "cowrangler-test", version: "2.0.8" }, { capabilities: {} });
     await client.connect(transport);
     const tools = await client.listTools();
     await client.close();
@@ -163,14 +164,19 @@ export async function runMcpAddWizard(): Promise<void> {
         }
       }
 
+      if (Object.keys(env).length > 0) {
+        setSecrets(serverName, env);
+        console.log(chalk.green("    ✓ Ortam değişkenleri güvenli kasaya (Credential Vault) kaydedildi."));
+      }
+
       const timeoutRaw = await ask(rl, "Araç çağrısı zaman aşımı (saniye)", "120");
       const timeout = parseInt(timeoutRaw, 10) || 120;
 
       serverConfig = {
         command,
         args: args.length ? args : undefined,
-        env: Object.keys(env).length ? env : undefined,
         timeout,
+        ...(Object.keys(env).length > 0 ? { secrets: Object.keys(env) } : {})
       };
     } else {
       // ── HTTP / SSE ────────────────────────────────────────────────────
@@ -178,13 +184,18 @@ export async function runMcpAddWizard(): Promise<void> {
 
       // Headers
       console.log(chalk.dim("\n  Opsiyonel: HTTP başlıkları (örn: Authorization=Bearer token123)"));
-      const headersRaw = await ask(rl, "Başlıklar (KEY=VALUE formatında, boş bırak gerek yoksa)", "");
+      const headersRaw = await ask(rl, "Başlıklar (KEY=VALUE formatında, boşlukla ayır)", "");
       const headers: Record<string, string> = {};
       if (headersRaw) {
         for (const pair of headersRaw.split(/\s+/)) {
           const [k, ...v] = pair.split("=");
           if (k && v.length) headers[k] = v.join("=");
         }
+      }
+
+      if (Object.keys(headers).length > 0) {
+        setSecrets(serverName, headers);
+        console.log(chalk.green("    ✓ HTTP başlıkları güvenli kasaya (Credential Vault) kaydedildi."));
       }
 
       const timeoutRaw = await ask(rl, "Araç çağrısı zaman aşımı (saniye)", "120");
@@ -195,6 +206,7 @@ export async function runMcpAddWizard(): Promise<void> {
         headers: Object.keys(headers).length ? headers : undefined,
         transport: transportType === "sse" ? "sse" : undefined,
         timeout,
+        ...(Object.keys(headers).length > 0 ? { secrets: Object.keys(headers) } : {})
       };
     }
 

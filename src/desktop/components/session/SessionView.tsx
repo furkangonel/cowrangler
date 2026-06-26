@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { ArrowLeft, Square, Plus, ChevronDown } from 'lucide-react'
 import { MessageBubble } from './MessageBubble'
+import { AskUserPrompt } from './AskUserPrompt'
 import { InputArea } from './InputArea'
 import { useSessionsStore } from '../../stores/sessions.store'
 import { useAgentStore } from '../../stores/agent.store'
@@ -231,10 +232,17 @@ export function SessionView({ projectId, sessionId }: Props) {
         </div>
       </div>
 
+      {agentStore.qaPrompt && (
+        <AskUserPrompt
+          payload={agentStore.qaPrompt}
+          onSubmit={(ans) => agentStore.answerQaPrompt(ans)}
+        />
+      )}
+
       <InputArea
         onSend={handleSend}
         onInterrupt={handleInterrupt}
-        disabled={agentStore.status === 'thinking'}
+        disabled={agentStore.status === 'thinking' && !agentStore.qaPrompt}
         projectId={projectId}
       />
     </div>

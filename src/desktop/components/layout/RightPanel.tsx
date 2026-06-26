@@ -21,7 +21,7 @@ export function RightPanel() {
 
   return (
     <aside
-      className="flex flex-col flex-shrink-0 border-l border-border-subtle bg-bg-secondary overflow-y-auto animate-slide-in"
+      className="flex flex-col flex-shrink-0 border-l border-border-subtle bg-bg-secondary overflow-y-auto animate-slide-in p-3 gap-3"
       style={{ width: 'var(--right-panel-width)' }}
     >
       {previewFile && (
@@ -33,8 +33,8 @@ export function RightPanel() {
       <div className="flex-1 overflow-y-auto">
         {isSession ? (
         // ─── Session view ───────────────────────────────────────────────────
-        <>
-          <CollapsibleBox title="Tasks" defaultOpen>
+        <div className="flex flex-col gap-3">
+          <CollapsibleBox title="Progress" defaultOpen>
             <ProgressPanel projectId={activeProjectId} sessionId={activeSessionId} />
           </CollapsibleBox>
 
@@ -45,10 +45,10 @@ export function RightPanel() {
           <CollapsibleBox title="Context" defaultOpen={false}>
             <ContextPanel projectId={activeProjectId} />
           </CollapsibleBox>
-        </>
+        </div>
       ) : (
         // ─── Project home view ──────────────────────────────────────────────
-        <>
+        <div className="flex flex-col gap-3">
           <CollapsibleBox title="Instructions" defaultOpen>
             <InstructionsPanel projectId={activeProjectId} />
           </CollapsibleBox>
@@ -60,7 +60,7 @@ export function RightPanel() {
           <CollapsibleBox title="Context" defaultOpen={false}>
             <ContextPanel projectId={activeProjectId} />
           </CollapsibleBox>
-        </>
+        </div>
       )}
       </div>
     </aside>
@@ -80,23 +80,23 @@ function CollapsibleBox({ title, defaultOpen = true, badge, children }: BoxProps
   const [open, setOpen] = useState(defaultOpen)
 
   return (
-    <div className="border-b border-border-subtle last:border-b-0">
+    <div className="border border-border-subtle bg-bg-tertiary/50 rounded-xl overflow-hidden flex flex-col">
       <button
         onClick={() => setOpen(o => !o)}
-        className="flex items-center justify-between w-full px-4 py-3 hover:bg-bg-hover/50 transition-colors group"
+        className="flex items-center justify-between w-full px-4 py-3 hover:bg-bg-hover/30 transition-colors group"
       >
         <span className="flex items-center gap-2">
           {badge}
-          <span className="text-xs font-semibold text-text-primary">{title}</span>
+          <span className="text-sm font-medium text-text-primary">{title}</span>
         </span>
         <ChevronDown
-          size={13}
+          size={14}
           className={`text-text-muted transition-transform duration-200 ${open ? '' : '-rotate-90'}`}
         />
       </button>
 
       {open && (
-        <div className="border-t border-border-subtle/50">
+        <div className="border-t border-border-subtle/30">
           {children}
         </div>
       )}

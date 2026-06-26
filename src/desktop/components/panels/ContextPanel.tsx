@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react'
-import { Brain, BookOpen, RefreshCw, Edit2, Save, X, ChevronDown, ChevronRight } from 'lucide-react'
+import { Brain, BookOpen, RefreshCw, Edit2, Save, X, ChevronDown, ChevronRight, PenTool } from 'lucide-react'
 import { ipc } from '../../lib/ipc'
 
 interface Props { projectId: string | null }
 
+import { useSessionsStore } from '../../stores/sessions.store'
+import { useAgentStore } from '../../stores/agent.store'
+
 export function ContextPanel({ projectId }: Props) {
   return (
-    <div className="p-4 space-y-5">
-      <MemorySection projectId={projectId} />
+    <div className="py-3 px-4">
       <SkillsSection />
     </div>
   )
@@ -124,22 +126,84 @@ function MemorySection({ projectId }: { projectId: string | null }) {
 // ─── Skills ──────────────────────────────────────────────────────────────────
 
 function SkillsSection() {
-  const [open, setOpen] = useState(true)
+  const { messages } = useSessionsStore()
+  const { toolCalls, timelines } = useAgentStore()
+  
+  const usedTools = new Set<string>()
+  
+  messages.forEach(m => {
+    if (m.role === 'tool' && m.tool_name) {
+      usedTools.add(m.tool_name)
+    }
+  })
+  
+  Object.values(timelines).forEach(segments => {
+    segments.forEach(seg => {
+      if (seg.kind === 'tools') {
+        seg.calls.forEach(c => usedTools.add(c.name))
+      }
+    })
+  })
+  
+  toolCalls.forEach(c => usedTools.add(c.name))
+
+  const toolList = Array.from(usedTools).sort()
+  const hasSkills = toolList.includes('utilize_skill')
+  const displayTools = toolList.filter(t => t !== 'utilize_skill' && t !== 'send_message')
+
+  if (!hasSkills && displayTools.length === 0) {
+    return (
+      <div className="flex flex-col items-start gap-3 py-2 opacity-60">
+        <div className="flex gap-1 mb-1">
+          {/* Abstract SVG representing Context like Claude */}
+          <svg width="80" height="48" viewBox="0 0 80 48" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-text-muted">
+            <rect x="0.5" y="12.5" width="24" height="24" rx="3.5" stroke="currentColor" strokeDasharray="2 2"/>
+            <rect x="6" y="18" width="13" height="2" rx="1" fill="currentColor"/>
+            <rect x="6" y="23" width="13" height="2" rx="1" fill="currentColor"/>
+            <rect x="6" y="28" width="9" height="2" rx="1" fill="currentColor"/>
+            
+            <rect x="28.5" y="4.5" width="28" height="32" rx="3.5" stroke="currentColor"/>
+            <path d="M28.5 14.5H56.5" stroke="currentColor"/>
+            <circle cx="34" cy="9.5" r="1.5" fill="currentColor"/>
+            <circle cx="39" cy="9.5" r="1.5" fill="currentColor"/>
+            
+            <rect x="44.5" y="24.5" width="35" height="23" rx="3.5" stroke="currentColor" strokeDasharray="2 2"/>
+            <circle cx="62" cy="36" r="4" stroke="currentColor"/>
+            <path d="M59 36H65M62 33V39" stroke="currentColor"/>
+          </svg>
+        </div>
+        <p className="text-xs text-text-muted">
+          Track tools and referenced files used in this task.
+        </p>
+      </div>
+    )
+  }
 
   return (
-    <div>
-      <button onClick={() => setOpen(o => !o)} className="flex items-center gap-1.5 mb-2 w-full">
-        {open ? <ChevronDown size={11} className="text-text-muted" /> : <ChevronRight size={11} className="text-text-muted" />}
-        <BookOpen size={12} className="text-text-muted" />
-        <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide">Skills</span>
-      </button>
-
-      {open && (
-        <p className="text-2xs text-text-muted leading-relaxed">
-          Skills invoked via slash command are copied into this session's context.
-          To manage all skills,{' '}
-          <span className="text-accent font-medium">Settings → Skills</span>.
-        </p>
+    <div className="space-y-3">
+      {hasSkills && (
+        <div>
+          <p className="text-xs font-medium text-text-secondary mb-2">Used Skills</p>
+          <div className="flex flex-wrap gap-2">
+            <span className="px-2 py-1 rounded bg-accent/10 text-accent text-xs border border-accent/20 flex items-center gap-1.5">
+              <BookOpen size={12} />
+              Skill System Active
+            </span>
+          </div>
+        </div>
+      )}
+      
+      {displayTools.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-text-secondary mb-2">Tools & MCPs Invoked</p>
+          <div className="flex flex-wrap gap-2">
+            {displayTools.map(t => (
+              <span key={t} className="px-2 py-1 rounded bg-bg-tertiary text-text-secondary text-xs border border-border-subtle">
+                {t}
+              </span>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   )

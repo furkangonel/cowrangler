@@ -1,27 +1,21 @@
 import React from 'react'
-import { X, Cpu, Palette, Boxes } from 'lucide-react'
+import { X, Cpu, Palette, Boxes, ShieldCheck } from 'lucide-react'
 import { ModelsTab } from './ModelsTab'
 import { AppearanceTab } from './AppearanceTab'
-import { ExtensionsPage, ExtSubTab } from '../extensions/ExtensionsPage'
+import { PermissionsTab } from './PermissionsTab'
 import { useUIStore } from '../../stores/ui.store'
 
 const TABS = [
   { id: 'models', label: 'Models & API', icon: Cpu },
-  { id: 'extensions', label: 'Extensions', icon: Boxes },
+  { id: 'permissions', label: 'Permissions', icon: ShieldCheck },
   { id: 'appearance', label: 'Appearance', icon: Palette },
 ] as const
 
 type TabId = typeof TABS[number]['id']
 
-// Legacy deep-links (connectors/plugins/skills) now open the unified Extensions surface.
-const EXT_SUBTABS: ExtSubTab[] = ['connectors', 'plugins', 'skills']
-
 export function SettingsPage() {
   const { settingsPage, openSettings, closeSettings } = useUIStore()
-  const raw = settingsPage || 'models'
-  const isExtSub = EXT_SUBTABS.includes(raw as ExtSubTab)
-  const mainTab = (isExtSub ? 'extensions' : raw) as TabId
-  const extSub = (isExtSub ? raw : 'connectors') as ExtSubTab
+  const mainTab = (settingsPage || 'models') as TabId
 
   return (
     <div
@@ -72,14 +66,11 @@ export function SettingsPage() {
           </div>
 
           <div className="flex-1 overflow-hidden">
-            {mainTab === 'extensions' ? (
-              <ExtensionsPage initial={extSub} />
-            ) : (
-              <div className="h-full overflow-y-auto">
-                {mainTab === 'models' && <ModelsTab />}
-                {mainTab === 'appearance' && <AppearanceTab />}
-              </div>
-            )}
+            <div className="h-full overflow-y-auto">
+              {mainTab === 'models' && <ModelsTab />}
+              {mainTab === 'permissions' && <PermissionsTab />}
+              {mainTab === 'appearance' && <AppearanceTab />}
+            </div>
           </div>
         </div>
       </div>

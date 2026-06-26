@@ -1,5 +1,5 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react'
-import { ArrowUp, Square, Paperclip, BookOpen, CornerDownLeft, X } from 'lucide-react'
+import { ArrowUp, Square, Paperclip, BookOpen, CornerDownLeft, X, Plus, Box, Plug, ChevronRight } from 'lucide-react'
 import { ipc, SkillDef } from '../../lib/ipc'
 
 interface Props {
@@ -17,11 +17,35 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId }: Props) {
   const [activeIdx, setActiveIdx] = useState(0)
   // Onaylanan skill'ler — textarea'dan ayrı chip olarak gösterilir
   const [confirmedSkills, setConfirmedSkills] = useState<SkillDef[]>([])
+  const [confirmedConnectors, setConfirmedConnectors] = useState<any[]>([])
+  const [confirmedPlugins, setConfirmedPlugins] = useState<any[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const [plusMenuOpen, setPlusMenuOpen] = useState(false)
+  const [hoverMenu, setHoverMenu] = useState<string | null>(null)
+  const [mcpServers, setMcpServers] = useState<any[]>([])
+  const plusMenuRef = useRef<HTMLDivElement>(null)
+
+  // Clicking outside to close plus menu
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (plusMenuRef.current && !plusMenuRef.current.contains(e.target as Node)) {
+        setPlusMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   useEffect(() => {
     ipc.skills.list().then(s => setSkills(Array.isArray(s) ? s : [])).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    if (plusMenuOpen) {
+      ipc.mcp.list().then(s => setMcpServers(Array.isArray(s) ? s : [])).catch(() => {})
+    }
+  }, [plusMenuOpen])
 
   const filtered = skills
     .filter(s => {
@@ -78,19 +102,42 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId }: Props) {
     setConfirmedSkills(prev => prev.filter(s => s.id !== skillId))
   }
 
-  const hasContent = value.trim().length > 0 || confirmedSkills.length > 0
+  function toggleConnector(connector: any) {
+    setConfirmedConnectors(prev => 
+      prev.some(c => c.name === connector.name) ? prev.filter(c => c.name !== connector.name) : [...prev, connector]
+    )
+  }
+
+  const MOCK_PLUGINS = [
+    { id: 'accessibility-review', name: 'accessibility-review' },
+    { id: 'design-critique', name: 'design-critique' },
+    { id: 'design-handoff', name: 'design-handoff' },
+  ]
+
+  function togglePlugin(plugin: any) {
+    setConfirmedPlugins(prev => 
+      prev.some(p => p.id === plugin.id) ? prev.filter(p => p.id !== plugin.id) : [...prev, plugin]
+    )
+  }
+
+  const hasContent = value.trim().length > 0 || confirmedSkills.length > 0 || confirmedConnectors.length > 0 || confirmedPlugins.length > 0
 
   const handleSend = useCallback(() => {
     if (!hasContent || disabled) return
     // Skill'leri mesajın başına ekle
     const skillPart = confirmedSkills.map(s => `/${s.id}`).join(' ')
+    const connPart = confirmedConnectors.map(c => `/${c.name}`).join(' ')
+    const plugPart = confirmedPlugins.map(p => `/${p.id}`).join(' ')
+    const parts = [skillPart, connPart, plugPart].filter(Boolean).join(' ')
     const textPart = value.trim()
-    const msg = [skillPart, textPart].filter(Boolean).join(skillPart && textPart ? '\n\n' : '')
+    const msg = [parts, textPart].filter(Boolean).join(parts && textPart ? '\n\n' : '')
     onSend(msg)
     setValue('')
     setConfirmedSkills([])
+    setConfirmedConnectors([])
+    setConfirmedPlugins([])
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
-  }, [value, confirmedSkills, disabled, onSend, hasContent])
+  }, [value, confirmedSkills, confirmedConnectors, confirmedPlugins, disabled, onSend, hasContent])
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (slashOpen && filtered.length > 0) {
@@ -137,10 +184,30 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId }: Props) {
           </div>
         )}
 
+        {/* Plus Menu */}
+        {plusMenuOpen && (
+          <div 
+            ref={plusMenuRef}
+            className="absolute bottom-full mb-3 left-4 w-64 bg-bg-secondary border border-border rounded-xl shadow-pop overflow-hidden animate-slide-up z-30"
+          >
+            <div className="py-1">
+              <button
+                className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-bg-hover transition-colors"
+                onClick={async () => { await ipc.fs.pickFile(); setPlusMenuOpen(false); }}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Paperclip size={14} className="text-text-muted" />
+                  <span className="text-sm text-text-primary">Upload Project Files</span>
+                </div>
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Composer */}
         <div className="flex flex-col bg-bg-secondary border border-border rounded-2xl shadow-card focus-within:border-accent/50 transition-colors">
-          {/* Skill chip'leri — onaylanan skill'ler */}
-          {confirmedSkills.length > 0 && (
+          {/* Skill, Connector, Plugin chip'leri */}
+          {(confirmedSkills.length > 0 || confirmedConnectors.length > 0 || confirmedPlugins.length > 0) && (
             <div className="flex flex-wrap gap-1.5 px-3 pt-2.5 pb-1">
               {confirmedSkills.map(skill => (
                 <div
@@ -158,17 +225,49 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId }: Props) {
                   </button>
                 </div>
               ))}
+              {confirmedConnectors.map(c => (
+                <div
+                  key={`conn-${c.name}`}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-accent/12 border border-accent/25 text-accent text-xs font-medium"
+                >
+                  <Plug size={10} className="flex-shrink-0" />
+                  <span>/{c.name}</span>
+                  <button
+                    onClick={() => toggleConnector(c)}
+                    className="ml-0.5 hover:text-accent-hover transition-colors"
+                    title="Remove"
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              ))}
+              {confirmedPlugins.map(p => (
+                <div
+                  key={`plug-${p.id}`}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-accent/12 border border-accent/25 text-accent text-xs font-medium"
+                >
+                  <Box size={10} className="flex-shrink-0" />
+                  <span>/{p.id}</span>
+                  <button
+                    onClick={() => togglePlugin(p)}
+                    className="ml-0.5 hover:text-accent-hover transition-colors"
+                    title="Remove"
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              ))}
             </div>
           )}
 
           {/* Textarea satırı */}
           <div className="flex items-end gap-2 px-2.5 py-2">
             <button
-              className="p-2 text-text-muted hover:text-text-secondary hover:bg-bg-hover rounded-lg transition-colors flex-shrink-0"
-              title="Dosya ekle"
-              onClick={async () => { await ipc.fs.pickFile() }}
+              className={`p-2 rounded-lg transition-colors flex-shrink-0 ${plusMenuOpen ? 'bg-bg-hover text-text-primary' : 'text-text-muted hover:text-text-secondary hover:bg-bg-hover'}`}
+              title="Add Context"
+              onClick={() => setPlusMenuOpen(!plusMenuOpen)}
             >
-              <Paperclip size={16} />
+              <Plus size={16} />
             </button>
 
             <textarea

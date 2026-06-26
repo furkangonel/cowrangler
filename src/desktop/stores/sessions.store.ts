@@ -59,6 +59,10 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
       const msgs = await ipc.sessions.messages(sessionId)
       set({ messages: msgs, loadingMessages: false })
       get().appendFromDB(msgs)
+      
+      // Geçmiş oturum yüklendiğinde, agent.store içindeki timelineları (tool call vb.) tekrar inşa et.
+      const { useAgentStore } = await import('./agent.store')
+      useAgentStore.getState().rebuildTimelinesFromHistory(msgs)
     } catch {
       set({ loadingMessages: false })
     }
@@ -127,7 +131,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
   clearUIMessages: () => set({ uiMessages: [], messages: [] }),
 
   appendFromDB: (msgs) => {
-    // Skip 'tool' role messages — they're shown as ToolTrace items
+    // Sadece user ve assistant mesajlarını UI listesine al
     const uiMessages: UIMessage[] = msgs
       .filter(m => m.role === 'user' || m.role === 'assistant')
       .map(m => ({

@@ -173,18 +173,14 @@ export interface ConnectorCatalogInfo {
   error?: string
   /** OAuth connectors: vault holds valid tokens */
   authorized?: boolean
-}
-
-export interface PluginInfo {
-  id: string
-  name: string
-  description: string
-  author: 'cowrangler'
-  signed: boolean
-  category: string
-  skills: string[]
-  connectors: string[]
-  enabled: boolean
+  
+  // Extra metadata
+  author?: string
+  repoUrl?: string
+  docsUrl?: string
+  supportUrl?: string
+  privacyUrl?: string
+  capabilities?: string[]
 }
 
 export interface FileNode {
@@ -213,6 +209,8 @@ interface ElectronAPI {
     setActiveSession: (sessionId: string | null) => Promise<void>
     onToolCall: (cb: (data: ToolCallEvent) => void) => () => void
     onStepText: (cb: (text: string) => void) => () => void
+    onQaPrompt: (cb: (payload: any) => void) => () => void
+    answerQuestion: (answer: string) => Promise<{ ok: boolean }>
     onProgress: (cb: (tasks: TaskProgress[]) => void) => () => void
     onDone: (cb: (result: AgentDoneResult) => void) => () => void
     onError: (cb: (err: string) => void) => () => void
@@ -275,10 +273,6 @@ interface ElectronAPI {
     list: () => Promise<MCPServerInfo[]>
     remove: (name: string) => Promise<{ ok: boolean }>
     test: (name: string) => Promise<{ ok: boolean; message?: string; error?: string }>
-  }
-  plugins: {
-    list: () => Promise<PluginInfo[]>
-    setEnabled: (id: string, on: boolean) => Promise<{ ok: boolean; enabled: string[] }>
   }
   memory: {
     readGlobal: () => Promise<string>

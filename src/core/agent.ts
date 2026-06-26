@@ -581,12 +581,50 @@ export class Agent {
       if (this.sessionId) {
         try {
           const db = getSessionDB();
-          db.appendMessage({
-            sessionId: this.sessionId,
-            role: "assistant",
-            content: finalText,
-            tokenCount: totalOutputTokens,
-          });
+          
+          // Kaydedilen geçmişi, asistanın döndüğü tam `responseMessages` dizisine göre işle
+          for (const msg of responseMessages) {
+            if (msg.role === "assistant") {
+              if (typeof msg.content === "string") {
+                if (msg.content) {
+                  db.appendMessage({ sessionId: this.sessionId, role: "assistant", content: msg.content, tokenCount: totalOutputTokens });
+                }
+              } else if (Array.isArray(msg.content)) {
+                let textContent = "";
+                for (const part of msg.content) {
+                  if (part.type === "text") {
+                    textContent += part.text;
+                  } else if (part.type === "tool-call") {
+                    db.appendMessage({
+                      sessionId: this.sessionId,
+                      role: "tool_call",
+                      content: JSON.stringify(part.args),
+                      toolName: part.toolName,
+                      toolCallId: part.toolCallId,
+                    });
+                  }
+                }
+                if (textContent) {
+                  db.appendMessage({ sessionId: this.sessionId, role: "assistant", content: textContent, tokenCount: totalOutputTokens });
+                }
+              }
+            } else if (msg.role === "tool") {
+              if (Array.isArray(msg.content)) {
+                for (const part of msg.content) {
+                  if (part.type === "tool-result") {
+                    db.appendMessage({
+                      sessionId: this.sessionId,
+                      role: "tool_result",
+                      content: typeof part.result === "string" ? part.result : JSON.stringify(part.result),
+                      toolName: part.toolName,
+                      toolCallId: part.toolCallId,
+                    });
+                  }
+                }
+              }
+            }
+          }
+
           const snap = this.contextEngine.getSnapshot();
           // Maliyet tahmini — cache'ten okunan token'lar tam fiyatlanmaz
           // (Anthropic: cache read ~0.1x). Basit yaklaşım: faturalanabilir

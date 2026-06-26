@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('agent:getTodo', projectId, sessionId),
     setActiveSession: (sessionId: string | null) =>
       ipcRenderer.invoke('agent:setActiveSession', sessionId),
+    answerQuestion: (answer: string) =>
+      ipcRenderer.invoke('agent:answerQuestion', answer),
 
     // Streaming events (main → renderer)
     onToolCall: (cb: (data: any) => void) => {
@@ -27,6 +29,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const listener = (_: IpcRendererEvent, text: string) => cb(text)
       ipcRenderer.on('agent:stepText', listener)
       return () => ipcRenderer.removeListener('agent:stepText', listener)
+    },
+    onQaPrompt: (cb: (payload: any) => void) => {
+      const listener = (_: any, payload: any) => cb(payload)
+      ipcRenderer.on('agent:qaPrompt', listener)
+      return () => ipcRenderer.removeListener('agent:qaPrompt', listener)
     },
     onProgress: (cb: (tasks: any[]) => void) => {
       const listener = (_: IpcRendererEvent, tasks: any[]) => cb(tasks)
@@ -54,7 +61,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => ipcRenderer.removeListener('agent:approvalRequest', listener)
     },
     removeAllListeners: () => {
-      ;['agent:toolCall', 'agent:stepText', 'agent:progress', 'agent:done', 'agent:error', 'agent:interrupted', 'agent:approvalRequest']
+      ;['agent:toolCall', 'agent:stepText', 'agent:qaPrompt', 'agent:progress', 'agent:done', 'agent:error', 'agent:interrupted', 'agent:approvalRequest']
         .forEach(ch => ipcRenderer.removeAllListeners(ch))
     },
   },
@@ -127,12 +134,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     list: () => ipcRenderer.invoke('mcp:list'),
     remove: (name: string) => ipcRenderer.invoke('mcp:remove', name),
     test: (name: string) => ipcRenderer.invoke('mcp:test', name),
-  },
-
-  // ── Plugins (cowrangler imzalı bundled) ──────────────────────────────────────
-  plugins: {
-    list: () => ipcRenderer.invoke('plugins:list'),
-    setEnabled: (id: string, on: boolean) => ipcRenderer.invoke('plugins:setEnabled', id, on),
   },
 
   // ── Memory ─────────────────────────────────────────────────────────────────
