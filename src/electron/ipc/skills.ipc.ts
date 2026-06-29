@@ -303,7 +303,7 @@ export function registerSkillsIPC(ipcMain: IpcMain): void {
     if (!found || found.source === "bundled") {
       return { ok: false, error: "Bundled skills cannot be deleted" };
     }
-    const dir = path.join(SKILLS_DIR, skillId);
+    const dir = found.dir || path.join(SKILLS_DIR, skillId);
     try {
       if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
       return { ok: true };

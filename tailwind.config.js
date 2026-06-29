@@ -1,7 +1,7 @@
-/** @type {import('tailwindcss').Config} */
 // Co-Wrangler — Cowork design system.
 // Renkler CSS değişkenlerine bağlıdır (RGB triplet). Tema [data-theme] ile değişir.
 // `<alpha-value>` Tailwind opacity modifier'larını (bg-accent/10 vb.) korur.
+/** @type {import('tailwindcss').Config} */
 const withVar = (name) => `rgb(var(${name}) / <alpha-value>)`
 
 export default {
@@ -11,25 +11,29 @@ export default {
     extend: {
       colors: {
         bg: {
-          primary: withVar('--bg-primary'),
+          primary:   withVar('--bg-primary'),
           secondary: withVar('--bg-secondary'),
-          tertiary: withVar('--bg-tertiary'),
-          hover: withVar('--bg-hover'),
+          tertiary:  withVar('--bg-tertiary'),
+          hover:     withVar('--bg-hover'),
+          elevated:  withVar('--bg-elevated'),
         },
         border: {
           DEFAULT: withVar('--border'),
-          subtle: withVar('--border-subtle'),
+          subtle:  withVar('--border-subtle'),
+          strong:  withVar('--border-strong'),
         },
         text: {
-          primary: withVar('--text-primary'),
-          secondary: withVar('--text-secondary'),
-          muted: withVar('--text-muted'),
+          primary:     withVar('--text-primary'),
+          secondary:   withVar('--text-secondary'),
+          muted:       withVar('--text-muted'),
+          placeholder: withVar('--text-placeholder'),
         },
         accent: {
           DEFAULT: withVar('--accent'),
-          hover: withVar('--accent-hover'),
-          fg: withVar('--accent-fg'),
-          subtle: 'rgb(var(--accent) / 0.12)',
+          hover:   withVar('--accent-hover'),
+          press:   withVar('--accent-press'),
+          fg:      withVar('--accent-fg'),
+          subtle:  'rgb(var(--accent) / 0.12)',
         },
         user: {
           bubble: withVar('--user-bubble-bg'),
@@ -82,9 +86,11 @@ export default {
         '2xl': '16px',
       },
       boxShadow: {
-        card: '0 1px 2px rgb(0 0 0 / 0.04), 0 1px 3px rgb(0 0 0 / 0.06)',
-        panel: '0 8px 30px rgb(0 0 0 / 0.12)',
-        pop: '0 6px 24px rgb(0 0 0 / 0.16)',
+        sm:    '0 1px 2px rgb(0 0 0 / 0.05), 0 1px 3px rgb(0 0 0 / 0.04)',
+        card:  '0 1px 3px rgb(0 0 0 / 0.05), 0 2px 6px rgb(0 0 0 / 0.06)',
+        panel: '0 8px 30px rgb(0 0 0 / 0.12), 0 2px 6px rgb(0 0 0 / 0.06)',
+        pop:   '0 8px 28px rgb(0 0 0 / 0.16), 0 2px 6px rgb(0 0 0 / 0.06)',
+        accent: '0 3px 12px rgb(var(--accent) / 0.35)',
       },
       animation: {
         'fade-in': 'fadeIn 0.16s ease-out',

@@ -26,6 +26,7 @@ import { modelSupportsThinking, estimateCost } from "./model_metadata.js";
 import { getLogger } from "./logger.js";
 import { rotateCredentialPoolKey } from "./credential_pool.js";
 import { TrajectoryRecorder } from "./trajectory.js";
+import { cancelPendingAskUser } from "../tools/ask_user.js";
 
 /** Extended thinking destekleyen modeller için hızlı kontrol */
 function _supportsThinking(model: string): boolean {
@@ -260,6 +261,10 @@ export class Agent {
   requestInterrupt(): void {
     this._interruptRequested = true;
     this.llm.abort();
+    // If the agent is parked inside ask_user awaiting a click, the aborted fetch
+    // signal can't reach it — resolve the pending question so the loop wakes up
+    // and the interrupt flag is honoured on the next check.
+    cancelPendingAskUser();
   }
 
   clearInterrupt(): void {
@@ -501,6 +506,15 @@ export class Agent {
             } else if (part.type === "error") {
               throw (part as any).error;
             }
+          }
+
+          // If the loop broke early because Stop was pressed, throw AbortError
+          // so the catch block routes to agent:interrupted instead of agent:done.
+          if (this._interruptRequested) {
+            this.llm.clearAbortController();
+            const abortErr = new Error("This operation was aborted");
+            abortErr.name = "AbortError";
+            throw abortErr;
           }
 
           finalText = await result.text;

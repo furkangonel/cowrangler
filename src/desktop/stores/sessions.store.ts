@@ -22,6 +22,7 @@ interface SessionsState {
   setActiveSession: (id: string | null) => void
   deleteSession: (projectId: string, sessionId: string) => Promise<void>
   renameSession: (sessionId: string, title: string) => Promise<void>
+  pinSession: (projectId: string, sessionId: string, pinned: boolean) => Promise<void>
 
   // Optimistic / streaming UI
   addUserMessage: (content: string) => string  // returns temp id
@@ -44,6 +45,10 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     set({ loadingSessions: true })
     try {
       const sessions = await ipc.sessions.list(projectId)
+      sessions.sort((a, b) => {
+        if (a.pinned !== b.pinned) return (b.pinned || 0) - (a.pinned || 0)
+        return b.started_at - a.started_at
+      })
       set(s => ({
         sessionsByProject: { ...s.sessionsByProject, [projectId]: sessions },
         loadingSessions: false,
@@ -95,6 +100,21 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
       const next: Record<string, SessionRecord[]> = {}
       for (const [pid, list] of Object.entries(s.sessionsByProject)) {
         next[pid] = list.map(sess => sess.id === sessionId ? { ...sess, title } : sess)
+      }
+      return { sessionsByProject: next }
+    })
+  },
+
+  pinSession: async (projectId, sessionId, pinned) => {
+    await ipc.sessions.pin(sessionId, pinned)
+    set(s => {
+      const next = { ...s.sessionsByProject }
+      if (next[projectId]) {
+        next[projectId] = next[projectId].map(x => x.id === sessionId ? { ...x, pinned: pinned ? 1 : 0 } : x)
+        next[projectId].sort((a, b) => {
+          if (a.pinned !== b.pinned) return (b.pinned || 0) - (a.pinned || 0)
+          return b.started_at - a.started_at
+        })
       }
       return { sessionsByProject: next }
     })

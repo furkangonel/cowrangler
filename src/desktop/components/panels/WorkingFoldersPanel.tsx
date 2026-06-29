@@ -1,14 +1,17 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import { Plus, Folder, FolderOpen, File, ChevronRight, ChevronDown, ExternalLink, X } from 'lucide-react'
 import { useProjectsStore } from '../../stores/projects.store'
+import { useAgentStore } from '../../stores/agent.store'
 import { ipc, FileNode } from '../../lib/ipc'
+import { useUIStore } from '../../stores/ui.store'
+import { useSessionsStore } from '../../stores/sessions.store'
 
 interface Props { projectId: string | null }
 
 export function WorkingFoldersPanel({ projectId }: Props) {
-  const { folders, loadFolders, removeFolder } = useProjectsStore()
+  const { folders, loadFolders } = useProjectsStore()
+  const { toolCalls, timelines } = useAgentStore()
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
-  const [trees, setTrees] = useState<Record<string, FileNode[]>>({})
 
   useEffect(() => {
     if (projectId) loadFolders(projectId)
@@ -16,22 +19,137 @@ export function WorkingFoldersPanel({ projectId }: Props) {
 
   const projectFolders = projectId ? (folders[projectId] ?? []) : []
 
-  async function addFolder() {
-    if (!projectId) return
-    const path = await ipc.fs.pickFolder()
-    if (path) await useProjectsStore.getState().addFolder(projectId, path)
-  }
+  // Extract all file paths from tool arguments that the agent has interacted with
+  const { messages } = useSessionsStore()
+  const touchedFiles = useMemo(() => {
+    const paths = new Set<string>()
 
-  async function loadTree(folderPath: string) {
-    if (trees[folderPath]) return
-    const nodes = await ipc.fs.fileTree(folderPath, 2)
-    setTrees(t => ({ ...t, [folderPath]: nodes }))
-  }
+    const scanArgs = (obj: any, parentKey?: string) => {
+      if (!obj) return
+      if (typeof obj === 'string') {
+        let val = obj
+        try {
+          const parsed = JSON.parse(val)
+          if (typeof parsed === 'object' && parsed !== null) {
+            scanArgs(parsed, parentKey)
+            return
+          }
+        } catch(e) {}
+
+        if (val.startsWith('file://')) val = val.substring(7)
+        val = val.trim().replace(/^"|"$/g, '')
+        if (val.includes('\n')) return
+        if (val.length > 255) return
+        if (val === '.' || val === './' || val.includes('*')) return
+
+        const isPathKey = parentKey && /path|file|dir|cwd/i.test(parentKey)
+
+        if (isPathKey || val.startsWith('/') || val.match(/^[a-zA-Z]:[\\/]/)) {
+          paths.add(val)
+        }
+      } else if (Array.isArray(obj)) {
+        obj.forEach(item => scanArgs(item, parentKey))
+      } else if (typeof obj === 'object') {
+        Object.entries(obj).forEach(([key, value]) => scanArgs(value, key))
+      }
+    }
+
+    // Check active tool calls
+    toolCalls.forEach(c => scanArgs(c.args))
+
+    // Check timeline tool calls
+    Object.values(timelines).forEach(segments => {
+      segments.forEach(seg => {
+        if (seg.kind === 'tools') {
+          seg.calls.forEach(c => scanArgs(c.args))
+        }
+      })
+    })
+
+    // Check messages just in case
+    messages.forEach(m => {
+      if (m.role === 'tool_call' && m.content) {
+        try { scanArgs(JSON.parse(m.content)) } catch {}
+      } else if (m.role === 'assistant' && m.content) {
+        try { scanArgs(JSON.parse(m.content)) } catch {}
+      }
+    })
+
+    return Array.from(paths)
+  }, [toolCalls, timelines, messages])
+
+  // Build a virtual file tree for each root folder based ONLY on touched files
+  const trees = useMemo(() => {
+    const newTrees: Record<string, FileNode[]> = {}
+
+    projectFolders.forEach(folder => {
+      // normalize rootPath
+      let rootPath = folder.folder_path.replace(/\/+$/, '')
+      let rootName = rootPath.split('/').pop() || ''
+      
+      const rootNode: FileNode = { name: 'root', path: rootPath, type: 'directory', children: [] }
+
+      // Filter touched files that belong to this root folder, translating relative paths to absolute
+      const relevantFiles = touchedFiles.map(f => {
+        if (f.startsWith(rootPath + '/') || f === rootPath) return f
+        
+        // If relative path starts with folder name (e.g. "VibeCap/Views/...")
+        if (rootName && f.startsWith(rootName + '/')) {
+          return rootPath + '/' + f.substring(rootName.length + 1)
+        }
+        
+        // If it's a relative path (doesn't start with / or C:\)
+        if (!f.startsWith('/') && !f.match(/^[a-zA-Z]:[\\/]/)) {
+          return rootPath + '/' + f
+        }
+        
+        return null
+      }).filter(Boolean) as string[]
+
+      relevantFiles.forEach(filePath => {
+        if (filePath === rootPath) return // Root itself
+
+        const relativePath = filePath.substring(rootPath.length + 1)
+        const parts = relativePath.split('/')
+        
+        let currentNode = rootNode
+        let currentPath = rootPath
+
+        parts.forEach((part, index) => {
+          currentPath = `${currentPath}/${part}`
+          const isFile = index === parts.length - 1 // Assume last part is a file (unless it's a directory tool, but this is a virtual view)
+          
+          if (!currentNode.children) currentNode.children = []
+          
+          let nextNode = currentNode.children.find(c => c.name === part)
+          if (!nextNode) {
+            nextNode = {
+              name: part,
+              path: currentPath,
+              type: isFile ? 'file' : 'directory',
+              children: isFile ? undefined : []
+            }
+            currentNode.children.push(nextNode)
+          }
+          
+          // If a subsequent path reveals this was actually a directory, ensure it acts like one
+          if (!isFile && nextNode.type === 'file') {
+            nextNode.type = 'directory'
+            nextNode.children = []
+          }
+
+          currentNode = nextNode
+        })
+      })
+
+      newTrees[folder.folder_path] = rootNode.children || []
+    })
+
+    return newTrees
+  }, [projectFolders, touchedFiles])
 
   function toggleFolder(folderPath: string) {
-    const next = !expanded[folderPath]
-    setExpanded(e => ({ ...e, [folderPath]: next }))
-    if (next) loadTree(folderPath)
+    setExpanded(e => ({ ...e, [folderPath]: !e[folderPath] }))
   }
 
   return (
@@ -39,77 +157,66 @@ export function WorkingFoldersPanel({ projectId }: Props) {
       {projectFolders.length === 0 ? (
         <div className="flex flex-col gap-2 text-center py-2">
           <p className="text-xs text-text-muted">No folders added.</p>
-          <button
-            onClick={addFolder}
-            className="text-xs text-accent hover:underline"
-          >
-            + Add folder
-          </button>
+          <p className="text-2xs text-text-muted/60 px-4">Go to Project Home to manage Working Folders.</p>
         </div>
       ) : (
         <div className="flex flex-col">
-          {projectFolders.map(folder => (
-            <div key={folder.id}>
-              {/* Folder header */}
-              <div className="flex items-center gap-2 group cursor-pointer py-1.5 hover:bg-bg-hover/50 px-3 transition-colors">
-                <button onClick={() => toggleFolder(folder.folder_path)} className="flex items-center gap-2 flex-1 min-w-0">
-                  {expanded[folder.folder_path]
-                    ? <ChevronDown size={14} className="text-text-muted flex-shrink-0" />
-                    : <ChevronRight size={14} className="text-text-muted flex-shrink-0" />
-                  }
-                  <span className="text-xs font-medium text-text-secondary truncate">
-                    {folder.folder_path.split('/').pop() || folder.folder_path}
-                  </span>
-                </button>
-                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={() => ipc.fs.openInFinder(folder.folder_path)}
-                    className="p-0.5 text-text-muted hover:text-text-secondary"
-                    title="Open in Finder"
-                  >
-                    <ExternalLink size={10} />
+          {projectFolders.map(folder => {
+            const hasTouchedFiles = trees[folder.folder_path] && trees[folder.folder_path].length > 0
+            return (
+              <div key={folder.id}>
+                {/* Folder header */}
+                <div className="flex items-center gap-2 group cursor-pointer py-1.5 hover:bg-bg-hover/50 px-3 transition-colors">
+                  <button onClick={() => toggleFolder(folder.folder_path)} className="flex items-center gap-2 flex-1 min-w-0">
+                    {expanded[folder.folder_path]
+                      ? <ChevronDown size={14} className="text-text-muted flex-shrink-0" />
+                      : <ChevronRight size={14} className="text-text-muted flex-shrink-0" />
+                    }
+                    <span className="text-xs font-medium text-text-secondary truncate">
+                      {folder.folder_path.split('/').pop() || folder.folder_path}
+                    </span>
                   </button>
-                  <button
-                    onClick={() => projectId && removeFolder(projectId, folder.folder_path)}
-                    className="p-0.5 text-text-muted hover:text-error"
-                    title="Remove"
-                  >
-                    <X size={10} />
-                  </button>
+                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => ipc.fs.openInFinder(folder.folder_path)}
+                      className="p-0.5 text-text-muted hover:text-text-secondary"
+                      title="Open in Finder"
+                    >
+                      <ExternalLink size={10} />
+                    </button>
+                  </div>
                 </div>
-              </div>
 
-              {/* File tree */}
-              {expanded[folder.folder_path] && trees[folder.folder_path] && (
-                <div className="ml-2">
-                  {trees[folder.folder_path].map(node => (
-                    <FileTreeNode key={node.path} node={node} depth={0} />
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
+                {/* File tree */}
+                {expanded[folder.folder_path] && (
+                  <div className="ml-2">
+                    {!hasTouchedFiles ? (
+                      <p className="text-2xs text-text-muted italic py-1 pl-6">No files touched yet.</p>
+                    ) : (
+                      trees[folder.folder_path].map(node => (
+                        <FileTreeNode key={node.path} node={node} depth={0} />
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
     </div>
   )
 }
 
-import { useUIStore } from '../../stores/ui.store'
-
 function FileTreeNode({ node, depth }: { node: FileNode; depth: number }) {
-  const [open, setOpen] = useState(false)
-  const [children, setChildren] = useState<FileNode[]>(node.children ?? [])
+  const [open, setOpen] = useState(true) // Auto-open virtual directories
   const { setPreviewFile } = useUIStore()
+  const children = node.children ?? []
 
-  async function toggle() {
+  function toggle() {
     if (node.type === 'file') {
       setPreviewFile(node.path)
       return
-    }
-    if (!open && node.children === undefined) {
-      const nodes = await ipc.fs.fileTree(node.path, 1)
-      setChildren(nodes)
     }
     setOpen(!open)
   }

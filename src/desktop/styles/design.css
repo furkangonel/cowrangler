@@ -1,0 +1,134 @@
+/* ══════════════════════════════════════════════════════════════════════════
+   Cowrangler Design — scoped light theme
+   The main desktop shell is dark (color-scheme: dark). The Design window is a
+   warm, editorial light surface. Everything here is namespaced under
+   `.design-root` so it never leaks into the rest of the app.
+   Direction is pinned to the Claude-Design reference: cream paper, high
+   contrast serif display (Charter), a single terracotta accent.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.design-root {
+  /* Surfaces */
+  --d-cream: #f6f1e9;
+  --d-cream-2: #ece3d4;
+  --d-paper: #faf7f0;
+  --d-surface: #ffffff;
+
+  /* Ink */
+  --d-ink: #211d18;
+  --d-ink-soft: #4a443c;
+  --d-ink-muted: #8a8175;
+  --d-ink-faint: #b3aa9b;
+
+  /* Lines */
+  --d-line: rgba(33, 29, 24, 0.10);
+  --d-line-2: rgba(33, 29, 24, 0.06);
+
+  /* Accent — terracotta */
+  --d-clay: #c1693f;
+  --d-clay-soft: #e7a98f;
+  --d-clay-deep: #a4502c;
+  --d-clay-wash: #fbf1ea;
+
+  /* Template beige */
+  --d-beige: #e9e0d2;
+  --d-beige-2: #ddd0bb;
+
+  /* Periwinkle sticker */
+  --d-blue: #9db0d8;
+
+  color-scheme: light;
+  color: var(--d-ink);
+  font-family: 'SF Pro Rounded', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  background: var(--d-paper);
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Editorial display serif — the hero voice of the product */
+.design-serif {
+  font-family: 'Charter', 'Tiempos Headline', Georgia, 'Times New Roman', serif;
+  letter-spacing: -0.018em;
+}
+
+/* Native traffic-light clearance for the draggable bar (macOS hiddenInset) */
+.design-titlebar {
+  -webkit-app-region: drag;
+  height: 44px;
+  flex-shrink: 0;
+}
+.design-titlebar .no-drag,
+.design-root button,
+.design-root a,
+.design-root input,
+.design-root textarea,
+.design-root [role='button'] {
+  -webkit-app-region: no-drag;
+}
+
+/* Assistant chat bubble uses .prose, whose color comes from the dark app theme
+   (light text) — force dark ink on the light bubble so it stays readable. */
+.design-root .prose { color: var(--d-ink); font-size: 14px; }
+.design-root .prose h1, .design-root .prose h2, .design-root .prose h3,
+.design-root .prose h4, .design-root .prose strong, .design-root .prose li,
+.design-root .prose p, .design-root .prose a { color: var(--d-ink); }
+.design-root .prose code { color: var(--d-clay-deep); background: rgba(33, 29, 24, 0.06); }
+.design-root .prose pre { color: var(--d-ink); background: rgba(33, 29, 24, 0.05); }
+
+/* Dotted canvas backdrop */
+.design-canvas-dots {
+  background-color: var(--d-cream);
+  background-image: radial-gradient(circle, rgba(33, 29, 24, 0.13) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+/* Soft elevation used on the composer + frames */
+.design-elev {
+  box-shadow: 0 1px 2px rgba(33, 29, 24, 0.04), 0 8px 24px -12px rgba(33, 29, 24, 0.14);
+}
+.design-elev-lg {
+  box-shadow: 0 2px 4px rgba(33, 29, 24, 0.05), 0 24px 60px -20px rgba(33, 29, 24, 0.28);
+}
+
+/* Scoped scrollbars — light */
+.design-root *::-webkit-scrollbar { width: 10px; height: 10px; }
+.design-root *::-webkit-scrollbar-thumb {
+  background: rgba(33, 29, 24, 0.18);
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+.design-root *::-webkit-scrollbar-thumb:hover { background: rgba(33, 29, 24, 0.3); background-clip: padding-box; }
+
+/* The fanned template-card row — gentle overlap + lift on hover */
+.design-fan { perspective: 1200px; }
+.design-fan-card {
+  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.22s ease;
+}
+.design-fan-card:hover {
+  transform: translateY(-8px) rotate(0deg) scale(1.03) !important;
+  z-index: 20 !important;
+}
+
+@keyframes design-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.design-rise { animation: design-rise 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .design-fan-card, .design-rise { transition: none !important; animation: none !important; }
+}
+
+/* Composer textarea auto-growing and custom height constraints */
+.design-composer-textarea {
+  field-sizing: content;
+  height: auto;
+  min-height: 101px; /* Fallback for 3 lines of text + vertical padding (pt-5 + pb-2) */
+  min-height: calc(3lh + 1.75rem);
+  max-height: 198px; /* Fallback for 7 lines of text + vertical padding */
+  max-height: calc(7lh + 1.75rem);
+}
+

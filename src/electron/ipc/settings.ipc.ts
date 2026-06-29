@@ -149,6 +149,25 @@ function maskKey(key: string): string {
   return key.slice(0, 6) + '••••••••' + key.slice(-4)
 }
 
+/** ~/.cowrangler/config.yaml içindeki `saved_models` listesini oku */
+function readSavedModels(): string[] {
+  try {
+    if (!fs.existsSync(CONFIG_FILE)) return []
+    const config: any = yaml.load(fs.readFileSync(CONFIG_FILE, 'utf-8')) || {}
+    return Array.isArray(config['saved_models']) ? config['saved_models'] : []
+  } catch { return [] }
+}
+
+function writeSavedModels(models: string[]): void {
+  fs.mkdirSync(GLOBAL_DIR, { recursive: true })
+  let config: any = {}
+  if (fs.existsSync(CONFIG_FILE)) {
+    try { config = yaml.load(fs.readFileSync(CONFIG_FILE, 'utf-8')) as any || {} } catch {}
+  }
+  config['saved_models'] = [...new Set(models)]
+  fs.writeFileSync(CONFIG_FILE, yaml.dump(config), 'utf-8')
+}
+
 export function registerSettingsIPC(ipcMain: IpcMain): void {
   ipcMain.handle('settings:get', async () => {
     try { return getConfig() } catch { return {} }
@@ -185,6 +204,22 @@ export function registerSettingsIPC(ipcMain: IpcMain): void {
     const p = PROVIDERS.find(p => p.id === provider)
     if (!p) return { ok: false }
     writeCredential(p.envKey, '')
+    return { ok: true }
+  })
+
+  // ─── Saved models (model picker only shows these) ─────────────────────────
+  ipcMain.handle('settings:savedModels:list', async () => readSavedModels())
+
+  ipcMain.handle('settings:savedModels:add', async (_, modelId: string) => {
+    if (!modelId?.trim()) return { ok: false }
+    const current = readSavedModels()
+    if (!current.includes(modelId.trim())) writeSavedModels([...current, modelId.trim()])
+    return { ok: true }
+  })
+
+  ipcMain.handle('settings:savedModels:remove', async (_, modelId: string) => {
+    const current = readSavedModels()
+    writeSavedModels(current.filter(m => m !== modelId))
     return { ok: true }
   })
 

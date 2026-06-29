@@ -191,11 +191,6 @@ export function initEnvironment() {
       model: "openrouter/google/gemini-2.5-flash",
       saved_models: [
         "openrouter/google/gemini-2.5-flash",
-        "claude-opus-4-6",
-        "claude-sonnet-4-6",
-        "claude-haiku-4-5",
-        "gpt-4o",
-        "o4-mini",
         "openrouter/anthropic/claude-sonnet-4-6",
       ],
       // system_prompt is intentionally NOT stored in config.yaml.
@@ -292,7 +287,7 @@ export function initEnvironment() {
   // The .cowrangler/ dir and skills/ subdir are created so that skill discovery
   // and history persistence work without errors. No .md files are written here.
   fs.mkdirSync(DIRS.global.agents, { recursive: true });
-  
+
   try {
     fs.mkdirSync(DIRS.local.base, { recursive: true });
     fs.mkdirSync(DIRS.local.skills, { recursive: true });
@@ -417,7 +412,8 @@ export function setConfigValue(dottedKey: string, rawValue: string): void {
   initEnvironment();
   let raw: any = {};
   if (fs.existsSync(DIRS.global.config)) {
-    raw = (yaml.load(fs.readFileSync(DIRS.global.config, "utf-8")) as any) ?? {};
+    raw =
+      (yaml.load(fs.readFileSync(DIRS.global.config, "utf-8")) as any) ?? {};
   }
 
   // Değer tipini çıkar

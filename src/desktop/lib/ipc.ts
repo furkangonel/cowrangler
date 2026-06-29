@@ -83,6 +83,7 @@ export interface SessionRecord {
   title: string | null
   workdir: string | null
   parent_session_id: string | null
+  pinned: number
 }
 
 export interface MessageRecord {
@@ -199,6 +200,64 @@ export interface OutputFile {
   mtime: number
 }
 
+export type DesignTemplateType = string
+
+export interface DesignProjectRecord extends ProjectRecord {
+  designType: DesignTemplateType
+}
+
+export interface DesignSystemRecord {
+  id: string
+  name: string
+  blurb: string
+  notes: string
+  createdAt: number
+}
+
+export type DesignKind = 'html' | 'jsx' | 'svg' | 'mermaid'
+export type DesignDevice = 'mobile' | 'tablet' | 'desktop' | null
+
+export interface DesignTweak {
+  id: string
+  label: string
+  type: 'color' | 'range' | 'select' | 'toggle'
+  var: string
+  default?: string | number | boolean
+  options?: string[]
+  min?: number
+  max?: number
+  step?: number
+  unit?: string
+}
+
+export interface DesignMeta {
+  title?: string
+  device?: DesignDevice
+  tweaks?: DesignTweak[]
+  /** User-applied tweak values, keyed by tweak id; persisted into the sidecar. */
+  values?: Record<string, string | number | boolean>
+}
+
+export interface DesignFrame {
+  id: string
+  name: string
+  filePath: string
+  x: number
+  y: number
+  width: number
+  height: number
+  kind?: DesignKind
+  meta?: DesignMeta | null
+}
+
+export interface DesignScreenFile {
+  name: string
+  filePath: string
+  mtime: number
+  kind?: DesignKind
+  meta?: DesignMeta | null
+}
+
 interface ElectronAPI {
   agent: {
     chat: (projectId: string, sessionId: string | null, message: string, model?: string) => Promise<void>
@@ -238,6 +297,7 @@ interface ElectronAPI {
     search: (query: string, projectId?: string) => Promise<any[]>
     delete: (projectId: string, sessionId: string) => Promise<{ ok: boolean }>
     rename: (sessionId: string, title: string) => Promise<{ ok: boolean }>
+    pin: (sessionId: string, pinned: boolean) => Promise<{ ok: boolean }>
   }
   settings: {
     get: () => Promise<Record<string, any>>
@@ -246,6 +306,37 @@ interface ElectronAPI {
     setApiKey: (provider: string, key: string) => Promise<{ ok: boolean }>
     removeApiKey: (provider: string) => Promise<{ ok: boolean }>
     getModels: (opts?: { refresh?: boolean }) => Promise<ModelInfo[]>
+    savedModels: {
+      list: () => Promise<string[]>
+      add: (modelId: string) => Promise<{ ok: boolean }>
+      remove: (modelId: string) => Promise<{ ok: boolean }>
+    }
+  }
+  design: {
+    openWindow: () => Promise<{ ok: boolean }>
+    createProject: (data: { name: string; type: string; designSystemId?: string }) => Promise<DesignProjectRecord>
+    listProjects: () => Promise<DesignProjectRecord[]>
+    listSystems: () => Promise<DesignSystemRecord[]>
+    createSystem: (data: { name: string; blurb?: string; notes?: string }) => Promise<DesignSystemRecord>
+    deleteSystem: (id: string) => Promise<{ ok: boolean }>
+    attachSystem: (payload: { projectId: string; designSystemId: string | null }) => Promise<{ ok: boolean }>
+    exportProject: (payload: { projectId: string; destDir: string }) => Promise<{ ok: boolean; count: number; dir?: string; error?: string }>
+    getCanvas: (projectId: string) => Promise<{ frames: DesignFrame[] }>
+    saveCanvas: (payload: { projectId: string; frames: DesignFrame[] }) => Promise<{ ok: boolean }>
+    scanScreens: (projectId: string) => Promise<DesignScreenFile[]>
+    readFile: (filePath: string) => Promise<{ content?: string; error?: string }>
+    readMeta: (screenPath: string) => Promise<DesignMeta | null>
+    saveMeta: (payload: { screenPath: string; meta: DesignMeta }) => Promise<{ ok: boolean; error?: string }>
+    deleteProject: (projectId: string) => Promise<{ ok: boolean }>
+    renameProject: (payload: { projectId: string; name: string }) => Promise<{ ok: boolean }>
+  }
+  exporter: {
+    saveCopy: (payload: { srcPath: string }) => Promise<{ ok: boolean; path?: string; error?: string }>
+    toPdf: (payload: { srcPath?: string; html?: string; name?: string; landscape?: boolean }) => Promise<{ ok: boolean; path?: string; count?: number; error?: string }>
+    toImage: (payload: { srcPath?: string; html?: string; name?: string; width?: number; height?: number }) => Promise<{ ok: boolean; path?: string; error?: string }>
+    fileToPptx: (payload: { srcPath: string; name?: string; width?: number; height?: number }) => Promise<{ ok: boolean; path?: string; count?: number; error?: string }>
+    deckToPdf: (payload: { files: string[]; name?: string; slideW?: number; slideH?: number }) => Promise<{ ok: boolean; path?: string; count?: number; error?: string }>
+    deckToPptx: (payload: { files: string[]; name?: string; slideW?: number; slideH?: number }) => Promise<{ ok: boolean; path?: string; count?: number; error?: string }>
   }
   skills: {
     list: () => Promise<SkillDef[]>
@@ -286,6 +377,7 @@ interface ElectronAPI {
     pickFile: () => Promise<string | null>
     fileTree: (dirPath: string, depth?: number) => Promise<FileNode[]>
     readFile: (filePath: string) => Promise<{ content?: string; error?: string }>
+    writeFile: (filePath: string, content: string) => Promise<{ ok: boolean; error?: string }>
     openInFinder: (filePath: string) => Promise<{ ok: boolean }>
     openExternal: (url: string) => Promise<{ ok: boolean }>
   }

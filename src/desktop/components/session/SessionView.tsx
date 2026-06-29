@@ -23,7 +23,7 @@ export function SessionView({ projectId, sessionId }: Props) {
 
   const agentStore = useAgentStore()
   const { getActiveProject } = useProjectsStore()
-  const { getModel, models } = useSettingsStore()
+  const { getModel, savedModels } = useSettingsStore()
   const scrollRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const isNew = sessionId === '__new__'
@@ -71,8 +71,13 @@ export function SessionView({ projectId, sessionId }: Props) {
 
   useEffect(() => {
     const pending = sessionStorage.getItem(`pendingMessage_${projectId}`)
+    const pendingModel = sessionStorage.getItem(`pendingModel_${projectId}`)
     if (pending) {
       sessionStorage.removeItem(`pendingMessage_${projectId}`)
+      if (pendingModel) {
+        sessionStorage.removeItem(`pendingModel_${projectId}`)
+        setSessionModel(pendingModel)
+      }
       setTimeout(() => handleSend(pending), 100)
     }
   }, [])
@@ -120,10 +125,8 @@ export function SessionView({ projectId, sessionId }: Props) {
 
   // Get short model label for display
   const modelLabel = effectiveModel
-    ? (models.find(m => m.id === effectiveModel)?.label ?? effectiveModel.split('/').pop() ?? effectiveModel)
+    ? (effectiveModel.split('/').pop() ?? effectiveModel)
     : 'Select model'
-
-  const availableModels = models.filter(m => m.available)
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-bg-primary">
@@ -167,18 +170,21 @@ export function SessionView({ projectId, sessionId }: Props) {
                     <span className="flex-1 truncate">Global ({getModel()?.split('/').pop() ?? 'default'})</span>
                     {!sessionModel && <span className="text-2xs opacity-60">●</span>}
                   </button>
-                  {availableModels.map(m => (
+                  {savedModels.map(modelId => (
                     <button
-                      key={m.id}
-                      onClick={() => { setSessionModel(m.id); setModelPickerOpen(false) }}
+                      key={modelId}
+                      onClick={() => { setSessionModel(modelId); setModelPickerOpen(false) }}
                       className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left transition-colors ${
-                        sessionModel === m.id ? 'bg-accent-subtle text-accent font-medium' : 'text-text-secondary hover:bg-bg-hover'
+                        sessionModel === modelId ? 'bg-accent-subtle text-accent font-medium' : 'text-text-secondary hover:bg-bg-hover'
                       }`}
                     >
-                      <span className="flex-1 truncate">{m.label}</span>
-                      {sessionModel === m.id && <span className="text-2xs opacity-60">●</span>}
+                      <span className="flex-1 truncate font-mono">{modelId.split('/').pop() ?? modelId}</span>
+                      {sessionModel === modelId && <span className="text-2xs opacity-60">●</span>}
                     </button>
                   ))}
+                  {savedModels.length === 0 && (
+                    <p className="px-2.5 py-2 text-2xs text-text-muted italic">No saved models — add in Settings</p>
+                  )}
                 </div>
               </div>
             )}

@@ -1,19 +1,14 @@
 import React, { useState } from 'react'
-import { Eye, EyeOff, Check, AlertCircle, ArrowRight, RefreshCw } from 'lucide-react'
+import { Eye, EyeOff, Check, Plus, Trash2, AlertCircle } from 'lucide-react'
 import { useSettingsStore } from '../../stores/settings.store'
 
-
-
 export function ModelsTab() {
-  const { apiKeys, models, setApiKey, removeApiKey, setModel, getModel, config, setConfig } = useSettingsStore()
+  const { apiKeys, savedModels, setApiKey, removeApiKey, addSavedModel, removeSavedModel } = useSettingsStore()
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({})
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState<Record<string, boolean>>({})
-  const [manualModel, setManualModel] = useState('')
-  const [manualContextWindow, setManualContextWindow] = useState('')
-
-  const currentModel = getModel()
-  const currentModelInfo = models.find(m => m.id === currentModel)
+  const [newModelId, setNewModelId] = useState('')
+  const [addingModel, setAddingModel] = useState(false)
 
   async function saveKey(provider: string) {
     const key = keyInputs[provider]?.trim()
@@ -24,84 +19,76 @@ export function ModelsTab() {
     setSaving(s => ({ ...s, [provider]: false }))
   }
 
-  async function useManualModel() {
-    const id = manualModel.trim()
+  async function handleAddModel() {
+    const id = newModelId.trim()
     if (!id) return
-    await setModel(id)
-    
-    if (manualContextWindow.trim()) {
-      const cw = parseInt(manualContextWindow.trim(), 10)
-      if (!isNaN(cw)) {
-        const currentCustomCWs = config['custom_context_windows'] || {}
-        await setConfig('custom_context_windows', { ...currentCustomCWs, [id]: cw })
-      }
-    }
-    
-    setManualModel('')
-    setManualContextWindow('')
+    setAddingModel(true)
+    await addSavedModel(id)
+    setNewModelId('')
+    setAddingModel(false)
   }
-
-
 
   return (
     <div className="p-6 space-y-8 max-w-2xl">
-      {/* Default model — manual entry on top */}
-      <section>
-        <h4 className="text-sm font-semibold text-text-primary mb-1">Default model</h4>
-        <p className="text-xs text-text-muted mb-3">Model used for new chats. Type any model id, or pick from the discovered list below.</p>
 
-        <div className="flex gap-2">
+      {/* Saved Models */}
+      <section>
+        <h4 className="text-sm font-semibold text-text-primary mb-1">Saved Models</h4>
+        <p className="text-xs text-text-muted mb-3">
+          Models you've saved appear in all model pickers. Enter a full provider/model-id (e.g.{' '}
+          <code className="font-mono text-2xs">anthropic/claude-opus-4-6</code>).
+        </p>
+
+        {/* Add model input */}
+        <div className="flex gap-2 mb-3">
           <input
-            value={manualModel}
-            onChange={e => setManualModel(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && useManualModel()}
-            placeholder="provider/model-id  (e.g. anthropic/claude-opus-4-6)"
-            className="flex-[4] px-3 py-2.5 bg-bg-tertiary border border-border rounded-xl text-sm text-text-primary placeholder-text-muted font-mono focus:border-accent transition-colors"
+            value={newModelId}
+            onChange={e => setNewModelId(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleAddModel()}
+            placeholder="provider/model-id"
+            className="flex-1 px-3 py-2 bg-bg-tertiary border border-border rounded-xl text-sm text-text-primary placeholder-text-muted font-mono focus:border-accent/60 outline-none transition-colors"
           />
-          <select
-            value={manualContextWindow}
-            onChange={e => setManualContextWindow(e.target.value)}
-            className="flex-1 px-3 py-2.5 bg-bg-tertiary border border-border rounded-xl text-sm text-text-primary font-mono focus:border-accent transition-colors"
-          >
-            <option value="">Default Size</option>
-            <option value="4096">4,096 (4K)</option>
-            <option value="8192">8,192 (8K)</option>
-            <option value="16384">16,384 (16K)</option>
-            <option value="32768">32,768 (32K)</option>
-            <option value="65536">65,536 (64K)</option>
-            <option value="128000">128,000 (128K)</option>
-            <option value="200000">200,000 (200K)</option>
-            <option value="1000000">1,000,000 (1M)</option>
-            <option value="2000000">2,000,000 (2M)</option>
-          </select>
           <button
-            onClick={useManualModel}
-            disabled={!manualModel.trim()}
-            className="px-3.5 py-2.5 bg-accent text-accent-fg text-sm rounded-xl disabled:opacity-40 hover:bg-accent-hover transition-colors flex items-center gap-1.5 font-medium"
+            onClick={handleAddModel}
+            disabled={!newModelId.trim() || addingModel}
+            className="px-3.5 py-2 bg-accent text-accent-fg text-xs font-medium rounded-xl disabled:opacity-40 hover:bg-accent-hover transition-colors flex items-center gap-1.5"
           >
-            Use <ArrowRight size={14} />
+            <Plus size={13} /> Save
           </button>
         </div>
 
-        <div className="mt-2.5 flex items-center gap-2 text-xs">
-          <span className="text-text-muted">Current:</span>
-          <span className="font-mono text-text-primary truncate">
-            {currentModelInfo?.label ?? (currentModel || '— none selected —')}
-            {config['custom_context_windows']?.[currentModel] ? ` (Custom context: ${config['custom_context_windows'][currentModel]})` : ''}
-          </span>
-        </div>
-        {currentModelInfo && !currentModelInfo.available && (
-          <p className="text-2xs text-warning mt-2 flex items-center gap-1">
-            <AlertCircle size={11} /> Add the matching API key below to use this model.
-          </p>
+        {/* List of saved models */}
+        {savedModels.length === 0 ? (
+          <div className="flex items-start gap-2.5 px-3.5 py-3 bg-bg-tertiary border border-border rounded-xl">
+            <AlertCircle size={14} className="text-text-muted mt-0.5 flex-shrink-0" />
+            <p className="text-xs text-text-muted">
+              No saved models yet. Add a model ID above to start — it will appear in all model pickers.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {savedModels.map(modelId => (
+              <div
+                key={modelId}
+                className="group flex items-center justify-between px-3.5 py-2.5 bg-bg-secondary border border-border rounded-xl"
+              >
+                <span className="text-xs font-mono text-text-primary truncate">{modelId}</span>
+                <button
+                  onClick={() => removeSavedModel(modelId)}
+                  className="opacity-0 group-hover:opacity-100 p-1 text-text-muted hover:text-error transition-all flex-shrink-0"
+                  title="Remove"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
         )}
       </section>
 
-
-
-      {/* API keys */}
+      {/* API Keys */}
       <section>
-        <h4 className="text-sm font-semibold text-text-primary mb-1">API keys</h4>
+        <h4 className="text-sm font-semibold text-text-primary mb-1">API Keys</h4>
         <p className="text-xs text-text-muted mb-3">Keys are stored locally on your machine.</p>
         <div className="space-y-3">
           {apiKeys.map(key => (
@@ -116,7 +103,10 @@ export function ModelsTab() {
                   )}
                 </div>
                 {key.set && (
-                  <button onClick={() => removeApiKey(key.id)} className="text-2xs text-error hover:opacity-80 transition-opacity">
+                  <button
+                    onClick={() => removeApiKey(key.id)}
+                    className="text-2xs text-error hover:opacity-80 transition-opacity"
+                  >
                     Remove
                   </button>
                 )}
@@ -135,7 +125,7 @@ export function ModelsTab() {
                   onChange={e => setKeyInputs(k => ({ ...k, [key.id]: e.target.value }))}
                   onKeyDown={e => e.key === 'Enter' && saveKey(key.id)}
                   placeholder={`${key.prefix}…`}
-                  className="flex-1 px-2.5 py-1.5 bg-bg-primary border border-border rounded-lg text-xs text-text-primary placeholder-text-muted focus:border-accent transition-colors font-mono"
+                  className="flex-1 px-2.5 py-1.5 bg-bg-primary border border-border rounded-lg text-xs text-text-primary placeholder-text-muted focus:border-accent/60 outline-none transition-colors font-mono"
                 />
                 <button
                   onClick={() => setShowKeys(s => ({ ...s, [key.id]: !s[key.id] }))}

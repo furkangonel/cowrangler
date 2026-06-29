@@ -38,6 +38,12 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId }: Props) {
   }, [])
 
   useEffect(() => {
+    if (slashOpen) {
+      ipc.skills.list().then(s => setSkills(Array.isArray(s) ? s : [])).catch(() => {})
+    }
+  }, [slashOpen])
+
+  useEffect(() => {
     ipc.skills.list().then(s => setSkills(Array.isArray(s) ? s : [])).catch(() => {})
   }, [])
 
@@ -155,12 +161,15 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId }: Props) {
   return (
     <div className="flex-shrink-0 px-4 pb-4 pt-2 bg-bg-primary">
       <div className="max-w-3xl mx-auto relative">
-        {/* Slash skill menüsü */}
+
+        {/* ── Slash skill dropdown ── */}
         {slashOpen && filtered.length > 0 && (
-          <div className="absolute bottom-full mb-2 left-0 right-0 bg-bg-secondary border border-border rounded-xl shadow-pop overflow-hidden animate-slide-up z-30">
+          <div className="absolute bottom-full mb-2 left-0 right-0 bg-bg-elevated border border-border rounded-xl overflow-hidden animate-slide-up z-30"
+            style={{ boxShadow: '0 8px 28px color-mix(in srgb, var(--shadow-rgb) 14%, transparent), 0 2px 6px color-mix(in srgb, var(--shadow-rgb) 6%, transparent)' }}
+          >
             <div className="px-3 py-2 border-b border-border-subtle flex items-center gap-1.5">
               <BookOpen size={11} className="text-accent" />
-              <span className="text-2xs text-text-muted font-medium uppercase tracking-wider">Invoke skill</span>
+              <span className="text-2xs text-text-muted font-semibold uppercase tracking-widest">Invoke skill</span>
             </div>
             <div className="max-h-64 overflow-y-auto py-1">
               {filtered.map((s, i) => (
@@ -168,14 +177,14 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId }: Props) {
                   key={s.id}
                   onMouseEnter={() => setActiveIdx(i)}
                   onClick={() => pickSkill(s)}
-                  className={`w-full flex items-start gap-2.5 px-3 py-2 text-left transition-colors ${
-                    i === activeIdx ? 'bg-bg-hover' : ''
+                  className={`w-full flex items-start gap-2.5 px-3 py-2.5 text-left transition-colors ${
+                    i === activeIdx ? 'bg-bg-hover' : 'hover:bg-bg-hover/60'
                   }`}
                 >
                   <BookOpen size={13} className={`mt-0.5 flex-shrink-0 ${i === activeIdx ? 'text-accent' : 'text-text-muted'}`} />
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-medium text-text-primary truncate">/{s.id}</p>
-                    <p className="text-2xs text-text-muted truncate">{s.description}</p>
+                    <p className="text-2xs text-text-muted truncate mt-0.5">{s.description}</p>
                   </div>
                   {i === activeIdx && <CornerDownLeft size={11} className="text-text-muted mt-1 flex-shrink-0" />}
                 </button>
@@ -184,28 +193,27 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId }: Props) {
           </div>
         )}
 
-        {/* Plus Menu */}
+        {/* ── Plus menu ── */}
         {plusMenuOpen && (
-          <div 
+          <div
             ref={plusMenuRef}
-            className="absolute bottom-full mb-3 left-4 w-64 bg-bg-secondary border border-border rounded-xl shadow-pop overflow-hidden animate-slide-up z-30"
+            className="absolute bottom-full mb-3 left-0 w-60 bg-bg-elevated border border-border rounded-xl overflow-hidden animate-slide-up z-30"
+            style={{ boxShadow: '0 8px 28px color-mix(in srgb, var(--shadow-rgb) 14%, transparent), 0 2px 6px color-mix(in srgb, var(--shadow-rgb) 6%, transparent)' }}
           >
             <div className="py-1">
               <button
-                className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-bg-hover transition-colors"
-                onClick={async () => { await ipc.fs.pickFile(); setPlusMenuOpen(false); }}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-bg-hover transition-colors"
+                onClick={async () => { await ipc.fs.pickFile(); setPlusMenuOpen(false) }}
               >
-                <div className="flex items-center gap-2.5">
-                  <Paperclip size={14} className="text-text-muted" />
-                  <span className="text-sm text-text-primary">Upload Project Files</span>
-                </div>
+                <Paperclip size={14} className="text-text-muted" />
+                <span className="text-sm text-text-primary">Upload Project Files</span>
               </button>
             </div>
           </div>
         )}
 
-        {/* Composer */}
-        <div className="flex flex-col bg-bg-secondary border border-border rounded-2xl shadow-card focus-within:border-accent/50 transition-colors">
+        {/* ── Composer ── */}
+        <div className="flex flex-col bg-bg-elevated border border-border rounded-2xl composer-shadow focus-within:border-accent/45 focus-within:composer-shadow-focus transition-all">
           {/* Skill, Connector, Plugin chip'leri */}
           {(confirmedSkills.length > 0 || confirmedConnectors.length > 0 || confirmedPlugins.length > 0) && (
             <div className="flex flex-wrap gap-1.5 px-3 pt-2.5 pb-1">
@@ -263,9 +271,13 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId }: Props) {
           {/* Textarea satırı */}
           <div className="flex items-end gap-2 px-2.5 py-2">
             <button
-              className={`p-2 rounded-lg transition-colors flex-shrink-0 ${plusMenuOpen ? 'bg-bg-hover text-text-primary' : 'text-text-muted hover:text-text-secondary hover:bg-bg-hover'}`}
-              title="Add Context"
               onClick={() => setPlusMenuOpen(!plusMenuOpen)}
+              title="Add context"
+              className={`p-2 rounded-lg transition-colors flex-shrink-0 ${
+                plusMenuOpen
+                  ? 'bg-accent/12 text-accent'
+                  : 'text-text-muted hover:text-text-secondary hover:bg-bg-hover'
+              }`}
             >
               <Plus size={16} />
             </button>
@@ -285,28 +297,36 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId }: Props) {
             {disabled ? (
               <button
                 onClick={onInterrupt}
-                className="flex items-center justify-center w-9 h-9 rounded-xl bg-error/15 text-error hover:bg-error/25 transition-colors flex-shrink-0"
-                title="Durdur (Esc)"
+                title="Stop (Esc)"
+                className="flex items-center justify-center w-9 h-9 rounded-xl bg-error/12 text-error
+                           hover:bg-error/22 transition-colors flex-shrink-0"
               >
-                <Square size={15} className="fill-current" />
+                <Square size={14} className="fill-current" />
               </button>
             ) : (
               <button
                 onClick={handleSend}
                 disabled={!hasContent}
-                className="flex items-center justify-center w-9 h-9 rounded-xl bg-accent text-accent-fg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-accent-hover transition-colors flex-shrink-0"
                 title="Send (Enter)"
+                className="flex items-center justify-center w-9 h-9 rounded-xl text-accent-fg
+                           disabled:opacity-25 disabled:cursor-not-allowed transition-all active:scale-95 flex-shrink-0"
+                style={hasContent ? {
+                  background: 'linear-gradient(160deg, rgb(var(--accent)) 0%, rgb(var(--accent-press)) 100%)',
+                  boxShadow: '0 2px 8px color-mix(in srgb, rgb(var(--accent)) 30%, transparent)',
+                } : {
+                  background: 'rgb(var(--bg-hover))',
+                }}
               >
-                <ArrowUp size={17} />
+                <ArrowUp size={16} />
               </button>
             )}
           </div>
         </div>
 
-        <p className="text-2xs text-text-muted text-center mt-2">
+        <p className="text-2xs text-text-muted/70 text-center mt-2 select-none">
           {disabled
             ? 'Agent is working — press ■ to stop'
-            : 'Enter to send · Shift+Enter new line · / for skills'}
+            : 'Enter to send  ·  Shift+Enter for new line  ·  / to invoke a skill'}
         </p>
       </div>
     </div>

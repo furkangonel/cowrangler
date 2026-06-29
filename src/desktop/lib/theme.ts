@@ -6,9 +6,9 @@
 export type ThemePref = 'light' | 'dark' | 'system'
 
 const FONT_SCALES: Record<string, number> = {
-  small: 0.92,
-  normal: 1,
-  large: 1.12,
+  small: 1.0,
+  normal: 1.12,
+  large: 1.25,
 }
 
 let mediaQuery: MediaQueryList | null = null

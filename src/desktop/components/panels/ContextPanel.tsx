@@ -1,16 +1,26 @@
 import React, { useEffect, useState } from 'react'
-import { Brain, BookOpen, RefreshCw, Edit2, Save, X, ChevronDown, ChevronRight, PenTool } from 'lucide-react'
-import { ipc } from '../../lib/ipc'
-
-interface Props { projectId: string | null }
-
+import { Brain, BookOpen, RefreshCw, Edit2, Save, X, ChevronDown, ChevronRight, Folder, FolderOpen, ExternalLink, Plus } from 'lucide-react'
+import { ipc, FileNode } from '../../lib/ipc'
 import { useSessionsStore } from '../../stores/sessions.store'
 import { useAgentStore } from '../../stores/agent.store'
+import { useProjectsStore } from '../../stores/projects.store'
+import { useUIStore } from '../../stores/ui.store'
+import { File } from 'lucide-react'
 
-export function ContextPanel({ projectId }: Props) {
+interface Props { 
+  projectId: string | null 
+  isSession?: boolean 
+}
+
+export function ContextPanel({ projectId, isSession = false }: Props) {
   return (
-    <div className="py-3 px-4">
-      <SkillsSection />
+    <div className="py-3 px-4 flex flex-col gap-4">
+      <MemorySection projectId={projectId} />
+      {isSession ? (
+        <SkillsSection />
+      ) : (
+        <WorkingFoldersManager projectId={projectId} />
+      )}
     </div>
   )
 }
@@ -113,7 +123,7 @@ function MemorySection({ projectId }: { projectId: string | null }) {
               {content}
             </div>
           ) : (
-            <p className="text-2xs text-text-muted italic">
+            <p className="text-2xs text-text-muted opacity-50 italic">
               Appears here when the agent calls <code className="font-mono text-accent/80">manage_memory</code>.
             </p>
           )}
@@ -130,32 +140,61 @@ function SkillsSection() {
   const { toolCalls, timelines } = useAgentStore()
   
   const usedTools = new Set<string>()
+  const usedSkills = new Set<string>()
   
+  // Extract tools and skills from DB messages (role is 'tool_call', not 'tool')
   messages.forEach(m => {
-    if (m.role === 'tool' && m.tool_name) {
+    if (m.role === 'tool_call' && m.tool_name) {
       usedTools.add(m.tool_name)
+      if (m.tool_name === 'utilize_skill') {
+        try {
+          const args = JSON.parse(m.content)
+          const skillName = args?.skill_name || args?.skillId
+          if (skillName && typeof skillName === 'string') {
+            usedSkills.add(skillName)
+          }
+        } catch {}
+      }
     }
   })
   
+  // Extract from timelines
   Object.values(timelines).forEach(segments => {
     segments.forEach(seg => {
       if (seg.kind === 'tools') {
-        seg.calls.forEach(c => usedTools.add(c.name))
+        seg.calls.forEach(c => {
+          usedTools.add(c.name)
+          if (c.name === 'utilize_skill') {
+            const skillName = c.args?.skill_name || c.args?.skillId
+            if (skillName && typeof skillName === 'string') {
+              usedSkills.add(skillName)
+            }
+          }
+        })
       }
     })
   })
   
-  toolCalls.forEach(c => usedTools.add(c.name))
+  // Extract from active tool calls
+  toolCalls.forEach(c => {
+    usedTools.add(c.name)
+    if (c.name === 'utilize_skill') {
+      const skillName = c.args?.skill_name || c.args?.skillId
+      if (skillName && typeof skillName === 'string') {
+        usedSkills.add(skillName)
+      }
+    }
+  })
 
   const toolList = Array.from(usedTools).sort()
+  const skillList = Array.from(usedSkills).sort()
   const hasSkills = toolList.includes('utilize_skill')
   const displayTools = toolList.filter(t => t !== 'utilize_skill' && t !== 'send_message')
 
   if (!hasSkills && displayTools.length === 0) {
     return (
-      <div className="flex flex-col items-start gap-3 py-2 opacity-60">
+      <div className="flex flex-col items-start gap-3 py-2 opacity-60 pt-4 border-t border-border-subtle">
         <div className="flex gap-1 mb-1">
-          {/* Abstract SVG representing Context like Claude */}
           <svg width="80" height="48" viewBox="0 0 80 48" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-text-muted">
             <rect x="0.5" y="12.5" width="24" height="24" rx="3.5" stroke="currentColor" strokeDasharray="2 2"/>
             <rect x="6" y="18" width="13" height="2" rx="1" fill="currentColor"/>
@@ -180,15 +219,24 @@ function SkillsSection() {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4 pt-4 border-t border-border-subtle">
       {hasSkills && (
         <div>
           <p className="text-xs font-medium text-text-secondary mb-2">Used Skills</p>
           <div className="flex flex-wrap gap-2">
-            <span className="px-2 py-1 rounded bg-accent/10 text-accent text-xs border border-accent/20 flex items-center gap-1.5">
-              <BookOpen size={12} />
-              Skill System Active
-            </span>
+            {skillList.length > 0 ? (
+              skillList.map(skill => (
+                <span key={skill} className="px-2 py-1 rounded bg-accent/10 text-accent text-xs border border-accent/20 flex items-center gap-1.5">
+                  <BookOpen size={12} />
+                  {skill}
+                </span>
+              ))
+            ) : (
+              <span className="px-2 py-1 rounded bg-accent/10 text-accent text-xs border border-accent/20 flex items-center gap-1.5">
+                <BookOpen size={12} />
+                Skill System Active
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -203,6 +251,166 @@ function SkillsSection() {
               </span>
             ))}
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Working Folders Manager (Project Home Only) ─────────────────────────────
+
+function WorkingFoldersManager({ projectId }: { projectId: string | null }) {
+  const { folders, loadFolders, removeFolder } = useProjectsStore()
+  const [open, setOpen] = useState(true)
+
+  useEffect(() => {
+    if (projectId) loadFolders(projectId)
+  }, [projectId])
+
+  const projectFolders = projectId ? (folders[projectId] ?? []) : []
+
+  async function addFolder() {
+    if (!projectId) return
+    const path = await ipc.fs.pickFolder()
+    if (path) await useProjectsStore.getState().addFolder(projectId, path)
+  }
+
+  return (
+    <div className="pt-4 border-t border-border-subtle">
+      {/* Section header */}
+      <div className="flex items-center justify-between mb-3">
+        <button onClick={() => setOpen(o => !o)} className="flex items-center gap-1.5">
+          {open ? <ChevronDown size={11} className="text-text-muted flex-shrink-0" /> : <ChevronRight size={11} className="text-text-muted flex-shrink-0" />}
+          <FolderOpen size={12} className="text-text-muted flex-shrink-0" />
+          <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide">Working Folders</span>
+        </button>
+        <button onClick={addFolder} className="p-0.5 text-text-muted hover:text-accent transition-colors rounded">
+          <Plus size={12} />
+        </button>
+      </div>
+
+      {open && (
+        <div className="flex flex-col">
+          {projectFolders.length === 0 ? (
+            <p className="text-2xs text-text-muted py-1 italic">No folders added yet.</p>
+          ) : (
+            projectFolders.map(folder => (
+              <ProjectHomeFolderItem key={folder.id} folder={folder} projectId={projectId} />
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ProjectHomeFolderItem({ folder, projectId }: { folder: any, projectId: string }) {
+  const { removeFolder } = useProjectsStore()
+  const [expanded, setExpanded] = useState(false)
+  const [tree, setTree] = useState<FileNode[]>([])
+  const [loading, setLoading] = useState(false)
+
+  async function toggle() {
+    if (!expanded && tree.length === 0) {
+      setLoading(true)
+      try {
+        const res = await ipc.fs.fileTree(folder.folder_path, 2)
+        setTree(res)
+      } finally {
+        setLoading(false)
+      }
+    }
+    setExpanded(!expanded)
+  }
+
+  return (
+    <div className="flex flex-col">
+      <div className="flex items-center gap-2 group py-1.5 hover:bg-bg-hover/50 px-1.5 rounded transition-colors cursor-pointer" onClick={toggle}>
+        {expanded ? <ChevronDown size={12} className="text-text-muted flex-shrink-0" /> : <ChevronRight size={12} className="text-text-muted flex-shrink-0" />}
+        <span className="text-xs font-medium text-text-secondary truncate flex-1" title={folder.folder_path}>
+          {folder.folder_path.split('/').pop() || folder.folder_path}
+        </span>
+        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            onClick={(e) => { e.stopPropagation(); ipc.fs.openInFinder(folder.folder_path) }}
+            className="p-1 text-text-muted hover:text-text-secondary rounded"
+            title="Open in Finder"
+          >
+            <ExternalLink size={10} />
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); removeFolder(projectId, folder.folder_path) }}
+            className="p-1 text-text-muted hover:text-error rounded"
+            title="Remove"
+          >
+            <X size={10} />
+          </button>
+        </div>
+      </div>
+      
+      {expanded && (
+        <div className="ml-2 border-l border-border-subtle pl-1 mt-1 mb-1">
+          {loading ? (
+            <p className="text-2xs text-text-muted italic py-1 pl-4">Loading...</p>
+          ) : tree.length === 0 ? (
+            <p className="text-2xs text-text-muted italic py-1 pl-4">Empty folder</p>
+          ) : (
+            tree.map(node => (
+              <FileTreeNode key={node.path} node={node} depth={0} />
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function FileTreeNode({ node, depth }: { node: FileNode; depth: number }) {
+  const [open, setOpen] = useState(false)
+  const { setPreviewFile } = useUIStore()
+  const children = node.children ?? []
+
+  function toggle() {
+    if (node.type === 'file') {
+      setPreviewFile(node.path)
+      return
+    }
+    setOpen(!open)
+  }
+
+  const indent = depth * 10
+
+  return (
+    <div>
+      <div
+        className="flex items-center gap-2 py-1 pr-2 rounded hover:bg-bg-hover/50 cursor-pointer group transition-colors"
+        style={{ paddingLeft: `${indent + 8}px` }}
+        onClick={toggle}
+      >
+        {node.type === 'directory' && (
+          <>{open ? <ChevronDown size={12} className="text-text-muted flex-shrink-0" /> : <ChevronRight size={12} className="text-text-muted flex-shrink-0" />}</>
+        )}
+        {node.type === 'file' && (
+          <File size={12} className="text-text-muted flex-shrink-0" />
+        )}
+        <span className="text-[12px] text-text-secondary truncate group-hover:text-text-primary transition-colors">
+          {node.name}
+        </span>
+        {node.type === 'file' && (
+          <button 
+            onClick={(e) => { e.stopPropagation(); ipc.fs.openInFinder(node.path) }}
+            className="opacity-0 group-hover:opacity-100 text-text-muted hover:text-text-secondary ml-auto transition-opacity"
+            title="Open in Finder"
+          >
+            <ExternalLink size={9} />
+          </button>
+        )}
+      </div>
+      {open && children.length > 0 && (
+        <div>
+          {children.map(child => (
+            <FileTreeNode key={child.path} node={child} depth={depth + 1} />
+          ))}
         </div>
       )}
     </div>

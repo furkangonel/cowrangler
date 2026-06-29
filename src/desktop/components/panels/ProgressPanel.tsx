@@ -27,7 +27,7 @@ export function ProgressPanel({ projectId, sessionId }: { projectId: string; ses
   const pct = total > 0 ? Math.round((completed / total) * 100) : 0
 
   return (
-    <div className="px-3 py-3">
+    <div className="px-4 py-4 bg-bg-elevated/60 transition-colors">
       {total === 0 ? (
         <p className="text-xs text-text-muted leading-relaxed py-1">
           {working
@@ -35,7 +35,7 @@ export function ProgressPanel({ projectId, sessionId }: { projectId: string; ses
             : 'No task list. It appears here once the agent creates a plan.'}
         </p>
       ) : (
-        <div className="flex flex-col gap-3 pr-1 max-h-[180px] overflow-y-auto custom-scrollbar">
+        <div className="flex flex-col gap-3.5 pr-1 max-h-[350px] overflow-y-auto overflow-x-hidden custom-scrollbar">
           {progress.map(task => <TaskItem key={task.id} task={task} />)}
         </div>
       )}
@@ -45,21 +45,21 @@ export function ProgressPanel({ projectId, sessionId }: { projectId: string; ses
 
 function TaskItem({ task, index }: { task: TaskProgress; index: number }) {
   return (
-    <div className="flex items-start gap-3">
-      <div className="flex-shrink-0 mt-0.5">
+    <div className="flex items-start gap-3.5">
+      <div className="flex-shrink-0 mt-[3px]">
         {task.status === 'completed' ? (
-          <div className="flex items-center justify-center w-[18px] h-[18px] rounded-full bg-[#5B89F7]">
-            <Check size={12} className="text-[#1c1c1c]" strokeWidth={1.5} />
+          <div className="flex items-center justify-center w-[16px] h-[16px] rounded-full bg-[#5B89F7]/90 shadow-sm">
+            <Check size={10} className="text-[#1c1c1c]" strokeWidth={2.5} />
           </div>
         ) : task.status === 'in_progress' ? (
-          <Loader2 size={18} className="text-accent animate-spin" />
+          <Loader2 size={16} className="text-accent animate-spin" />
         ) : (
-          <Circle size={18} className="text-text-muted" />
+          <Circle size={16} className="text-text-muted/60" strokeWidth={2} />
         )}
       </div>
-      <span className={`text-[13px] leading-snug ${
+      <span className={`text-[13.5px] tracking-[0.01em] leading-relaxed ${
         task.status === 'completed'
-          ? 'task-completed text-text-muted'
+          ? 'line-through decoration-text-muted/30 decoration-1 text-text-muted/80'
           : task.status === 'in_progress'
           ? 'text-text-primary font-medium'
           : 'text-text-secondary'

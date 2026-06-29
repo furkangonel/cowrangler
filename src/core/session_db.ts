@@ -40,6 +40,7 @@ export interface SessionRecord {
   parent_session_id: string | null;
   title: string | null;
   workdir: string | null;
+  pinned: number;
 }
 
 export interface MessageRecord {
@@ -65,6 +66,7 @@ export interface SessionSummary {
   output_tokens: number;
   estimated_cost_usd: number;
   title: string | null;
+  pinned: number;
 }
 
 export interface SearchResult {
@@ -143,9 +145,10 @@ export class SessionDB {
         billing_provider  TEXT NOT NULL DEFAULT '',
         billing_mode      TEXT NOT NULL DEFAULT 'per_token',
         estimated_cost_usd REAL NOT NULL DEFAULT 0.0,
-        parent_session_id TEXT REFERENCES sessions(id),
+        parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
         title             TEXT,
-        workdir           TEXT
+        workdir           TEXT,
+        pinned            INTEGER NOT NULL DEFAULT 0
       );
 
       CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions(started_at DESC);
@@ -167,8 +170,16 @@ export class SessionDB {
       );
 
       CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, timestamp);
+      CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
       CREATE INDEX IF NOT EXISTS idx_messages_role ON messages(role);
     `);
+
+    // Geriye dönük uyumluluk: pinned sütunu eklendi
+    try {
+      this.db.exec(`ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;`);
+    } catch (e) {
+      // Sütun zaten varsa hata fırlatır, yok say.
+    }
 
     // FTS5 sanal tablosu — tam metin arama
     this.db.exec(`
@@ -252,6 +263,7 @@ export class SessionDB {
         | "title"
         | "billing_provider"
         | "billing_mode"
+        | "pinned"
       >
     >,
   ): void {
@@ -328,7 +340,7 @@ export class SessionDB {
   ): SessionSummary[] {
     let query = `
       SELECT id, source, model, started_at, ended_at, message_count, tool_call_count,
-             input_tokens, output_tokens, estimated_cost_usd, title
+             input_tokens, output_tokens, estimated_cost_usd, title, pinned
       FROM sessions
       WHERE 1=1
     `;

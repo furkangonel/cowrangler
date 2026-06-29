@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Search, Plus, Settings, Upload, X, Box, Plug, BookOpen, ChevronRight, ChevronLeft, ChevronDown, Eye, Code, Copy, FolderOpen, FileText, FileCode, FileJson, FolderIcon, FolderOpenIcon, Github, ExternalLink } from 'lucide-react'
+import { Search, Plus, Settings, Upload, X, Box, Plug, BookOpen, ChevronRight, ChevronLeft, ChevronDown, Eye, Code, Copy, FolderOpen, FileText, FileCode, FileJson, FolderIcon, FolderOpenIcon, Github, ExternalLink, Trash2 } from 'lucide-react'
 import { ipc, ConnectorCatalogInfo, SkillDef } from '../../lib/ipc'
 import { useUIStore } from '../../stores/ui.store'
 import { MarkdownRenderer } from '../shared/MarkdownRenderer'
@@ -222,6 +222,15 @@ export function DirectoryPage() {
             <SkillDetailView 
               skill={selectedSkill} 
               onBack={() => setSelectedSkill(null)} 
+              onDelete={async () => {
+                const res = await ipc.skills.remove(selectedSkill.id)
+                if (res.ok) {
+                  setSelectedSkill(null)
+                  setSkills(s => s.filter(x => x.id !== selectedSkill.id))
+                } else {
+                  alert(res.error || 'Failed to delete skill')
+                }
+              }}
               onToggle={async (active) => {
                 await ipc.skills.toggle(selectedSkill.id, active)
                 setSelectedSkill({ ...selectedSkill, active })
@@ -666,7 +675,7 @@ function PluginCard({ plugin, enabled, onToggle }: { plugin: BundledPlugin; enab
 
 // ── Skill Detail View ──────────────────────────────────────────────────────────
 
-function SkillDetailView({ skill, onBack, onToggle }: { skill: SkillDef, onBack: () => void, onToggle: (active: boolean) => void }) {
+function SkillDetailView({ skill, onBack, onToggle, onDelete }: { skill: SkillDef, onBack: () => void, onToggle: (active: boolean) => void, onDelete?: () => void }) {
   const [viewMode, setViewMode] = useState<'preview' | 'code'>('preview')
   const [copied, setCopied] = useState(false)
   const [fileTree, setFileTree] = useState<any[]>([])
@@ -719,12 +728,27 @@ function SkillDetailView({ skill, onBack, onToggle }: { skill: SkillDef, onBack:
             <h1 className="text-2xl font-semibold text-text-primary">{skill.name}</h1>
             <div className="text-text-muted text-sm mt-1 capitalize">{skill.source}</div>
           </div>
-          <button 
-            onClick={() => onToggle(!skill.active)}
-            className="px-4 py-1.5 rounded-lg bg-bg-secondary text-text-primary text-sm font-medium hover:bg-bg-hover transition-colors"
-          >
-            {skill.active !== false ? 'Deactivate' : 'Activate'}
-          </button>
+          <div className="flex items-center gap-2">
+            {(skill.source === 'global' || skill.source === 'local') && onDelete && (
+              <button 
+                onClick={() => {
+                  if (confirm(`Are you sure you want to delete the skill "${skill.name}"?`)) {
+                    onDelete()
+                  }
+                }}
+                className="p-1.5 rounded-lg text-text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors"
+                title="Delete skill"
+              >
+                <Trash2 size={16} />
+              </button>
+            )}
+            <button 
+              onClick={() => onToggle(!skill.active)}
+              className="px-4 py-1.5 rounded-lg bg-bg-secondary text-text-primary text-sm font-medium hover:bg-bg-hover transition-colors"
+            >
+              {skill.active !== false ? 'Deactivate' : 'Activate'}
+            </button>
+          </div>
         </div>
       </div>
 

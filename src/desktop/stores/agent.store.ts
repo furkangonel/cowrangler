@@ -199,16 +199,27 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       let currentAsstMsgId: string | null = null
 
       for (const m of msgs) {
-        if (m.role === 'user' || m.role === 'assistant') {
-          if (m.role === 'assistant') {
-            currentAsstMsgId = m.id
-            if (m.content) {
-              const segs = newTimelines[currentAsstMsgId] || []
-              segs.push({ kind: 'text', id: `t-${currentAsstMsgId}-${segs.length}`, text: m.content })
-              newTimelines[currentAsstMsgId] = segs
-            }
+        if (m.role === 'user') {
+          // Reset anchor on each new user turn so tool_calls from the previous
+          // turn don't bleed into a synthetic group for the next one.
+          currentAsstMsgId = null
+        } else if (m.role === 'assistant') {
+          currentAsstMsgId = m.id
+          if (m.content) {
+            const segs = newTimelines[currentAsstMsgId] || []
+            segs.push({ kind: 'text', id: `t-${currentAsstMsgId}-${segs.length}`, text: m.content })
+            newTimelines[currentAsstMsgId] = segs
           }
-        } else if (m.role === 'tool_call' && currentAsstMsgId) {
+        } else if (m.role === 'tool_call') {
+          // In the DB, tool_call records are written before the assistant text
+          // record for the same step (because agent.ts iterates content parts in
+          // order: tool-call parts first, then collects text). When there is no
+          // text (pure tool step), no assistant record is written at all.
+          // To avoid losing these tool calls during history rebuild, we create a
+          // synthetic group ID anchored to the first tool_call of that step.
+          if (!currentAsstMsgId) {
+            currentAsstMsgId = `tool-group-${m.id}`
+          }
           const segs = newTimelines[currentAsstMsgId] || []
           let args = {}
           try { args = JSON.parse(m.content) } catch {}
@@ -219,7 +230,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             status: 'running', // Will be marked 'done' if we see a tool_result
             startedAt: m.timestamp,
           }
-          
+
           const last = segs[segs.length - 1]
           if (last && last.kind === 'tools') {
             last.calls.push(call)

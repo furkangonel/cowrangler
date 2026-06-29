@@ -82,7 +82,7 @@ e.g. Always respond in English. Use TypeScript when writing code. Follow Convent
       ) : (
         <div className="flex flex-col gap-2 text-center py-4">
           <span className="text-2xl opacity-40">📝</span>
-          <p className="text-xs text-text-muted italic">
+          <p className="text-xs text-text-muted opacity-50 italic">
             Add rules, tone, or formats to shape agent behavior.
           </p>
           <button

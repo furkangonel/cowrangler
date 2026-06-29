@@ -32,7 +32,11 @@ export const useProjectsStore = create<ProjectsState>((set, get) => ({
     set({ loading: true })
     try {
       const projects = await ipc.projects.list()
-      set({ projects, loading: false })
+      // Filter out design projects — they're managed by the design window
+      const regular = projects.filter(
+        p => !p.description?.startsWith('__cowrangler_design__:')
+      )
+      set({ projects: regular, loading: false })
     } catch (e) {
       console.error('loadProjects failed', e)
       set({ loading: false })

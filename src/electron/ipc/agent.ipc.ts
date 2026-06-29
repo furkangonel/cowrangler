@@ -207,7 +207,11 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
   })
 
   // ── QA Tool Listener Setup ─────────────────────────────────────────────────
+  // Broadcast to every window: Design Mode runs in its own BrowserWindow, so a
+  // prompt sent only to the main window would never reach an active design chat.
   setAskUserListener((payload: any) => {
-    win.webContents.send('agent:qaPrompt', payload)
+    for (const w of BrowserWindow.getAllWindows()) {
+      try { w.webContents.send('agent:qaPrompt', payload) } catch { /* window gone */ }
+    }
   })
 }

@@ -104,8 +104,8 @@ export function MemoryPanel({ projectId }: Props) {
       ) : (
         <div className="text-center py-4">
           <span className="text-2xl opacity-40">🧠</span>
-          <p className="text-xs text-text-muted mt-2">Memory is empty.</p>
-          <p className="text-2xs text-text-muted mt-1">
+          <p className="text-xs text-text-muted opacity-50 mt-2">Memory is empty.</p>
+          <p className="text-2xs text-text-muted opacity-50 mt-1">
             Appears here when the agent calls manage_memory.
           </p>
         </div>
