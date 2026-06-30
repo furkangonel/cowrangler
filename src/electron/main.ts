@@ -93,7 +93,7 @@ function createWindow(): void {
       })
       const designUrl = process.env.NODE_ENV === 'development'
         ? 'http://localhost:5173/#/design'
-        : `file://${path.join(__dirname, '../../dist/renderer/index.html')}#/design`
+        : `file://${path.join(__dirname, '../renderer/index.html')}#/design`
       designWin.loadURL(designUrl)
       designWin.once('ready-to-show', () => designWin.show())
       return { ok: true }
