@@ -220,17 +220,22 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       const msgIdToAsstId = new Map<string, string>()
       let tempAsstId: string | null = null
       let tempToolCalls: string[] = []
+      let tempReasoningCalls: string[] = []
       
       const flushTempTurn = () => {
-        const finalAsstId = tempAsstId || (tempToolCalls.length > 0 ? `asst-turn-${tempToolCalls[0]}` : null)
+        const finalAsstId = tempAsstId || (tempToolCalls.length > 0 ? `asst-turn-${tempToolCalls[0]}` : null) || (tempReasoningCalls.length > 0 ? `asst-turn-${tempReasoningCalls[0]}` : null)
         if (finalAsstId) {
           if (tempAsstId) msgIdToAsstId.set(tempAsstId, finalAsstId)
           for (const tcId of tempToolCalls) {
             msgIdToAsstId.set(tcId, finalAsstId)
           }
+          for (const rId of tempReasoningCalls) {
+            msgIdToAsstId.set(rId, finalAsstId)
+          }
         }
         tempAsstId = null
         tempToolCalls = []
+        tempReasoningCalls = []
       }
       
       for (const m of msgs) {
@@ -240,6 +245,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           tempAsstId = m.id
         } else if (m.role === 'tool_call') {
           tempToolCalls.push(m.id)
+        } else if (m.role === 'reasoning') {
+          tempReasoningCalls.push(m.id)
         }
       }
       flushTempTurn()
@@ -253,6 +260,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           if (m.content) {
             const segs = newTimelines[currentAsstMsgId] || []
             segs.push({ kind: 'text', id: `t-${currentAsstMsgId}-${segs.length}`, text: m.content })
+            newTimelines[currentAsstMsgId] = segs
+          }
+        } else if (m.role === 'reasoning') {
+          currentAsstMsgId = msgIdToAsstId.get(m.id) || `asst-turn-${m.id}`
+          if (m.content) {
+            const segs = newTimelines[currentAsstMsgId] || []
+            segs.push({ kind: 'reasoning', id: `r-${currentAsstMsgId}-${segs.length}`, text: m.content })
             newTimelines[currentAsstMsgId] = segs
           }
         } else if (m.role === 'tool_call') {

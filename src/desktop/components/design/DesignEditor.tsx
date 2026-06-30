@@ -8,6 +8,8 @@ import { useDesignStore, DesignSystemRecord, DesignFrame, DesignTweak, DesignDev
 import { useSettingsStore } from '../../stores/settings.store'
 import { DesignCanvas, isDeviceTemplate } from './DesignCanvas'
 import { buildSrcDoc, kindFromName } from './renderScreen'
+
+import { CopyButton } from '../shared/CopyButton'
 import { DesignTopBar } from './DesignTopBar'
 import { renderMarkdown } from '../../lib/markdown'
 import { ipc } from '../../lib/ipc'
@@ -304,23 +306,33 @@ export function DesignEditor({ onBack }: Props) {
                 </div>
               </div>
             ) : (
-              <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5">
+              <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 space-y-5">
                 {messages.map(m => {
                   if (m.role === 'user') {
                     return (
-                      <div key={m.id} className="flex justify-end">
-                        <div className="max-w-[88%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed"
-                          style={{ background: 'var(--d-ink)', color: '#fff', borderBottomRightRadius: 4 }}>
-                          <p className="whitespace-pre-wrap">{m.content}</p>
+                      <div key={m.id} className="flex justify-end group">
+                        <div className="flex flex-col items-end max-w-[88%]">
+                          <div className="px-3.5 py-2.5 text-sm leading-relaxed rounded-2xl w-full"
+                            style={{ background: 'var(--d-ink)', color: '#fff', borderBottomRightRadius: 4 }}>
+                            <p className="whitespace-pre-wrap">{m.content}</p>
+                          </div>
+                          <div className="mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <CopyButton text={m.content} className="text-xs flex items-center gap-1 bg-transparent hover:bg-black/5 dark:hover:bg-white/10" />
+                          </div>
                         </div>
                       </div>
                     )
                   } else {
                     return (
-                      <div key={m.id} className="flex flex-col items-start gap-2 w-full">
+                      <div key={m.id} className="flex flex-col items-start gap-2 w-full group">
                         {m.activity && m.activity.length > 0 && <ActivityFeed items={m.activity} live={!!m.streaming && chatLoading} />}
                         {(m.content || !m.streaming) && (
                           <div className="w-full prose prose-sm max-w-none [&_p]:my-1 [&_pre]:text-xs text-left" style={{ color: 'var(--d-ink)' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content || '…') }} />
+                        )}
+                        {m.content && !m.streaming && (
+                          <div className="flex justify-start mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <CopyButton text={m.content} className="text-xs flex items-center gap-1 bg-transparent hover:bg-black/5 dark:hover:bg-white/10" />
+                          </div>
                         )}
                       </div>
                     )

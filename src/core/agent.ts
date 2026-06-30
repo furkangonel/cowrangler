@@ -704,9 +704,12 @@ export class Agent {
                 }
               } else if (Array.isArray(msg.content)) {
                 let textContent = "";
+                let reasoningContent = "";
                 for (const part of msg.content) {
                   if (part.type === "text") {
                     textContent += part.text;
+                  } else if (part.type === "reasoning") {
+                    reasoningContent += (part as any).reasoning || (part as any).text || (part as any).details || "";
                   } else if (part.type === "tool-call") {
                     db.appendMessage({
                       sessionId: this.sessionId,
@@ -716,6 +719,9 @@ export class Agent {
                       toolCallId: part.toolCallId,
                     });
                   }
+                }
+                if (reasoningContent) {
+                  db.appendMessage({ sessionId: this.sessionId, role: "reasoning", content: reasoningContent, tokenCount: 0 });
                 }
                 if (textContent) {
                   db.appendMessage({ sessionId: this.sessionId, role: "assistant", content: textContent, tokenCount: totalOutputTokens });

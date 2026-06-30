@@ -157,6 +157,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     let currentTurnUser: MessageRecord | null = null
     let currentTurnAsst: MessageRecord | null = null
     let currentTurnToolCalls: MessageRecord[] = []
+    let currentTurnReasoning: MessageRecord[] = []
     
     const flushTurn = () => {
       if (currentTurnUser) {
@@ -174,9 +175,9 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
           content: currentTurnAsst.content,
           timestamp: currentTurnAsst.timestamp,
         })
-      } else if (currentTurnToolCalls.length > 0) {
-        // Pure tool turn with no text assistant message — create synthetic assistant message
-        const firstCall = currentTurnToolCalls[0]
+      } else if (currentTurnToolCalls.length > 0 || currentTurnReasoning.length > 0) {
+        // Pure tool/reasoning turn with no text assistant message — create synthetic assistant message
+        const firstCall = currentTurnToolCalls[0] || currentTurnReasoning[0]
         uiMessages.push({
           id: `asst-turn-${firstCall.id}`,
           role: 'assistant',
@@ -187,6 +188,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
       currentTurnUser = null
       currentTurnAsst = null
       currentTurnToolCalls = []
+      currentTurnReasoning = []
     }
     
     for (const m of msgs) {
@@ -197,6 +199,8 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
         currentTurnAsst = m
       } else if (m.role === 'tool_call') {
         currentTurnToolCalls.push(m)
+      } else if (m.role === 'reasoning') {
+        currentTurnReasoning.push(m)
       }
     }
     flushTurn()
