@@ -5,7 +5,8 @@ import fs from 'fs'
 import { agentManager, AgentManager } from '../agent_manager.js'
 import { getProjectDB } from '../project_db.js'
 import { getSessionDB } from '../../core/session_db.js'
-import { getConfig, DEFAULT_SYSTEM_PROMPT } from '../../core/init.js'
+import { getConfig } from '../../core/init.js'
+import { getSystemPrompt } from '../../core/prompts/index.js'
 import { Agent } from '../../core/agent.js'
 import { setAskUserListener, resolveAskUser } from '../../tools/ask_user.js'
 
@@ -51,9 +52,6 @@ function buildSystemPrompt(basePrompt: string, instructions: string): string {
   return prompt
 }
 
-function getDefaultSystemPrompt(): string {
-  return DEFAULT_SYSTEM_PROMPT
-}
 
 export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
   // ── agent:chat ─────────────────────────────────────────────────────────────
@@ -71,7 +69,12 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       sender.send('agent:error', 'Henüz bir model seçilmedi. Ayarlar → Modeller & API\'den bir API anahtarı girin ve model seçin.')
       return
     }
-    const systemPrompt = buildSystemPrompt(getDefaultSystemPrompt(), instructions)
+    const isDesign = !!project?.description?.startsWith('__cowrangler_design__:')
+    const contextType = projectId === GLOBAL_PROJECT_ID 
+      ? 'desktop_chat' 
+      : isDesign ? 'desktop_design' : 'desktop_session'
+    const basePrompt = getSystemPrompt(contextType)
+    const systemPrompt = buildSystemPrompt(basePrompt, instructions)
 
     // Çalışma dizini: proje varsa onun workdir'i; projesiz genel sohbette adanmış global klasör.
     const workdir = project?.workdir ?? (projectId === GLOBAL_PROJECT_ID ? getGlobalWorkdir() : undefined)
@@ -88,6 +91,7 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       // getOrCreate: mevcut agent'ı döndürür (varsa) + workdir map'ini günceller.
       agent = agentManager.getOrCreate(projectId, { model, systemPrompt }, workdir)
     } catch (err: any) {
+      console.error('[agent:chat] Initialization Error:', err)
       sender.send('agent:error', friendlyError(err.message || String(err)))
       return
     }
@@ -160,6 +164,7 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
         sessionId: currentSessionId,
       })
     } catch (err: any) {
+      console.error('[agent:chat] Fatal Error:', err)
       // AbortError means user pressed Stop — not an error, just interrupted
       if (err?.name === 'AbortError' || err?.message?.includes('aborted') || err?.message?.includes('This operation was aborted')) {
         sender.send('agent:interrupted')
