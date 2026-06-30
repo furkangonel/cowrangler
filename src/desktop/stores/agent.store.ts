@@ -8,6 +8,8 @@ export interface ActiveToolCall {
   status: 'running' | 'done' | 'error'
   durationMs?: number
   startedAt: number
+  result?: any
+  error?: string
 }
 
 /**
@@ -19,6 +21,7 @@ export interface ActiveToolCall {
 export type TimelineSegment =
   | { kind: 'text'; id: string; text: string }
   | { kind: 'tools'; id: string; calls: ActiveToolCall[] }
+  | { kind: 'reasoning'; id: string; text: string }
 
 // Module-level cleanup ref (persists outside React)
 let _cleanupFn: (() => void) | null = null
@@ -51,8 +54,9 @@ interface AgentState {
 
   // Timeline
   timelinePushText: (msgId: string, text: string) => void
+  timelinePushReasoning: (msgId: string, text: string) => void
   timelinePushTool: (msgId: string, event: ToolCallEvent) => void
-  timelineUpdateTool: (msgId: string, callId: string, status: 'done' | 'error', durationMs?: number) => void
+  timelineUpdateTool: (msgId: string, callId: string, status: 'done' | 'error', durationMs?: number, result?: any, error?: string) => void
   timelineCloseRunning: (msgId: string) => void
   clearTimelines: () => void
 
@@ -131,6 +135,20 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     })
   },
 
+  timelinePushReasoning: (msgId, text) => {
+    if (!text) return
+    set(s => {
+      const segs = s.timelines[msgId] ? [...s.timelines[msgId]] : []
+      const last = segs[segs.length - 1]
+      if (last && last.kind === 'reasoning') {
+        segs[segs.length - 1] = { ...last, text: last.text + text }
+      } else {
+        segs.push({ kind: 'reasoning', id: `r-${msgId}-${segs.length}`, text })
+      }
+      return { timelines: { ...s.timelines, [msgId]: segs } }
+    })
+  },
+
   timelinePushTool: (msgId, event) => {
     const call: ActiveToolCall = {
       id: event.id ?? `${event.name}-${event.timestamp}`,
@@ -151,7 +169,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     })
   },
 
-  timelineUpdateTool: (msgId, callId, status, durationMs) => {
+  timelineUpdateTool: (msgId, callId, status, durationMs, result, error) => {
     set(s => {
       const segs = s.timelines[msgId]
       if (!segs) return {}
@@ -161,7 +179,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               ...seg,
               calls: seg.calls.map(c =>
                 c.id === callId && c.status === 'running'
-                  ? { ...c, status, durationMs: durationMs ?? (Date.now() - c.startedAt) }
+                  ? { ...c, status, durationMs: durationMs ?? (Date.now() - c.startedAt), result, error }
                   : c
               ),
             }
@@ -197,29 +215,48 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     set(s => {
       const newTimelines: Record<string, TimelineSegment[]> = {}
       let currentAsstMsgId: string | null = null
-
+      
+      // Map message IDs to their turn's assistant ID
+      const msgIdToAsstId = new Map<string, string>()
+      let tempAsstId: string | null = null
+      let tempToolCalls: string[] = []
+      
+      const flushTempTurn = () => {
+        const finalAsstId = tempAsstId || (tempToolCalls.length > 0 ? `asst-turn-${tempToolCalls[0]}` : null)
+        if (finalAsstId) {
+          if (tempAsstId) msgIdToAsstId.set(tempAsstId, finalAsstId)
+          for (const tcId of tempToolCalls) {
+            msgIdToAsstId.set(tcId, finalAsstId)
+          }
+        }
+        tempAsstId = null
+        tempToolCalls = []
+      }
+      
       for (const m of msgs) {
         if (m.role === 'user') {
-          // Reset anchor on each new user turn so tool_calls from the previous
-          // turn don't bleed into a synthetic group for the next one.
+          flushTempTurn()
+        } else if (m.role === 'assistant') {
+          tempAsstId = m.id
+        } else if (m.role === 'tool_call') {
+          tempToolCalls.push(m.id)
+        }
+      }
+      flushTempTurn()
+      
+      // Build timelines using the mapped turn assistant IDs
+      for (const m of msgs) {
+        if (m.role === 'user') {
           currentAsstMsgId = null
         } else if (m.role === 'assistant') {
-          currentAsstMsgId = m.id
+          currentAsstMsgId = msgIdToAsstId.get(m.id) || m.id
           if (m.content) {
             const segs = newTimelines[currentAsstMsgId] || []
             segs.push({ kind: 'text', id: `t-${currentAsstMsgId}-${segs.length}`, text: m.content })
             newTimelines[currentAsstMsgId] = segs
           }
         } else if (m.role === 'tool_call') {
-          // In the DB, tool_call records are written before the assistant text
-          // record for the same step (because agent.ts iterates content parts in
-          // order: tool-call parts first, then collects text). When there is no
-          // text (pure tool step), no assistant record is written at all.
-          // To avoid losing these tool calls during history rebuild, we create a
-          // synthetic group ID anchored to the first tool_call of that step.
-          if (!currentAsstMsgId) {
-            currentAsstMsgId = `tool-group-${m.id}`
-          }
+          currentAsstMsgId = msgIdToAsstId.get(m.id) || `asst-turn-${m.id}`
           const segs = newTimelines[currentAsstMsgId] || []
           let args = {}
           try { args = JSON.parse(m.content) } catch {}
@@ -227,10 +264,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             id: m.tool_call_id || m.id,
             name: m.tool_name || 'unknown',
             args,
-            status: 'running', // Will be marked 'done' if we see a tool_result
+            status: 'done',
             startedAt: m.timestamp,
           }
-
+          
           const last = segs[segs.length - 1]
           if (last && last.kind === 'tools') {
             last.calls.push(call)
@@ -238,14 +275,19 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             segs.push({ kind: 'tools', id: `g-${currentAsstMsgId}-${segs.length}`, calls: [call] })
           }
           newTimelines[currentAsstMsgId] = segs
-        } else if (m.role === 'tool_result' && currentAsstMsgId) {
-          const segs = newTimelines[currentAsstMsgId] || []
-          for (const seg of segs) {
-            if (seg.kind === 'tools') {
-              for (const c of seg.calls) {
-                if (c.id === m.tool_call_id) {
-                  c.status = 'done'
-                  c.durationMs = m.timestamp - c.startedAt
+        } else if (m.role === 'tool_result') {
+          const correspondingCall = msgs.find(x => x.role === 'tool_call' && (x.tool_call_id === m.tool_call_id || x.id === m.tool_call_id))
+          const turnAsstId = correspondingCall ? msgIdToAsstId.get(correspondingCall.id) : null
+          if (turnAsstId) {
+            const segs = newTimelines[turnAsstId] || []
+            for (const seg of segs) {
+              if (seg.kind === 'tools') {
+                for (const c of seg.calls) {
+                  if (c.id === m.tool_call_id) {
+                    c.status = 'done'
+                    c.durationMs = m.timestamp - c.startedAt
+                    c.result = m.content
+                  }
                 }
               }
             }
@@ -312,7 +354,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         get().timelinePushTool(id, data)
       } else {
         const callId = data.id ?? `${data.name}-${data.timestamp}`
-        get().timelineUpdateTool(id, callId, data.status as 'done' | 'error', data.durationMs)
+        get().timelineUpdateTool(id, callId, data.status as 'done' | 'error', data.durationMs, data.result, data.error)
       }
     })
     cleanups.push(unsubToolCall)
@@ -326,13 +368,35 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     })
     cleanups.push(unsubStepText)
 
+    const unsubReasoningText = ipc.agent.onReasoningText((text: string) => {
+      const id = ensure()
+      get().timelinePushReasoning(id, text)
+    })
+    cleanups.push(unsubReasoningText)
+
     const unsubProgress = ipc.agent.onProgress((tasks: TaskProgress[]) => {
       set({ progress: tasks })
     })
     cleanups.push(unsubProgress)
 
-    const unsubQa = ipc.agent.onQaPrompt((question: string) => {
-      get().setQaPrompt(question)
+    const unsubQa = ipc.agent.onQaPrompt(async (payload: any) => {
+      // Filtering: if payload.meta has sessionId, ensure it matches current desktop context
+      if (payload?.meta?.sessionId) {
+        try {
+          // We import the stores directly inside to avoid circular dependencies if any
+          const { useSessionsStore } = await import('./sessions.store')
+          const { useUIStore } = await import('./ui.store')
+          const currentProjectSessionId = useSessionsStore.getState().activeSessionId
+          const currentGlobalSessionId = useUIStore.getState().activeGlobalSessionId
+
+          if (payload.meta.sessionId !== currentProjectSessionId && payload.meta.sessionId !== currentGlobalSessionId) {
+            return; // Ignore prompt meant for another session (e.g. Design App)
+          }
+        } catch (err) {
+          console.error("Failed to load stores for qaPrompt filtering:", err)
+        }
+      }
+      get().setQaPrompt(payload)
     })
     cleanups.push(unsubQa)
 

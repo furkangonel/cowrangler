@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
+import { ChevronUp } from 'lucide-react'
 import { useAgentStore } from '../../stores/agent.store'
 import { useProjectsStore } from '../../stores/projects.store'
 import { useSettingsStore } from '../../stores/settings.store'
@@ -9,9 +10,22 @@ import { formatDuration } from '../../lib/time'
 export function StatusBar() {
   const { activeProjectId } = useProjectsStore()
   const { contextSnapshot, status, toolCalls } = useAgentStore()
-  const { getModel } = useSettingsStore()
+  const { getModel, setModel, savedModels } = useSettingsStore()
   const [sessionDuration, setSessionDuration] = useState(0)
   const [sessionStart] = useState(Date.now())
+  const [modelPickerOpen, setModelPickerOpen] = useState(false)
+  const modelPickerRef = useRef<HTMLDivElement>(null)
+
+  // Close picker on outside click
+  useEffect(() => {
+    function onOutside(e: MouseEvent) {
+      if (modelPickerRef.current && !modelPickerRef.current.contains(e.target as Node)) {
+        setModelPickerOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onOutside)
+    return () => document.removeEventListener('mousedown', onOutside)
+  }, [])
 
   // Refresh context snapshot periodically
   useEffect(() => {
@@ -65,17 +79,47 @@ export function StatusBar() {
       className="flex items-center gap-3 px-4 border-t border-border bg-bg-secondary text-text-muted"
       style={{ height: 'var(--statusbar-height)', fontSize: '11px' }}
     >
-      {/* Model */}
-      <span className="flex items-center gap-1.5 font-medium text-text-secondary">
-        {/* Cowrangler lasso mark — original brand glyph (replaces Hermes ⚕) */}
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
-             className="text-accent flex-shrink-0" aria-hidden="true">
-          <ellipse cx="12" cy="8.5" rx="6.5" ry="5" />
-          <path d="M12 13.5 C 12 17, 10 19, 8 21.5" />
-        </svg>
-        {shortModel}
-      </span>
+      {/* Model Selector */}
+      <div className="relative" ref={modelPickerRef}>
+        <button
+          onClick={() => setModelPickerOpen(o => !o)}
+          disabled={status === 'thinking'}
+          className="flex items-center gap-1 px-1.5 py-0.5 rounded text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors disabled:opacity-50 font-medium select-none"
+          title="Change active model"
+        >
+          {/* Cowrangler lasso mark — original brand glyph */}
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
+               className="text-accent flex-shrink-0" aria-hidden="true">
+            <ellipse cx="12" cy="8.5" rx="6.5" ry="5" />
+            <path d="M12 13.5 C 12 17, 10 19, 8 21.5" />
+          </svg>
+          <span className="truncate max-w-[150px]">{shortModel}</span>
+          <ChevronUp size={11} className={`transition-transform duration-200 text-text-muted/70 ${modelPickerOpen ? 'rotate-180' : ''}`} />
+        </button>
+        {modelPickerOpen && (
+          <div className="absolute bottom-full left-0 mb-1.5 z-50 bg-bg-secondary border border-border rounded-xl shadow-pop overflow-hidden animate-slide-up w-56">
+            <div className="p-2 space-y-0.5 max-h-60 overflow-y-auto">
+              <p className="px-2.5 py-1.5 text-[9px] font-semibold uppercase tracking-wider text-text-muted select-none">Select active model</p>
+              {savedModels.map(modelId => (
+                <button
+                  key={modelId}
+                  onClick={() => { setModel(modelId); setModelPickerOpen(false) }}
+                  className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left transition-colors ${
+                    model === modelId ? 'bg-accent-subtle text-accent font-medium' : 'text-text-secondary hover:bg-bg-hover'
+                  }`}
+                >
+                  <span className="flex-1 truncate font-mono">{modelId.split('/').pop() ?? modelId}</span>
+                  {model === modelId && <span className="text-2xs opacity-60">●</span>}
+                </button>
+              ))}
+              {savedModels.length === 0 && (
+                <p className="px-2.5 py-2 text-2xs text-text-muted italic">No saved models — add in Settings</p>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
 
       <span className="text-border">│</span>
 

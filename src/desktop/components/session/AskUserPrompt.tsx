@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { X, ChevronLeft, ChevronRight, Check, ArrowRight, PenTool } from 'lucide-react'
 
 export function AskUserPrompt({ payload, onSubmit }: { payload: any; onSubmit: (ans: string) => void }) {
@@ -8,6 +8,11 @@ export function AskUserPrompt({ payload, onSubmit }: { payload: any; onSubmit: (
   const [currentStep, setCurrentStep] = useState(0)
   const [selections, setSelections] = useState<Record<number, string[]>>({})
   const [customAnswers, setCustomAnswers] = useState<Record<number, string>>({})
+  const [focusedIndex, setFocusedIndex] = useState(-1)
+
+  useEffect(() => {
+    setFocusedIndex(-1)
+  }, [currentStep])
 
   const doSubmit = () => {
     if (!isObj) {
@@ -65,6 +70,45 @@ export function AskUserPrompt({ payload, onSubmit }: { payload: any; onSubmit: (
     })
   }
 
+  useEffect(() => {
+    if (!isObj || !questions[currentStep]) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if user is typing in an input field (except maybe to catch Enter)
+      if (document.activeElement?.tagName === 'INPUT' && e.key !== 'Enter' && e.key !== 'Escape') {
+        return
+      }
+
+      const q = questions[currentStep]
+      const optsCount = q.options?.length || 0
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        setFocusedIndex(i => (i < optsCount - 1 ? i + 1 : i))
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        setFocusedIndex(i => (i > 0 ? i - 1 : 0))
+      } else if (e.key === 'Enter') {
+        if (document.activeElement?.tagName === 'INPUT') return // Let input handlers deal with it
+        e.preventDefault()
+        if (focusedIndex >= 0 && focusedIndex < optsCount) {
+          const opt = q.options[focusedIndex]
+          handleToggleOption(currentStep, opt, !!q.is_multi_select)
+        } else {
+          // If no option focused, try to advance/submit
+          handleNext()
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault()
+        handleSkip()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [currentStep, isObj, questions, focusedIndex])
+
+
   // Fallback for non-object payload
   if (!isObj) {
     return (
@@ -119,15 +163,16 @@ export function AskUserPrompt({ payload, onSubmit }: { payload: any; onSubmit: (
       <div className="px-5 space-y-2 max-h-[50vh] overflow-y-auto custom-scrollbar pb-4">
         {q.options && q.options.map((opt: string, idx: number) => {
           const isSelected = currentSelections.includes(opt)
+          const isFocused = focusedIndex === idx
           
           if (q.is_multi_select) {
             return (
               <button
                 key={opt}
                 onClick={() => handleToggleOption(currentStep, opt, true)}
-                className={`w-full flex items-center gap-3 p-3 rounded-xl text-left transition-colors border ${
+                className={`w-full flex items-center gap-3 p-3 rounded-xl text-left transition-all border ${
                   isSelected ? 'bg-bg-secondary border-border' : 'bg-bg-tertiary border-transparent hover:bg-bg-secondary'
-                }`}
+                } ${isFocused ? 'ring-2 ring-accent border-accent/50 scale-[1.01]' : ''}`}
               >
                 <div className={`w-5 h-5 flex flex-shrink-0 items-center justify-center rounded transition-colors ${
                   isSelected ? 'bg-accent border border-accent' : 'border border-border bg-bg-primary'
@@ -144,12 +189,10 @@ export function AskUserPrompt({ payload, onSubmit }: { payload: any; onSubmit: (
                 key={opt}
                 onClick={() => {
                   handleToggleOption(currentStep, opt, false)
-                  // Optional: auto-advance on single select after short delay
-                  setTimeout(handleNext, 300)
                 }}
-                className={`w-full flex items-center justify-between p-3 rounded-xl text-left transition-colors border ${
+                className={`w-full flex items-center justify-between p-3 rounded-xl text-left transition-all border ${
                   isSelected ? 'bg-bg-secondary border-border' : 'bg-bg-tertiary border-transparent hover:bg-bg-secondary'
-                }`}
+                } ${isFocused ? 'ring-2 ring-accent border-accent/50 scale-[1.01]' : ''}`}
               >
                 <div className="flex items-center gap-3">
                   <div className="w-[22px] h-[22px] flex-shrink-0 rounded-full bg-bg-primary border border-border flex items-center justify-center text-[11px] font-medium text-text-muted">
@@ -157,7 +200,7 @@ export function AskUserPrompt({ payload, onSubmit }: { payload: any; onSubmit: (
                   </div>
                   <span className="text-[14px] leading-tight text-text-primary">{opt}</span>
                 </div>
-                <ArrowRight size={16} className={`text-text-muted transition-opacity ${isSelected ? 'opacity-100 text-accent' : 'opacity-0'}`} />
+                <ArrowRight size={16} className={`text-text-muted transition-opacity ${isSelected || isFocused ? 'opacity-100 text-accent' : 'opacity-0'}`} />
               </button>
             )
           }

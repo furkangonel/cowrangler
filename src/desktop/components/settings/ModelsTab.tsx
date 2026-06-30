@@ -34,10 +34,19 @@ export function ModelsTab() {
       {/* Saved Models */}
       <section>
         <h4 className="text-sm font-semibold text-text-primary mb-1">Saved Models</h4>
-        <p className="text-xs text-text-muted mb-3">
-          Models you've saved appear in all model pickers. Enter a full provider/model-id (e.g.{' '}
-          <code className="font-mono text-2xs">anthropic/claude-opus-4-6</code>).
-        </p>
+        <div className="text-xs text-text-muted mb-3 space-y-1.5">
+          <p>
+            Models you've saved appear in all model pickers. Enter a full provider/model-id (e.g.{' '}
+            <code className="font-mono text-2xs">anthropic/claude-opus-4-6</code>).
+          </p>
+          <p className="p-2.5 bg-bg-secondary rounded-lg border border-border leading-relaxed">
+            <strong className="text-text-primary font-medium">Local Models:</strong> You can run local models seamlessly without API keys by using the{' '}
+            <code className="font-mono text-2xs bg-bg-primary border border-border px-1 py-0.5 rounded">ollama/</code>,{' '}
+            <code className="font-mono text-2xs bg-bg-primary border border-border px-1 py-0.5 rounded">lmstudio/</code>, or{' '}
+            <code className="font-mono text-2xs bg-bg-primary border border-border px-1 py-0.5 rounded">local/</code> prefixes 
+            (e.g., <code className="font-mono text-2xs bg-bg-primary border border-border px-1 py-0.5 rounded">ollama/deepseek-r1:8b</code>).
+          </p>
+        </div>
 
         {/* Add model input */}
         <div className="flex gap-2 mb-3">

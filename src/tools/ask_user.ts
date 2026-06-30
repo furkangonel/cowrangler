@@ -58,6 +58,10 @@ export function hasPendingAskUser(): boolean {
 // Subscribe to ask user events so UI can show the prompt
 export interface AskUserPayload {
   questions: { question: string; options: string[]; is_multi_select: boolean }[]
+  meta?: {
+    projectId?: string | null;
+    sessionId?: string | null;
+  }
 }
 
 export type AskUserListener = (payload: AskUserPayload) => void
@@ -66,15 +70,40 @@ export function setAskUserListener(cb: AskUserListener | null) {
   listener = cb
 }
 
-export async function executeAskUser(args: z.infer<typeof askUserDef.parameters>): Promise<string> {
+export async function executeAskUser(
+  args: z.infer<typeof askUserDef.parameters>, 
+  meta?: { projectId?: string | null, sessionId?: string | null }
+): Promise<string> {
+  let activeSessionId = meta && typeof meta === 'object' && 'sessionId' in meta ? (meta as any).sessionId : undefined;
+  if (!activeSessionId) {
+    try {
+      const { getActiveSessionId } = await import("../core/project_context.js");
+      activeSessionId = getActiveSessionId();
+    } catch {
+      // ignore
+    }
+  }
+
   // Normalize to the shape every UI expects: options are plain strings,
   // is_multi_select is always a boolean.
   const payload: AskUserPayload = {
-    questions: (args.questions ?? []).map(q => ({
-      question: q.question,
-      options: (q.options ?? []).map(normalizeOption),
-      is_multi_select: q.is_multi_select ?? false,
-    })),
+    meta: {
+      ...(meta && typeof meta === 'object' ? meta : {}),
+      sessionId: activeSessionId,
+    },
+    questions: (args.questions ?? []).map(q => {
+      // LLMs sometimes pass a single string with newlines instead of an array of options.
+      // We split them here so the UI can render them as distinct selectable choices.
+      const normalizedOptions = (q.options ?? [])
+        .map(normalizeOption)
+        .flatMap(opt => opt.split('\n').map(s => s.trim()).filter(Boolean));
+
+      return {
+        question: q.question,
+        options: normalizedOptions,
+        is_multi_select: q.is_multi_select ?? false,
+      };
+    }),
   }
   return new Promise((resolve) => {
     askResolver = resolve

@@ -29,6 +29,22 @@ const SHOW_STEPS_AFTER_MS = 30_000;
  *   ◎ [message]   Yanıt hazır.
  */
 export const TraceLine: React.FC<{ entry: TraceEntry }> = ({ entry }) => {
+  if (entry.kind === "thinking") {
+    const lines = entry.text
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    return (
+      <Box flexDirection="column">
+        {lines.map((line, i) => (
+          <Text key={i}>
+            {Theme.accent("  🧠 ") + Theme.dim(truncateNarrative(line))}
+          </Text>
+        ))}
+      </Box>
+    );
+  }
+
   if (entry.kind === "narrative") {
     const lines = entry.text
       .split("\n")
@@ -85,6 +101,13 @@ export const TraceBlock: React.FC<{ entries: TraceEntry[] }> = ({ entries }) => 
                 Theme.accent(padToolName(entry.tool)) +
                 (argStr ? "  " + Theme.dim(argStr) : "") +
                 "  " + Theme.dim(formatElapsed(entry.ms))}
+            </Text>
+          );
+        }
+        if (entry.kind === "thinking") {
+          return (
+            <Text key={i}>
+              {Theme.accent("  🧠 ") + Theme.dim(truncateNarrative(entry.text, 100))}
             </Text>
           );
         }

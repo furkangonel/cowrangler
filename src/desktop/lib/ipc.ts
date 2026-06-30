@@ -30,6 +30,8 @@ export interface ToolCallEvent {
   status: 'start' | 'done' | 'error'
   durationMs?: number
   timestamp: number
+  result?: any
+  error?: string
 }
 
 export interface AgentDoneResult {
@@ -268,6 +270,7 @@ interface ElectronAPI {
     setActiveSession: (sessionId: string | null) => Promise<void>
     onToolCall: (cb: (data: ToolCallEvent) => void) => () => void
     onStepText: (cb: (text: string) => void) => () => void
+    onReasoningText: (cb: (text: string) => void) => () => void
     onQaPrompt: (cb: (payload: any) => void) => () => void
     answerQuestion: (answer: string) => Promise<{ ok: boolean }>
     onProgress: (cb: (tasks: TaskProgress[]) => void) => () => void

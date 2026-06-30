@@ -3,7 +3,6 @@ import { Pin, MoreHorizontal, Plus, ArrowRight, Folder, Clock, ExternalLink, Mes
 import { useProjectsStore } from '../../stores/projects.store'
 import { useSessionsStore } from '../../stores/sessions.store'
 import { useAgentStore } from '../../stores/agent.store'
-import { useSettingsStore } from '../../stores/settings.store'
 import { ipc, SkillDef } from '../../lib/ipc'
 import { formatRelative } from '../../lib/time'
 import { EditProjectModal } from './EditProjectModal'
@@ -173,10 +172,8 @@ export function ProjectHome({ projectId }: Props) {
 function InlineNewTask({ projectId, projectName, projectIcon }: { projectId: string, projectName: string, projectIcon: string }) {
   const { setActiveProject } = useProjectsStore()
   const { setActiveSession } = useSessionsStore()
-  const { savedModels, getModel } = useSettingsStore()
 
   const [message, setMessage] = useState('')
-  const [selectedModel, setSelectedModel] = useState<string>('')
   
   const [skills, setSkills] = useState<SkillDef[]>([])
   const [slashOpen, setSlashOpen] = useState(false)
@@ -261,10 +258,8 @@ function InlineNewTask({ projectId, projectName, projectIcon }: { projectId: str
     const textPart = message.trim()
     const msg = [skillPart, textPart].filter(Boolean).join(skillPart && textPart ? '\n\n' : '')
 
+    // Store pending message for SessionView to pick up
     sessionStorage.setItem(`pendingMessage_${projectId}`, msg)
-    if (selectedModel) {
-      sessionStorage.setItem(`pendingModel_${projectId}`, selectedModel)
-    }
 
     setActiveProject(projectId)
     setActiveSession('__new__')
@@ -345,22 +340,11 @@ function InlineNewTask({ projectId, projectName, projectIcon }: { projectId: str
 
         {/* Footer row */}
         <div className="flex items-center gap-2.5 px-3 py-2 border-t border-border-subtle bg-bg-tertiary">
-          {/* Disabled project selector */}
           <select
             disabled
             className="flex-1 bg-bg-secondary/50 border border-border-subtle rounded-lg text-xs text-text-muted px-2.5 py-1.5 outline-none cursor-not-allowed appearance-none opacity-80"
           >
             <option>{projectIcon} {projectName}</option>
-          </select>
-          <select
-            value={selectedModel}
-            onChange={e => setSelectedModel(e.target.value)}
-            className="flex-1 bg-bg-secondary border border-border-subtle rounded-lg text-xs text-text-secondary px-2.5 py-1.5 outline-none focus:border-accent/40 cursor-pointer"
-          >
-            <option value="">Global ({getModel()?.split('/').pop() ?? 'default'})</option>
-            {savedModels.map(m => (
-              <option key={m} value={m}>{m.split('/').pop() ?? m}</option>
-            ))}
           </select>
 
           <button

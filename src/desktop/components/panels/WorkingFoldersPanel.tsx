@@ -24,14 +24,22 @@ export function WorkingFoldersPanel({ projectId }: Props) {
   const touchedFiles = useMemo(() => {
     const paths = new Set<string>()
 
-    const scanArgs = (obj: any, parentKey?: string) => {
+    const FILE_TOOLS = new Set([
+      'view_file', 'replace_file_content', 'multi_replace_file_content', 'write_to_file', 'read_file'
+    ])
+
+    const scanArgs = (obj: any, parentKey?: string, toolName?: string) => {
+      // If we know the tool name, and it's not a file manipulation tool, skip it.
+      // This prevents 'grep_search', 'run_command', 'ls', etc. from polluting the working folders.
+      if (toolName && !FILE_TOOLS.has(toolName)) return
+
       if (!obj) return
       if (typeof obj === 'string') {
         let val = obj
         try {
           const parsed = JSON.parse(val)
           if (typeof parsed === 'object' && parsed !== null) {
-            scanArgs(parsed, parentKey)
+            scanArgs(parsed, parentKey, toolName)
             return
           }
         } catch(e) {}
@@ -48,20 +56,20 @@ export function WorkingFoldersPanel({ projectId }: Props) {
           paths.add(val)
         }
       } else if (Array.isArray(obj)) {
-        obj.forEach(item => scanArgs(item, parentKey))
+        obj.forEach(item => scanArgs(item, parentKey, toolName))
       } else if (typeof obj === 'object') {
-        Object.entries(obj).forEach(([key, value]) => scanArgs(value, key))
+        Object.entries(obj).forEach(([key, value]) => scanArgs(value, key, toolName))
       }
     }
 
     // Check active tool calls
-    toolCalls.forEach(c => scanArgs(c.args))
+    toolCalls.forEach(c => scanArgs(c.args, undefined, c.name))
 
     // Check timeline tool calls
     Object.values(timelines).forEach(segments => {
       segments.forEach(seg => {
         if (seg.kind === 'tools') {
-          seg.calls.forEach(c => scanArgs(c.args))
+          seg.calls.forEach(c => scanArgs(c.args, undefined, c.name))
         }
       })
     })
@@ -69,9 +77,9 @@ export function WorkingFoldersPanel({ projectId }: Props) {
     // Check messages just in case
     messages.forEach(m => {
       if (m.role === 'tool_call' && m.content) {
-        try { scanArgs(JSON.parse(m.content)) } catch {}
+        try { scanArgs(JSON.parse(m.content), undefined, m.tool_name) } catch {}
       } else if (m.role === 'assistant' && m.content) {
-        try { scanArgs(JSON.parse(m.content)) } catch {}
+        try { scanArgs(JSON.parse(m.content)) } catch {} // fallback if plain text has tool calls embedded somehow
       }
     })
 

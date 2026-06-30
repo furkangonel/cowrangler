@@ -201,12 +201,9 @@ export function Sidebar() {
       <div className="px-3 pt-3 pb-2">
         <button
           onClick={() => openNewTask()}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-accent-fg text-sm font-medium
-                     transition-all active:scale-[0.98]"
-          style={{
-            background: 'linear-gradient(160deg, rgb(var(--accent)) 0%, rgb(var(--accent-press)) 100%)',
-            boxShadow: '0 2px 8px color-mix(in srgb, rgb(var(--accent)) 30%, transparent), 0 1px 2px rgb(var(--shadow-rgb) / 0.12)',
-          }}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-white text-sm font-medium
+                     transition-all hover:opacity-90 active:scale-[0.98] shadow-sm"
+          style={{ backgroundColor: '#4176CF' }}
         >
           <Plus size={15} className="flex-shrink-0" />
           <span>New Task</span>
@@ -365,10 +362,10 @@ function TabBtn({ active, onClick, icon, label }: {
   return (
     <button
       onClick={onClick}
-      className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium transition-all ${
+      className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium transition-all outline-none focus:outline-none ${
         active
           ? 'bg-bg-secondary text-text-primary shadow-sm border border-border-subtle'
-          : 'text-text-muted hover:text-text-secondary'
+          : 'text-text-muted hover:text-text-secondary border border-transparent'
       }`}
     >
       {icon}{label}

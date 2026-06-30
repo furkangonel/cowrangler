@@ -30,6 +30,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('agent:stepText', listener)
       return () => ipcRenderer.removeListener('agent:stepText', listener)
     },
+    onReasoningText: (cb: (text: string) => void) => {
+      const listener = (_: IpcRendererEvent, text: string) => cb(text)
+      ipcRenderer.on('agent:reasoningText', listener)
+      return () => ipcRenderer.removeListener('agent:reasoningText', listener)
+    },
     onQaPrompt: (cb: (payload: any) => void) => {
       const listener = (_: any, payload: any) => cb(payload)
       ipcRenderer.on('agent:qaPrompt', listener)
@@ -61,7 +66,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => ipcRenderer.removeListener('agent:approvalRequest', listener)
     },
     removeAllListeners: () => {
-      ;['agent:toolCall', 'agent:stepText', 'agent:qaPrompt', 'agent:progress', 'agent:done', 'agent:error', 'agent:interrupted', 'agent:approvalRequest']
+      ;['agent:toolCall', 'agent:stepText', 'agent:qaPrompt', 'agent:progress', 'agent:done', 'agent:error', 'agent:interrupted', 'agent:approvalRequest', 'agent:reasoningText']
         .forEach(ch => ipcRenderer.removeAllListeners(ch))
     },
   },

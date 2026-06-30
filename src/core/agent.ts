@@ -53,6 +53,18 @@ function isRetryable(error: unknown): boolean {
   );
 }
 
+function isOptionSelected(answer: string, option: string): boolean {
+  if (!answer) return false;
+  if (answer.trim() === option.trim()) return true;
+  const lines = answer.split("\n");
+  for (const line of lines) {
+    if (line.trim().startsWith("A:") && line.includes(option)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // AGENT
 // ─────────────────────────────────────────────────────────────────────────────
@@ -100,10 +112,14 @@ export class Agent {
     args?: any;
     phase: "start" | "done" | "error";
     durationMs?: number;
+    result?: any;
+    error?: string;
   }) => void;
 
   /** Trajectory recorder — null ise kayıt yapılmaz */
   public trajectoryRecorder: TrajectoryRecorder | null = null;
+
+  public approvedPlanActions = new Set<string>();
 
   constructor(
     llm: LLM,
@@ -235,11 +251,79 @@ export class Agent {
           this._onToolCall?.(name, args);
           this._onToolEvent?.({ id, name, args, phase: "start" });
           try {
+            // ── Centralized Permission Check ──
+            const { checkPermission, riskBadge } = await import("./permissions.js");
+            const config = getConfig();
+            const permissionMode = (config.permission_mode ?? "default") as any;
+
+            if (permissionMode !== "bypass") {
+              let extraInfo: string | undefined;
+              if (name === "execute_bash") {
+                extraInfo = args.command;
+              } else if (name === "delete_file" || name === "delete_folder" || name === "write_file" || name === "edit_file" || name === "append_to_file" || name === "create_folder") {
+                extraInfo = args.path;
+              }
+
+              const permResult = checkPermission(name, permissionMode, extraInfo);
+
+              if (!permResult.allowed && !permResult.requiresApproval) {
+                const blockMsg = `${riskBadge(permResult.riskLevel)} BLOCKED: ${permResult.reason}`;
+                this._onToolEvent?.({ id, name, phase: "done", durationMs: Date.now() - startedAt, result: blockMsg });
+                return blockMsg;
+              }
+
+              if (permResult.requiresApproval) {
+                const planKey = `${name}:${extraInfo ?? ""}`;
+                if (permissionMode === "plan" && this.approvedPlanActions.has(planKey)) {
+                  // Already approved in this plan context, proceed
+                } else {
+                  const { executeAskUser } = await import("../tools/ask_user.js");
+                  const questionText = name === "execute_bash"
+                    ? `Do you want to run this command: "${args.command}"?`
+                    : `Do you want to run tool: ${name}${extraInfo ? ` on "${extraInfo}"` : ""}?`;
+
+                  const approval = await executeAskUser({
+                    questions: [
+                      {
+                        question: questionText,
+                        options: ["Allow", "Deny"],
+                      }
+                    ]
+                  }, { sessionId: this.sessionId });
+
+                  if (!isOptionSelected(approval, "Allow")) {
+                    const blockMsg = `${riskBadge("dangerous")} BLOCKED: User denied permission.`;
+                    this._onToolEvent?.({ id, name, phase: "done", durationMs: Date.now() - startedAt, result: blockMsg });
+                    return blockMsg;
+                  }
+
+                  if (permissionMode === "plan") {
+                    this.approvedPlanActions.add(planKey);
+                  }
+                }
+              }
+            }
+
             const r = await orig(args, options);
-            this._onToolEvent?.({ id, name, phase: "done", durationMs: Date.now() - startedAt });
+            if (name === "write_plan" && typeof r === "string" && r.startsWith("Plan approved by user")) {
+              if (args.steps && Array.isArray(args.steps)) {
+                for (const step of args.steps) {
+                  if (step.files && Array.isArray(step.files)) {
+                    for (const f of step.files) {
+                      this.approvedPlanActions.add(`write_file:${f}`);
+                      this.approvedPlanActions.add(`edit_file:${f}`);
+                      this.approvedPlanActions.add(`append_to_file:${f}`);
+                      this.approvedPlanActions.add(`delete_file:${f}`);
+                      this.approvedPlanActions.add(`create_folder:${f}`);
+                    }
+                  }
+                }
+              }
+            }
+            this._onToolEvent?.({ id, name, phase: "done", durationMs: Date.now() - startedAt, result: r });
             return r;
           } catch (err) {
-            this._onToolEvent?.({ id, name, phase: "error", durationMs: Date.now() - startedAt });
+            this._onToolEvent?.({ id, name, phase: "error", durationMs: Date.now() - startedAt, error: (err as any)?.message ?? String(err) });
             throw err;
           }
         },
@@ -292,6 +376,7 @@ export class Agent {
       phase: "start" | "done" | "error";
       durationMs?: number;
     }) => void,
+    onReasoningToken?: (delta: string) => void,
   ): Promise<AgentChatResult> {
     const roundStart = Date.now();
     this._interruptRequested = false;
@@ -373,8 +458,8 @@ export class Agent {
           let stepCacheWriteTokens = 0;
 
           // ── Provider options ────────────────────────────────────────────────
-          // Anthropic: prompt caching + extended thinking (config ile kontrol edilir)
-          const isAnthropic = this.llm.model.startsWith("claude-");
+          // ── Provider options ────────────────────────────────────────────────
+          const isAnthropic = this.llm.model.startsWith("claude-") || this.llm.model.includes("anthropic");
 
           // Thinking ayarı: config.thinking + env override.
           // COWRANGLER_THINKING=1/0 her zaman config'i ezer.
@@ -387,12 +472,31 @@ export class Agent {
                 ? false
                 : Boolean(cfg.thinking?.enabled);
           const thinkingEnabled =
-            isAnthropic && thinkingConfigured && _supportsThinking(this.llm.model);
+            thinkingConfigured && _supportsThinking(this.llm.model);
           const thinkingBudget = parseInt(
             process.env.COWRANGLER_THINKING_BUDGET ??
               String(cfg.thinking?.budget_tokens ?? 8000),
             10,
           );
+
+          // Compile reasoning settings for multiple providers
+          const providerOptions: any = {};
+          if (thinkingEnabled) {
+            providerOptions.anthropic = {
+              thinking: { type: "enabled" as const, budgetTokens: thinkingBudget },
+            };
+            providerOptions.openai = {
+              reasoningEffort: thinkingBudget > 4000 ? "high" : (thinkingBudget > 2000 ? "medium" : "low"),
+              extraBody: {
+                reasoning: {
+                  max_tokens: thinkingBudget
+                }
+              }
+            };
+            providerOptions.google = {
+              thinking: { budget: thinkingBudget },
+            };
+          }
 
           // Sistem mesajını mesaj listesine alarak cache_control uygula.
           // Anthropic SDK 1.2+ cache_control varsayılan açık; biz sistem
@@ -441,15 +545,7 @@ export class Agent {
             messages: messagesWithSystem,
             tools: this.getTools(),
             maxSteps: this.maxIterations,
-            ...(thinkingEnabled
-              ? {
-                  providerOptions: {
-                    anthropic: {
-                      thinking: { type: "enabled" as const, budgetTokens: thinkingBudget },
-                    },
-                  },
-                }
-              : {}),
+            ...(thinkingEnabled ? { providerOptions } : {}),
             onStepFinish: async ({ text, toolCalls, usage, providerMetadata }: any) => {
               if (this._interruptRequested) return;
 
@@ -503,6 +599,9 @@ export class Agent {
             if (this._interruptRequested) break;
             if (part.type === "text-delta") {
               if (onToken && part.textDelta) onToken(part.textDelta);
+            } else if (part.type === ("reasoning" as any) || part.type === ("reasoning-delta" as any)) {
+              const delta = (part as any).textDelta || (part as any).reasoningDelta || (part as any).text;
+              if (onReasoningToken && delta) onReasoningToken(delta);
             } else if (part.type === "error") {
               throw (part as any).error;
             }

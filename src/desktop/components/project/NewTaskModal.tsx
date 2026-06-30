@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react'
 import { X, ArrowUp, BookOpen, CornerDownLeft } from 'lucide-react'
 import { useUIStore } from '../../stores/ui.store'
 import { useProjectsStore } from '../../stores/projects.store'
-import { useSettingsStore } from '../../stores/settings.store'
 import { useSessionsStore } from '../../stores/sessions.store'
 import { useAgentStore } from '../../stores/agent.store'
 import { ipc, SkillDef } from '../../lib/ipc'
@@ -11,11 +10,9 @@ export function NewTaskModal() {
   const { newTaskModalOpen, newTaskPreselectedProjectId, closeNewTask } = useUIStore()
   const { projects, setActiveProject } = useProjectsStore()
   const { setActiveSession } = useSessionsStore()
-  const { savedModels, getModel } = useSettingsStore()
 
   const [message, setMessage] = useState('')
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
-  const [selectedModel, setSelectedModel] = useState<string>('')
   
   // Slash commands state
   const [skills, setSkills] = useState<SkillDef[]>([])
@@ -41,7 +38,6 @@ export function NewTaskModal() {
     if (newTaskModalOpen) {
       setSelectedProjectId(newTaskPreselectedProjectId)
       setMessage('')
-      setSelectedModel('')
       setConfirmedSkills([])
       setSlashOpen(false)
       requestAnimationFrame(() => textareaRef.current?.focus())
@@ -114,11 +110,8 @@ export function NewTaskModal() {
     const textPart = message.trim()
     const msg = [skillPart, textPart].filter(Boolean).join(skillPart && textPart ? '\n\n' : '')
 
-    // Store pending message and model for SessionView to pick up
+    // Store pending message for SessionView to pick up
     sessionStorage.setItem(`pendingMessage_${pid}`, msg)
-    if (selectedModel) {
-      sessionStorage.setItem(`pendingModel_${pid}`, selectedModel)
-    }
 
     setActiveProject(pid)
     setActiveSession('__new__')
@@ -253,18 +246,6 @@ export function NewTaskModal() {
             ) : (
               <div className="flex-1" />
             )}
-
-            {/* Model selector */}
-            <select
-              value={selectedModel}
-              onChange={e => setSelectedModel(e.target.value)}
-              className="bg-bg-tertiary border border-border rounded-lg text-xs text-text-secondary px-2.5 py-1.5 outline-none focus:border-accent/40 cursor-pointer max-w-[210px] truncate"
-            >
-              <option value="">Global ({getModel()?.split('/').pop() ?? 'default'})</option>
-              {savedModels.map(m => (
-                <option key={m} value={m}>{m.split('/').pop() ?? m}</option>
-              ))}
-            </select>
 
             <button
               onClick={handleStart}

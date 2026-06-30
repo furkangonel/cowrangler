@@ -112,6 +112,8 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       args?: any
       phase: 'start' | 'done' | 'error'
       durationMs?: number
+      result?: any
+      error?: string
     }) => {
       sender.send('agent:toolCall', {
         id: e.id,
@@ -119,6 +121,8 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
         args: e.args ?? {},
         status: e.phase,
         durationMs: e.durationMs,
+        result: e.result,
+        error: e.error,
         timestamp: Date.now(),
       })
     }
@@ -127,8 +131,12 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       sender.send('agent:stepText', text)
     }
 
+    const onReasoningText = (text: string) => {
+      sender.send('agent:reasoningText', text)
+    }
+
     try {
-      const result = await agent.chat(message, undefined, onStepText, undefined, onToolEvent)
+      const result = await agent.chat(message, undefined, onStepText, undefined, onToolEvent, onReasoningText)
 
       // Session'ı projeye bağla + başlığı ilk promptun ilk 20 karakterinden ata
       const currentSessionId = agent.currentSessionId

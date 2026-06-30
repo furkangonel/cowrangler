@@ -364,7 +364,7 @@ export function DesignEditor({ onBack }: Props) {
                       {modelPickerOpen && (
                         <div className="absolute bottom-full mb-1.5 right-0 z-30 rounded-xl overflow-hidden design-elev-lg w-52" style={{ background: 'var(--d-surface)', border: '1px solid var(--d-line)' }}>
                           <div className="p-1.5 space-y-0.5 max-h-52 overflow-y-auto">
-                            <ModelOption label={`Global (${getModel()?.split('/').pop() ?? 'default'})`} selected={!selectedModel} onClick={() => { setSelectedModel(null); setModelPickerOpen(false) }} />
+                            <ModelOption label={`Use Global Model (${getModel()?.split('/').pop() ?? 'default'})`} selected={!selectedModel} onClick={() => { setSelectedModel(null); setModelPickerOpen(false) }} />
                             {savedModels.map(m => <ModelOption key={m} label={m.split('/').pop() ?? m} selected={selectedModel === m} onClick={() => { setSelectedModel(m); setModelPickerOpen(false) }} />)}
                             {savedModels.length === 0 && <p className="px-2.5 py-2 text-xs italic" style={{ color: 'var(--d-ink-faint)' }}>No saved models</p>}
                           </div>

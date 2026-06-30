@@ -6,9 +6,15 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [2.0.8] — 2026-06-26
+## [2.0.8] — 2026-06-30
 
 ### Added
+- **Native Sandbox Runner** — Replaced synchronous execution with an asynchronous and non-blocking sandbox engine using `cowrangler-sandbox.bundle` supporting platform-specific isolation (macOS seatbelt, Linux bubblewrap, and Windows PowerShell).
+- **Centralized & Interactive Tool Permissions** — Introduced an automatic permission checking mechanism in tool execution with interactive prompts (`executeAskUser`) for dangerous actions like `execute_bash` and system writes.
+- **Wizard Keyboard Navigation** — Added keyboard navigation support (arrows, Enter, Escape) to handle interactive Q&A prompts in both Desktop UI and Ink CLI.
+- **Reasoning Token Streaming** — Added real-time thinking/reasoning stream rendering in both Desktop and CLI for Anthropic Claude, OpenAI reasoning models, and Google Gemini models.
+- **StatusBar Model Switcher** — Implemented an instant model switching dropdown directly in the desktop app's status bar footer.
+- **Sandbox Tests** — Added a Vitest test suite (`tests/sandbox.test.ts`) covering the sandbox bundle, async execution, path limits, and dangerous command blockings.
 - **Custom Connectors** — Restored support for manually adding custom MCP connectors via standard stdio, HTTP, or SSE configurations.
 - **Dynamic Session Selection** — Connectors and plugins can now be seamlessly selected directly from the prompt area's inline menu.
 

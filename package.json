@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "NODE_OPTIONS='--loader ts-node/esm --no-warnings' ts-node src/main.ts",
     "build": "tsc && npm run copy-assets && chmod +x dist/main.js",
-    "copy-assets": "mkdir -p dist/bundled_skills && cp -rf src/bundled_skills/* dist/bundled_skills/ && mkdir -p dist/i18n/messages && cp src/i18n/messages/*.json dist/i18n/messages/ && mkdir -p dist/kanban && cp src/kanban/board.html dist/kanban/board.html && mkdir -p dist/assets && cp assets/kanban_ui_icon.png dist/assets/",
+    "copy-assets": "mkdir -p dist/bundled_skills && cp -rf src/bundled_skills/* dist/bundled_skills/ && mkdir -p dist/i18n/messages && cp src/i18n/messages/*.json dist/i18n/messages/ && mkdir -p dist/kanban && cp src/kanban/board.html dist/kanban/board.html && mkdir -p dist/assets && cp assets/kanban_ui_icon.png dist/assets/ && mkdir -p dist/core/cowrangler-sandbox.bundle && cp -rf src/core/cowrangler-sandbox.bundle/* dist/core/cowrangler-sandbox.bundle/",
     "start": "node dist/main.js",
     "setup": "npm install && npm run build && npm link",
     "clean": "rm -rf dist",
@@ -41,6 +41,10 @@
       {
         "from": "src/bundled_skills",
         "to": "bundled_skills"
+      },
+      {
+        "from": "src/core/cowrangler-sandbox.bundle",
+        "to": "cowrangler-sandbox.bundle"
       }
     ],
     "publish": [

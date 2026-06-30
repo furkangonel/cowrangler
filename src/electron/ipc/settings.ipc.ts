@@ -175,12 +175,30 @@ export function registerSettingsIPC(ipcMain: IpcMain): void {
 
   ipcMain.handle('settings:set', async (_, key: string, value: any) => {
     fs.mkdirSync(GLOBAL_DIR, { recursive: true })
+    
+    // Check if there is a local config override
+    const { DIRS } = await import('../../core/init.js')
+    let updatedLocal = false
+    if (fs.existsSync(DIRS.local.config)) {
+      try {
+        const localConfig: any = yaml.load(fs.readFileSync(DIRS.local.config, 'utf-8')) || {}
+        // If the key exists in local config, update it there too so it takes effect
+        if (localConfig[key] !== undefined) {
+          localConfig[key] = value
+          fs.writeFileSync(DIRS.local.config, yaml.dump(localConfig), 'utf-8')
+          updatedLocal = true
+        }
+      } catch {}
+    }
+
+    // Always update global config
     let config: any = {}
     if (fs.existsSync(CONFIG_FILE)) {
       try { config = yaml.load(fs.readFileSync(CONFIG_FILE, 'utf-8')) as any || {} } catch {}
     }
     config[key] = value
     fs.writeFileSync(CONFIG_FILE, yaml.dump(config), 'utf-8')
+    
     return { ok: true }
   })
 

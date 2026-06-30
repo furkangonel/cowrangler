@@ -407,7 +407,7 @@ export class SessionDB {
     return this.db
       .prepare(
         `SELECT * FROM messages WHERE session_id = ?
-         ORDER BY timestamp ASC LIMIT ? OFFSET ?`,
+         ORDER BY timestamp ASC, rowid ASC LIMIT ? OFFSET ?`,
       )
       .all(sessionId, opts.limit ?? 1000, opts.offset ?? 0) as MessageRecord[];
   }

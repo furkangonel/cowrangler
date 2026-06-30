@@ -376,7 +376,7 @@ function Composer(props: {
             <ComposerChip label="Model" value={modelLabel} chevron active={modelOpen} onClick={() => setModelOpen(o => !o)} />
             {modelOpen && (
               <div className="absolute right-0 bottom-full mb-2 z-40 rounded-xl overflow-hidden py-1.5 design-elev-lg" style={{ minWidth: 200, background: 'var(--d-surface)', border: '1px solid var(--d-line)' }}>
-                <DropdownItem selected={!props.model} onClick={() => { setModel(null); setModelOpen(false) }}>Global ({globalModel?.split('/').pop() ?? 'default'})</DropdownItem>
+                <DropdownItem selected={!props.model} onClick={() => { setModel(null); setModelOpen(false) }}>Use Global Model ({globalModel?.split('/').pop() ?? 'default'})</DropdownItem>
                 {savedModels.map(m => (
                   <DropdownItem key={m} selected={props.model === m} onClick={() => { setModel(m); setModelOpen(false) }}>{m.split('/').pop() ?? m}</DropdownItem>
                 ))}

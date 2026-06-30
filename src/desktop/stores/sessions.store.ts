@@ -151,15 +151,56 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
   clearUIMessages: () => set({ uiMessages: [], messages: [] }),
 
   appendFromDB: (msgs) => {
-    // Sadece user ve assistant mesajlarını UI listesine al
-    const uiMessages: UIMessage[] = msgs
-      .filter(m => m.role === 'user' || m.role === 'assistant')
-      .map(m => ({
-        id: m.id,
-        role: m.role as 'user' | 'assistant',
-        content: m.content,
-        timestamp: m.timestamp,
-      }))
+    const uiMessages: UIMessage[] = []
+    
+    // Group messages by turn. A turn starts with a user message.
+    let currentTurnUser: MessageRecord | null = null
+    let currentTurnAsst: MessageRecord | null = null
+    let currentTurnToolCalls: MessageRecord[] = []
+    
+    const flushTurn = () => {
+      if (currentTurnUser) {
+        uiMessages.push({
+          id: currentTurnUser.id,
+          role: 'user',
+          content: currentTurnUser.content,
+          timestamp: currentTurnUser.timestamp,
+        })
+      }
+      if (currentTurnAsst) {
+        uiMessages.push({
+          id: currentTurnAsst.id,
+          role: 'assistant',
+          content: currentTurnAsst.content,
+          timestamp: currentTurnAsst.timestamp,
+        })
+      } else if (currentTurnToolCalls.length > 0) {
+        // Pure tool turn with no text assistant message — create synthetic assistant message
+        const firstCall = currentTurnToolCalls[0]
+        uiMessages.push({
+          id: `asst-turn-${firstCall.id}`,
+          role: 'assistant',
+          content: '',
+          timestamp: firstCall.timestamp,
+        })
+      }
+      currentTurnUser = null
+      currentTurnAsst = null
+      currentTurnToolCalls = []
+    }
+    
+    for (const m of msgs) {
+      if (m.role === 'user') {
+        flushTurn()
+        currentTurnUser = m
+      } else if (m.role === 'assistant') {
+        currentTurnAsst = m
+      } else if (m.role === 'tool_call') {
+        currentTurnToolCalls.push(m)
+      }
+    }
+    flushTurn()
+    
     set({ uiMessages })
   },
 }))

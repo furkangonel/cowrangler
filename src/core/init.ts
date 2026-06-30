@@ -157,6 +157,12 @@ When reporting what was done to the user (via send_message), state:
 - How to verify it works (test command or expected output)
 Do NOT include diffs or full code blocks in send_message — those belong in the files.
 
+### 15. Execution & Context Optimization (CRITICAL)
+- Do not read the same files repeatedly in a loop. Once you read a file, analyze it, understand the problem, build your plan, and execute.
+- Do not engage in repetitive or arbitrary file reading/listing commands unless strictly necessary.
+- Your goal is to conserve tokens and reduce context window waste. Be extremely concise and purposeful in your tool calls. 
+- Avoid getting stuck in infinite discovery loops. Once you have sufficient context, take decisive action.
+
 ---
 
 ## COMPLETION FORMAT
@@ -208,6 +214,7 @@ export function initEnvironment() {
         max_timeout_ms: 30000,
         network_restricted: false,
         audit_log: false,
+        provider: "auto",
       },
       // İzin modu: default | plan | auto | bypass
       permission_mode: "default",
@@ -379,6 +386,7 @@ export function getConfig() {
     max_timeout_ms: 30000,
     network_restricted: false,
     audit_log: false,
+    provider: "auto",
     ...(config.sandbox ?? {}),
   };
   config.thinking = {

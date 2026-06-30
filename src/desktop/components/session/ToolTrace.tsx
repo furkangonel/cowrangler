@@ -79,8 +79,8 @@ export function ToolTrace({ toolCall }: { toolCall: ActiveToolCall }) {
                     <div className="px-3 py-1.5 border-t border-border-subtle text-[#8c8c8c] text-[11px] bg-[#1f1f1f]">
                       Output
                     </div>
-                    <div className="px-3 py-2 font-mono text-[12px] text-[#8c8c8c] overflow-x-auto whitespace-pre custom-scrollbar">
-                      (no output)
+                    <div className="px-3 py-2 font-mono text-[12px] text-[#cccccc] overflow-x-auto whitespace-pre custom-scrollbar max-h-80 select-text">
+                      {toolCall.result ? String(toolCall.result) : "(no output)"}
                     </div>
                   </>
                 )}
@@ -97,7 +97,14 @@ export function ToolTrace({ toolCall }: { toolCall: ActiveToolCall }) {
         )}
 
         {status === 'error' && (
-          <div className="text-error text-[12px] mt-1">Failed</div>
+          <div className="flex flex-col gap-1 mt-1 pr-4">
+            <div className="text-error text-[12px]">Failed</div>
+            {toolCall.error && (
+              <div className="bg-[#1f1616] border border-red-950/40 rounded-lg px-3 py-2 font-mono text-[12px] text-red-200 overflow-x-auto whitespace-pre custom-scrollbar max-h-40">
+                {String(toolCall.error)}
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

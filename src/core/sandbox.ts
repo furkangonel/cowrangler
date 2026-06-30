@@ -9,17 +9,19 @@
  * - Kaynak limitlerini uygular (timeout, output boyutu)
  * - Her çalıştırmayı audit log'a yazar
  * - Network erişimini kısıtlayabilir (network_restricted=true)
- *
- * Sandbox, bir "hard isolation" değildir (container/VM yok) ama
- * pattern-based + path-based + resource-based korumayla enterprise
- * ortamlarda yeterli güvenlik sağlar.
+ * - Platforma özel gerçek sanal ve izole sandbox ortamları kullanır (macOS Seatbelt, Linux Bubblewrap, Windows AppContainer/Docker)
+ * - Asenkron (non-blocking) çalıştırma ile Electron UI donmalarını engeller.
  */
 
-import { execSync } from "child_process";
+import { exec } from "child_process";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { fileURLToPath } from "url";
 import { analyzeBashRisk, RiskLevel } from "./permissions.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export interface SandboxConfig {
   enabled: boolean;
@@ -30,6 +32,7 @@ export interface SandboxConfig {
   auditLogPath?: string;    // undefined = no audit log
   allowedPaths: string[];   // explicit allowlist (beyond workspaceRoot)
   blockedBinaries: string[]; // always blocked regardless of mode
+  provider?: "auto" | "docker" | "mac_seatbelt" | "linux_bwrap" | "fallback";
 }
 
 export interface SandboxResult {
@@ -61,9 +64,66 @@ const DEFAULT_CONFIG: SandboxConfig = {
   networkRestricted: false,
   allowedPaths: [os.homedir(), "/tmp", "/var/tmp"],
   blockedBinaries: DEFAULT_BLOCKED_BINARIES,
+  provider: "auto",
 };
 
 let _config: SandboxConfig = { ...DEFAULT_CONFIG };
+
+const GLOBAL_BUNDLE_PATH = path.join(os.homedir(), ".cowrangler", "cowrangler-sandbox.bundle");
+
+/**
+ * Sandboxing paketini dinamik dizinlerde bulur ve gerekirse kullanıcının ana dizinine kopyalar.
+ */
+export function ensureBundle(): string {
+  if (fs.existsSync(GLOBAL_BUNDLE_PATH)) {
+    if (process.platform !== "win32") {
+      const globalRunner = path.join(GLOBAL_BUNDLE_PATH, "Contents", "Resources", "scripts", "runner.sh");
+      try {
+        if (fs.existsSync(globalRunner)) {
+          fs.chmodSync(globalRunner, 0o755);
+        }
+      } catch { /* ignore */ }
+    }
+    return GLOBAL_BUNDLE_PATH;
+  }
+
+  const possiblePaths = [
+    path.resolve(__dirname, "cowrangler-sandbox.bundle"),
+    path.resolve(__dirname, "../../src/core/cowrangler-sandbox.bundle"),
+    path.resolve(__dirname, "../core/cowrangler-sandbox.bundle"),
+  ];
+
+  for (const localPath of possiblePaths) {
+    if (fs.existsSync(localPath)) {
+      try {
+        fs.mkdirSync(path.dirname(GLOBAL_BUNDLE_PATH), { recursive: true });
+        fs.cpSync(localPath, GLOBAL_BUNDLE_PATH, { recursive: true });
+        
+        if (process.platform !== "win32") {
+          const globalRunner = path.join(GLOBAL_BUNDLE_PATH, "Contents", "Resources", "scripts", "runner.sh");
+          if (fs.existsSync(globalRunner)) {
+            fs.chmodSync(globalRunner, 0o755);
+          }
+        }
+        return GLOBAL_BUNDLE_PATH;
+      } catch (err) {
+        return localPath;
+      }
+    }
+  }
+
+  // Electron resources path control
+  // @ts-ignore
+  if (process.resourcesPath) {
+    // @ts-ignore
+    const electronPath = path.join(process.resourcesPath, "cowrangler-sandbox.bundle");
+    if (fs.existsSync(electronPath)) {
+      return electronPath;
+    }
+  }
+
+  return GLOBAL_BUNDLE_PATH;
+}
 
 export function configureSandbox(partial: Partial<SandboxConfig>): void {
   _config = { ...DEFAULT_CONFIG, ...partial };
@@ -84,10 +144,8 @@ function isPathAllowed(cwdPath: string): boolean {
   const resolved = path.resolve(cwdPath);
   const workspaceResolved = path.resolve(_config.workspaceRoot);
 
-  // Workspace root içinde mi?
   if (resolved.startsWith(workspaceResolved)) return true;
 
-  // Açıkça izin verilmiş path'lerde mi?
   for (const allowed of _config.allowedPaths) {
     if (resolved.startsWith(path.resolve(allowed))) return true;
   }
@@ -100,7 +158,7 @@ function isPathAllowed(cwdPath: string): boolean {
  */
 function containsBlockedBinary(command: string): string | null {
   for (const bin of _config.blockedBinaries) {
-    const re = new RegExp(`(^|[;|&\\s])${bin}(\\s|$)`);
+    const re = new RegExp(`(^|[;|&\s])${bin}(\s|$)`);
     if (re.test(command)) return bin;
   }
   return null;
@@ -135,21 +193,21 @@ function writeAuditLog(entry: {
       }) + "\n";
     fs.appendFileSync(_config.auditLogPath, line, "utf-8");
   } catch {
-    // Audit log yazılamasa bile işlemi engelleme
+    // ignore
   }
 }
 
 /**
- * runInSandbox — Ana sandbox çalıştırma fonksiyonu.
+ * runInSandbox — Ana sandbox çalıştırma fonksiyonu (Asenkron).
  *
  * Sandbox devre dışıysa doğrudan çalıştırır.
- * Aktifse: statik analiz → path kontrolü → kaynak limiti → audit log.
+ * Aktifse: statik analiz → path kontrolü → bundle sandbox çalıştırma.
  */
 export function runInSandbox(
   command: string,
   cwd: string,
   timeoutMs?: number,
-): SandboxResult {
+): Promise<SandboxResult> {
   const start = Date.now();
   const auditId = `sbox-${Date.now()}-${++_auditCounter}`;
 
@@ -158,126 +216,113 @@ export function runInSandbox(
     _config.maxTimeoutMs,
   );
 
-  // ── 1. Risk analizi ────────────────────────────────────────────────────────
   const riskLevel = analyzeBashRisk(command);
 
-  // ── 2. Sandbox kapalıysa direkt çalıştır ──────────────────────────────────
+  // ── 1. Sandbox kapalıysa direkt asenkron çalıştır ──────────────────────────
   if (!_config.enabled) {
-    try {
-      const output = execSync(command, {
+    return new Promise<SandboxResult>((resolve) => {
+      exec(command, {
         cwd,
-        encoding: "utf-8",
         timeout: effectiveTimeout,
-        stdio: ["ignore", "pipe", "pipe"],
         maxBuffer: _config.maxOutputBytes,
+        encoding: "utf-8",
+      }, (error: any, stdout, stderr) => {
+        const durationMs = Date.now() - start;
+        const out = [stdout?.toString().trim(), stderr?.toString().trim()]
+          .filter(Boolean)
+          .join("\n");
+        resolve({
+          output: out || (error ? error.message : "Command succeeded with no output."),
+          exitCode: error ? (error.status ?? error.code ?? 1) : 0,
+          sandboxed: false,
+          riskLevel,
+          blocked: false,
+          durationMs,
+        });
       });
-      const durationMs = Date.now() - start;
-      return {
-        output: output.trim(),
-        exitCode: 0,
-        sandboxed: false,
-        riskLevel,
-        blocked: false,
-        durationMs,
-      };
-    } catch (e: any) {
-      const durationMs = Date.now() - start;
-      const out = [e.stdout?.toString().trim(), e.stderr?.toString().trim()]
-        .filter(Boolean)
-        .join("\n");
-      return {
-        output: out || e.message,
-        exitCode: e.status ?? 1,
-        sandboxed: false,
-        riskLevel,
-        blocked: false,
-        durationMs,
-      };
-    }
+    });
   }
 
-  // ── 3. Critical pattern blocker ────────────────────────────────────────────
+  // ── 2. Critical pattern blocker ────────────────────────────────────────────
   if (riskLevel === "critical") {
     const durationMs = Date.now() - start;
     const blockReason = `SANDBOX BLOCKED: Critical destructive pattern detected in command. This operation is permanently blocked.`;
     writeAuditLog({ id: auditId, command, cwd, riskLevel, blocked: true, blockReason, durationMs, outputBytes: 0 });
-    return { output: blockReason, exitCode: 1, sandboxed: true, riskLevel, blocked: true, blockReason, durationMs, auditId };
+    return Promise.resolve({ output: blockReason, exitCode: 1, sandboxed: true, riskLevel, blocked: true, blockReason, durationMs, auditId });
   }
 
-  // ── 4. Blocked binary check ────────────────────────────────────────────────
+  // ── 3. Blocked binary check ────────────────────────────────────────────────
   const blockedBin = containsBlockedBinary(command);
   if (blockedBin) {
     const durationMs = Date.now() - start;
     const blockReason = `SANDBOX BLOCKED: Binary '${blockedBin}' is not allowed in sandbox mode.`;
     writeAuditLog({ id: auditId, command, cwd, riskLevel, blocked: true, blockReason, durationMs, outputBytes: 0 });
-    return { output: blockReason, exitCode: 1, sandboxed: true, riskLevel, blocked: true, blockReason, durationMs, auditId };
+    return Promise.resolve({ output: blockReason, exitCode: 1, sandboxed: true, riskLevel, blocked: true, blockReason, durationMs, auditId });
   }
 
-  // ── 5. Network restriction ─────────────────────────────────────────────────
+  // ── 4. Network restriction ─────────────────────────────────────────────────
   if (_config.networkRestricted && containsNetworkCommand(command)) {
     const durationMs = Date.now() - start;
     const blockReason = `SANDBOX BLOCKED: Network commands are restricted in this sandbox configuration.`;
     writeAuditLog({ id: auditId, command, cwd, riskLevel, blocked: true, blockReason, durationMs, outputBytes: 0 });
-    return { output: blockReason, exitCode: 1, sandboxed: true, riskLevel, blocked: true, blockReason, durationMs, auditId };
+    return Promise.resolve({ output: blockReason, exitCode: 1, sandboxed: true, riskLevel, blocked: true, blockReason, durationMs, auditId });
   }
 
-  // ── 6. Path check ──────────────────────────────────────────────────────────
+  // ── 5. Path check ──────────────────────────────────────────────────────────
   if (!isPathAllowed(cwd)) {
     const durationMs = Date.now() - start;
     const blockReason = `SANDBOX BLOCKED: Working directory '${cwd}' is outside the allowed sandbox paths.`;
     writeAuditLog({ id: auditId, command, cwd, riskLevel, blocked: true, blockReason, durationMs, outputBytes: 0 });
-    return { output: blockReason, exitCode: 1, sandboxed: true, riskLevel, blocked: true, blockReason, durationMs, auditId };
+    return Promise.resolve({ output: blockReason, exitCode: 1, sandboxed: true, riskLevel, blocked: true, blockReason, durationMs, auditId });
   }
 
-  // ── 7. Execute with resource limits ───────────────────────────────────────
-  try {
-    const output = execSync(command, {
+  // ── 6. Execute via Bundle Runner (Asenkron & Non-blocking) ─────────────────
+  const bundlePath = ensureBundle();
+  const provider = _config.provider ?? "auto";
+  const networkRestrictedStr = _config.networkRestricted ? "true" : "false";
+
+  let runCmd = "";
+  if (process.platform === "win32") {
+    const runnerPath = path.join(bundlePath, "Contents", "Resources", "scripts", "runner.ps1");
+    const providerArg = provider === "docker" ? "docker" : "fallback";
+    runCmd = `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${runnerPath}" -Provider "${providerArg}" -Cwd "${cwd}" -NetworkRestricted "${networkRestrictedStr}" -Command ${JSON.stringify(command)}`;
+  } else {
+    const runnerPath = path.join(bundlePath, "Contents", "Resources", "scripts", "runner.sh");
+    const providerArg = provider === "docker" ? "docker" : (process.platform === "darwin" ? "mac_seatbelt" : "linux_bwrap");
+    runCmd = `bash "${runnerPath}" "${providerArg}" "${cwd}" "${networkRestrictedStr}" ${JSON.stringify(command)}`;
+  }
+
+  return new Promise<SandboxResult>((resolve) => {
+    exec(runCmd, {
       cwd,
-      encoding: "utf-8",
       timeout: effectiveTimeout,
-      stdio: ["ignore", "pipe", "pipe"],
       maxBuffer: _config.maxOutputBytes,
+      encoding: "utf-8",
+    }, (error: any, stdout, stderr) => {
+      const durationMs = Date.now() - start;
+      const cleanStdout = stdout?.toString().trim() || "";
+      const cleanStderr = stderr?.toString().trim() || "";
+      const out = [cleanStdout, cleanStderr].filter(Boolean).join("\n") || (error ? error.message : "");
+
+      if (error && error.code === "ETIMEDOUT") {
+        const blockReason = `SANDBOX TIMEOUT: Command exceeded ${effectiveTimeout}ms limit.`;
+        writeAuditLog({ id: auditId, command, cwd, riskLevel, blocked: true, blockReason, durationMs, outputBytes: 0 });
+        resolve({ output: blockReason, exitCode: 124, sandboxed: true, riskLevel, blocked: true, blockReason, durationMs, auditId });
+        return;
+      }
+
+      const exitCode = error ? (error.status ?? error.code ?? 1) : 0;
+      writeAuditLog({ id: auditId, command, cwd, riskLevel, blocked: false, durationMs, outputBytes: out.length });
+
+      resolve({
+        output: out || "Command succeeded with no output.",
+        exitCode: typeof exitCode === "number" ? exitCode : 1,
+        sandboxed: true,
+        riskLevel,
+        blocked: false,
+        durationMs,
+        auditId,
+      });
     });
-
-    const trimmed = output.trim();
-    const durationMs = Date.now() - start;
-
-    writeAuditLog({
-      id: auditId, command, cwd, riskLevel, blocked: false,
-      durationMs, outputBytes: trimmed.length,
-    });
-
-    return {
-      output: trimmed || "Command succeeded with no output.",
-      exitCode: 0,
-      sandboxed: true,
-      riskLevel,
-      blocked: false,
-      durationMs,
-      auditId,
-    };
-  } catch (e: any) {
-    const durationMs = Date.now() - start;
-    const stdout = e.stdout?.toString().trim() || "";
-    const stderr = e.stderr?.toString().trim() || "";
-    const out = [stdout, stderr].filter(Boolean).join("\n") || e.message;
-
-    if (e.code === "ETIMEDOUT") {
-      const blockReason = `SANDBOX TIMEOUT: Command exceeded ${effectiveTimeout}ms limit.`;
-      writeAuditLog({ id: auditId, command, cwd, riskLevel, blocked: true, blockReason, durationMs, outputBytes: 0 });
-      return { output: blockReason, exitCode: 124, sandboxed: true, riskLevel, blocked: true, blockReason, durationMs, auditId };
-    }
-
-    writeAuditLog({ id: auditId, command, cwd, riskLevel, blocked: false, durationMs, outputBytes: out.length });
-
-    return {
-      output: `COMMAND FAILED:\n${out}`,
-      exitCode: e.status ?? 1,
-      sandboxed: true,
-      riskLevel,
-      blocked: false,
-      durationMs,
-      auditId,
-    };
-  }
+  });
 }

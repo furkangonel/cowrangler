@@ -11,7 +11,7 @@ import { getConfig } from "../core/init.js";
 
 marked.use(markedTerminal() as unknown as any);
 
-const VERSION = "2.0.2";
+const VERSION = "2.0.8";
 
 // ── Color Palettes ────────────────────────────────────────────────────────────
 const palettes = {
@@ -275,12 +275,12 @@ export const UI = {
     rightRaw.push(Theme.dim("─".repeat(RIGHT_W - 2)));
 
     const news = [
-      "+ /init  scan & index project",
-      "+ /skills  list loaded SOPs  ",
-      "+ /tools  list capabilities  ",
-      "+ /memory  project memory    ",
-      "+ @file  path completions    ",
-      "+ ?  live shortcut reference ",
+      "+ ask_user Q&A prompt wizard",
+      "+ New curated MCP Catalog    ",
+      "+ Dynamic model picker/list  ",
+      "+ Auto-permissions checking  ",
+      "+ Native async sandbox engine",
+      "+ Reasoning token streaming  ",
     ];
     for (const n of news) {
       const maxN = RIGHT_W - 2;

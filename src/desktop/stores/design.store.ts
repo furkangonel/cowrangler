@@ -416,9 +416,12 @@ export const useDesignStore = create<DesignState>((set, get) => ({
       get().scanAndMergeScreens(activeProject.id)
     })
 
-    // Agent paused on an ask_user decision — show it inline; the turn stays alive
-    // so answering resumes with full context.
     const removeQa = ipc.agent.onQaPrompt((payload: any) => {
+      if (payload?.meta?.sessionId) {
+        if (payload.meta.sessionId !== sessionId) {
+          return;
+        }
+      }
       set({ qaPrompt: payload })
     })
 
