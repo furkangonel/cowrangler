@@ -1,0 +1,31 @@
+;; Cowrangler macOS Seatbelt Sandbox Profile template
+(version 1)
+(deny default)
+
+;; Allow process fork and execution
+(allow process-fork)
+(allow process-exec)
+(allow sysctl-read)
+
+;; Allow read access to standard system paths and libraries
+(allow file-read* (literal "/"))
+(allow file-read* (subpath "/usr/lib"))
+(allow file-read* (subpath "/usr/share"))
+(allow file-read* (subpath "/System/Library"))
+(allow file-read* (subpath "/private/var"))
+(allow file-read* (subpath "/usr/bin"))
+(allow file-read* (subpath "/bin"))
+(allow file-read* (subpath "/sbin"))
+(allow file-read* (subpath "/etc"))
+(allow file-read* (subpath "/var"))
+(allow file-read* (subpath "/opt"))
+
+;; Temporary directory access for standard operations
+(allow file-read* (subpath "/tmp"))
+(allow file-write* (subpath "/tmp"))
+(allow file-read* (subpath "/private/tmp"))
+(allow file-write* (subpath "/private/tmp"))
+
+;; User-specific dependencies (e.g. node_modules, global caches)
+(allow file-read* (subpath "/private/var/folders"))
+(allow file-write* (subpath "/private/var/folders"))

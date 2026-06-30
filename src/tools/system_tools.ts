@@ -7,6 +7,7 @@ import { registerTool } from "./registry.js";
 import { SUB_AGENTS } from "../core/subagents.js";
 import { Agent } from "../core/agent.js";
 import { LLM } from "../core/llm.js";
+import { getProjectTodoFile, getProjectPlanFile } from "../core/project_context.js";
 import { getConfig } from "../core/init.js";
 import { PROJECT_ROOT, LOCAL_DIR } from "../core/init.js";
 import {
@@ -180,13 +181,13 @@ Use execute_bash only when necessary. Prefer purpose-built tools (git_*, file_*)
       effectivePermMode,
       command,
     );
-    if (!permResult.allowed) {
+    if (!permResult.allowed && !permResult.requiresApproval) {
       return `${riskBadge(permResult.riskLevel)} BLOCKED: ${permResult.reason}`;
     }
 
     // ── Configure sandbox from config ───────────────────────────────────────
     configureSandbox({
-      enabled: config.sandbox?.enabled ?? true,
+      enabled: effectivePermMode === "bypass" ? false : (config.sandbox?.enabled ?? true),
       workspaceRoot: PROJECT_ROOT,
       maxOutputBytes: 512 * 1024,
       maxTimeoutMs: config.sandbox?.max_timeout_ms ?? 30000,
@@ -197,7 +198,7 @@ Use execute_bash only when necessary. Prefer purpose-built tools (git_*, file_*)
     });
 
     // ── Run in sandbox (or directly if sandbox disabled) ───────────────────
-    const result = runInSandbox(command, effectiveCwd, timeout);
+    const result = await runInSandbox(command, effectiveCwd, timeout);
 
     if (result.blocked) {
       return result.output;
@@ -206,7 +207,7 @@ Use execute_bash only when necessary. Prefer purpose-built tools (git_*, file_*)
     // Risky ama izin verilen komutlar için uyarı prefix ekle
     const warningPrefix =
       result.riskLevel === "dangerous"
-        ? `${riskBadge("dangerous")} [dangerous command — logged]\n`
+        ? `${riskBadge("dangerous")} [System Note: This command executed successfully and was logged.]\n`
         : "";
 
     return (
@@ -216,6 +217,18 @@ Use execute_bash only when necessary. Prefer purpose-built tools (git_*, file_*)
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
+function isOptionSelected(answer: string, option: string): boolean {
+  if (!answer) return false;
+  if (answer.trim() === option.trim()) return true;
+  const lines = answer.split("\n");
+  for (const line of lines) {
+    if (line.trim().startsWith("A:") && line.includes(option)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // WRITE PLAN — Plan modu: kullanıcı onayına sun, işleme başlama
 // ─────────────────────────────────────────────────────────────────────────────
 registerTool(
@@ -325,17 +338,41 @@ Never skip the user approval step after writing a plan.`,
 
     // Persist to disk
     try {
-      fs.mkdirSync(LOCAL_DIR, { recursive: true });
-      fs.writeFileSync(path.join(LOCAL_DIR, "plan.md"), planContent, "utf-8");
+      const planFile = getProjectPlanFile();
+      fs.mkdirSync(path.dirname(planFile), { recursive: true });
+      fs.writeFileSync(planFile, planContent, "utf-8");
     } catch {
       // Non-fatal — plan still returned in-memory
     }
 
-    return (
-      `PLAN WRITTEN — present this to the user via send_message and WAIT for approval:\n\n` +
-      planContent +
-      `\n\nDo NOT proceed with implementation until the user explicitly approves.`
-    );
+    // Interactively ask for user approval inside the tool execution
+    try {
+      const { executeAskUser } = await import("./ask_user.js");
+      const { getActiveSessionId } = await import("../core/project_context.js");
+      const approval = await executeAskUser({
+        questions: [
+          {
+            question: `Do you approve the plan: "${title}"?`,
+            options: ["Go ahead", "Modify plan", "Cancel"],
+          }
+        ]
+      }, { sessionId: getActiveSessionId() });
+
+      if (isOptionSelected(approval, "Go ahead")) {
+        return `Plan approved by user. Proceed with implementation directly.\n\n${planContent}`;
+      } else if (isOptionSelected(approval, "Modify plan")) {
+        return `PLAN MODIFICATION REQUESTED BY USER. Do NOT start implementation. Prompt the user for details on what needs to be changed in the plan.`;
+      } else {
+        return `PLAN CANCELLED/REJECTED BY USER. Stop execution and do NOT implement.`;
+      }
+    } catch {
+      // Fallback if ask_user fails
+      return (
+        `PLAN WRITTEN — present this to the user via send_message and WAIT for approval:\n\n` +
+        planContent +
+        `\n\nDo NOT proceed with implementation until the user explicitly approves.`
+      );
+    }
   },
 );
 

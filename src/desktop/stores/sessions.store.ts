@@ -22,6 +22,7 @@ interface SessionsState {
   setActiveSession: (id: string | null) => void
   deleteSession: (projectId: string, sessionId: string) => Promise<void>
   renameSession: (sessionId: string, title: string) => Promise<void>
+  pinSession: (projectId: string, sessionId: string, pinned: boolean) => Promise<void>
 
   // Optimistic / streaming UI
   addUserMessage: (content: string) => string  // returns temp id
@@ -44,6 +45,10 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     set({ loadingSessions: true })
     try {
       const sessions = await ipc.sessions.list(projectId)
+      sessions.sort((a, b) => {
+        if (a.pinned !== b.pinned) return (b.pinned || 0) - (a.pinned || 0)
+        return b.started_at - a.started_at
+      })
       set(s => ({
         sessionsByProject: { ...s.sessionsByProject, [projectId]: sessions },
         loadingSessions: false,
@@ -59,6 +64,10 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
       const msgs = await ipc.sessions.messages(sessionId)
       set({ messages: msgs, loadingMessages: false })
       get().appendFromDB(msgs)
+      
+      // Geçmiş oturum yüklendiğinde, agent.store içindeki timelineları (tool call vb.) tekrar inşa et.
+      const { useAgentStore } = await import('./agent.store')
+      useAgentStore.getState().rebuildTimelinesFromHistory(msgs)
     } catch {
       set({ loadingMessages: false })
     }
@@ -96,6 +105,21 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     })
   },
 
+  pinSession: async (projectId, sessionId, pinned) => {
+    await ipc.sessions.pin(sessionId, pinned)
+    set(s => {
+      const next = { ...s.sessionsByProject }
+      if (next[projectId]) {
+        next[projectId] = next[projectId].map(x => x.id === sessionId ? { ...x, pinned: pinned ? 1 : 0 } : x)
+        next[projectId].sort((a, b) => {
+          if (a.pinned !== b.pinned) return (b.pinned || 0) - (a.pinned || 0)
+          return b.started_at - a.started_at
+        })
+      }
+      return { sessionsByProject: next }
+    })
+  },
+
   addUserMessage: (content) => {
     const id = `ui-user-${Date.now()}`
     const msg: UIMessage = { id, role: 'user', content, timestamp: Date.now() }
@@ -127,15 +151,56 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
   clearUIMessages: () => set({ uiMessages: [], messages: [] }),
 
   appendFromDB: (msgs) => {
-    // Skip 'tool' role messages — they're shown as ToolTrace items
-    const uiMessages: UIMessage[] = msgs
-      .filter(m => m.role === 'user' || m.role === 'assistant')
-      .map(m => ({
-        id: m.id,
-        role: m.role as 'user' | 'assistant',
-        content: m.content,
-        timestamp: m.timestamp,
-      }))
+    const uiMessages: UIMessage[] = []
+    
+    // Group messages by turn. A turn starts with a user message.
+    let currentTurnUser: MessageRecord | null = null
+    let currentTurnAsst: MessageRecord | null = null
+    let currentTurnToolCalls: MessageRecord[] = []
+    
+    const flushTurn = () => {
+      if (currentTurnUser) {
+        uiMessages.push({
+          id: currentTurnUser.id,
+          role: 'user',
+          content: currentTurnUser.content,
+          timestamp: currentTurnUser.timestamp,
+        })
+      }
+      if (currentTurnAsst) {
+        uiMessages.push({
+          id: currentTurnAsst.id,
+          role: 'assistant',
+          content: currentTurnAsst.content,
+          timestamp: currentTurnAsst.timestamp,
+        })
+      } else if (currentTurnToolCalls.length > 0) {
+        // Pure tool turn with no text assistant message — create synthetic assistant message
+        const firstCall = currentTurnToolCalls[0]
+        uiMessages.push({
+          id: `asst-turn-${firstCall.id}`,
+          role: 'assistant',
+          content: '',
+          timestamp: firstCall.timestamp,
+        })
+      }
+      currentTurnUser = null
+      currentTurnAsst = null
+      currentTurnToolCalls = []
+    }
+    
+    for (const m of msgs) {
+      if (m.role === 'user') {
+        flushTurn()
+        currentTurnUser = m
+      } else if (m.role === 'assistant') {
+        currentTurnAsst = m
+      } else if (m.role === 'tool_call') {
+        currentTurnToolCalls.push(m)
+      }
+    }
+    flushTurn()
+    
     set({ uiMessages })
   },
 }))

@@ -7,6 +7,7 @@ import { getProjectDB } from '../project_db.js'
 import { getSessionDB } from '../../core/session_db.js'
 import { getConfig, DEFAULT_SYSTEM_PROMPT } from '../../core/init.js'
 import { Agent } from '../../core/agent.js'
+import { setAskUserListener, resolveAskUser } from '../../tools/ask_user.js'
 
 /** Projesiz (genel) sohbet için sabit projectId. Renderer'daki GLOBAL_PROJECT_ID ile aynı. */
 const GLOBAL_PROJECT_ID = '__global__'
@@ -111,6 +112,8 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       args?: any
       phase: 'start' | 'done' | 'error'
       durationMs?: number
+      result?: any
+      error?: string
     }) => {
       sender.send('agent:toolCall', {
         id: e.id,
@@ -118,6 +121,8 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
         args: e.args ?? {},
         status: e.phase,
         durationMs: e.durationMs,
+        result: e.result,
+        error: e.error,
         timestamp: Date.now(),
       })
     }
@@ -126,8 +131,12 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       sender.send('agent:stepText', text)
     }
 
+    const onReasoningText = (text: string) => {
+      sender.send('agent:reasoningText', text)
+    }
+
     try {
-      const result = await agent.chat(message, undefined, onStepText, undefined, onToolEvent)
+      const result = await agent.chat(message, undefined, onStepText, undefined, onToolEvent, onReasoningText)
 
       // Session'ı projeye bağla + başlığı ilk promptun ilk 20 karakterinden ata
       const currentSessionId = agent.currentSessionId
@@ -194,12 +203,23 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
     return AgentManager.readTodo(workdir, sessionId)
   })
 
-  // ── agent:setActiveSession ──────────────────────────────────────────────────
-  // Kullanıcı mevcut bir oturumu açtığında frontend'den bildirim alır.
-  // Bu sayede watchTodo poller ve readTodo, agent.chat() öncesinde de doğru
-  // session dizinini kullanabilir.
   ipcMain.handle('agent:setActiveSession', async (_, sessionId: string | null) => {
     const { setActiveSessionId } = await import('../../core/project_context.js')
     setActiveSessionId(sessionId)
+  })
+
+  // ── agent:answerQuestion ───────────────────────────────────────────────────
+  ipcMain.handle('agent:answerQuestion', async (_, answer: string) => {
+    resolveAskUser(answer)
+    return { ok: true }
+  })
+
+  // ── QA Tool Listener Setup ─────────────────────────────────────────────────
+  // Broadcast to every window: Design Mode runs in its own BrowserWindow, so a
+  // prompt sent only to the main window would never reach an active design chat.
+  setAskUserListener((payload: any) => {
+    for (const w of BrowserWindow.getAllWindows()) {
+      try { w.webContents.send('agent:qaPrompt', payload) } catch { /* window gone */ }
+    }
   })
 }

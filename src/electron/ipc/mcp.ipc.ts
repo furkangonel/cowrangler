@@ -4,7 +4,6 @@ import os from 'os'
 import fs from 'fs'
 import yaml from 'js-yaml'
 import { getCatalogSorted, getCatalogEntry, buildMcpServerConfig } from '../../core/connectors_catalog.js'
-import { getBundledPlugins, getDefaultEnabledPluginIds } from '../../core/plugins_catalog.js'
 import { getMCPManager, reloadMcp } from '../../core/mcp_client.js'
 import { setSecrets, deleteSecrets, isEncrypted } from '../../core/credential_vault.js'
 import { authorizeConnector, hasOAuthTokens } from '../../core/oauth_provider.js'
@@ -206,26 +205,5 @@ export function registerMCPIPC(ipcMain: IpcMain): void {
     // Canlı uygula — yeniden başlatma gerekmez.
     const summary = await reloadMcp().catch((e: any) => `reload failed: ${e?.message ?? e}`)
     return { ok: true, name: entry.id, requiresAuth: entry.auth !== 'none', summary }
-  })
-
-  // ── PLUGINS (cowrangler imzalı bundled katalog) ────────────────────────────
-
-  ipcMain.handle('plugins:list', async () => {
-    const config = readConfig()
-    const enabled: string[] = Array.isArray(config.enabled_plugins)
-      ? config.enabled_plugins
-      : getDefaultEnabledPluginIds()
-    return getBundledPlugins().map(p => ({ ...p, enabled: enabled.includes(p.id) }))
-  })
-
-  ipcMain.handle('plugins:setEnabled', async (_, id: string, on: boolean) => {
-    const config = readConfig()
-    const current: string[] = Array.isArray(config.enabled_plugins)
-      ? config.enabled_plugins
-      : getDefaultEnabledPluginIds()
-    const next = on ? [...new Set([...current, id])] : current.filter(p => p !== id)
-    config.enabled_plugins = next
-    writeConfig(config)
-    return { ok: true, enabled: next }
   })
 }

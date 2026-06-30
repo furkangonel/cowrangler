@@ -1,5 +1,5 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react'
-import { ArrowUp, Square, Paperclip, BookOpen, CornerDownLeft, X } from 'lucide-react'
+import { ArrowUp, Square, Paperclip, BookOpen, CornerDownLeft, X, Plus, Box, Plug, ChevronRight } from 'lucide-react'
 import { ipc, SkillDef } from '../../lib/ipc'
 
 interface Props {
@@ -17,11 +17,41 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId }: Props) {
   const [activeIdx, setActiveIdx] = useState(0)
   // Onaylanan skill'ler — textarea'dan ayrı chip olarak gösterilir
   const [confirmedSkills, setConfirmedSkills] = useState<SkillDef[]>([])
+  const [confirmedConnectors, setConfirmedConnectors] = useState<any[]>([])
+  const [confirmedPlugins, setConfirmedPlugins] = useState<any[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const [plusMenuOpen, setPlusMenuOpen] = useState(false)
+  const [hoverMenu, setHoverMenu] = useState<string | null>(null)
+  const [mcpServers, setMcpServers] = useState<any[]>([])
+  const plusMenuRef = useRef<HTMLDivElement>(null)
+
+  // Clicking outside to close plus menu
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (plusMenuRef.current && !plusMenuRef.current.contains(e.target as Node)) {
+        setPlusMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  useEffect(() => {
+    if (slashOpen) {
+      ipc.skills.list().then(s => setSkills(Array.isArray(s) ? s : [])).catch(() => {})
+    }
+  }, [slashOpen])
 
   useEffect(() => {
     ipc.skills.list().then(s => setSkills(Array.isArray(s) ? s : [])).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    if (plusMenuOpen) {
+      ipc.mcp.list().then(s => setMcpServers(Array.isArray(s) ? s : [])).catch(() => {})
+    }
+  }, [plusMenuOpen])
 
   const filtered = skills
     .filter(s => {
@@ -78,19 +108,42 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId }: Props) {
     setConfirmedSkills(prev => prev.filter(s => s.id !== skillId))
   }
 
-  const hasContent = value.trim().length > 0 || confirmedSkills.length > 0
+  function toggleConnector(connector: any) {
+    setConfirmedConnectors(prev => 
+      prev.some(c => c.name === connector.name) ? prev.filter(c => c.name !== connector.name) : [...prev, connector]
+    )
+  }
+
+  const MOCK_PLUGINS = [
+    { id: 'accessibility-review', name: 'accessibility-review' },
+    { id: 'design-critique', name: 'design-critique' },
+    { id: 'design-handoff', name: 'design-handoff' },
+  ]
+
+  function togglePlugin(plugin: any) {
+    setConfirmedPlugins(prev => 
+      prev.some(p => p.id === plugin.id) ? prev.filter(p => p.id !== plugin.id) : [...prev, plugin]
+    )
+  }
+
+  const hasContent = value.trim().length > 0 || confirmedSkills.length > 0 || confirmedConnectors.length > 0 || confirmedPlugins.length > 0
 
   const handleSend = useCallback(() => {
     if (!hasContent || disabled) return
     // Skill'leri mesajın başına ekle
     const skillPart = confirmedSkills.map(s => `/${s.id}`).join(' ')
+    const connPart = confirmedConnectors.map(c => `/${c.name}`).join(' ')
+    const plugPart = confirmedPlugins.map(p => `/${p.id}`).join(' ')
+    const parts = [skillPart, connPart, plugPart].filter(Boolean).join(' ')
     const textPart = value.trim()
-    const msg = [skillPart, textPart].filter(Boolean).join(skillPart && textPart ? '\n\n' : '')
+    const msg = [parts, textPart].filter(Boolean).join(parts && textPart ? '\n\n' : '')
     onSend(msg)
     setValue('')
     setConfirmedSkills([])
+    setConfirmedConnectors([])
+    setConfirmedPlugins([])
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
-  }, [value, confirmedSkills, disabled, onSend, hasContent])
+  }, [value, confirmedSkills, confirmedConnectors, confirmedPlugins, disabled, onSend, hasContent])
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (slashOpen && filtered.length > 0) {
@@ -108,12 +161,15 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId }: Props) {
   return (
     <div className="flex-shrink-0 px-4 pb-4 pt-2 bg-bg-primary">
       <div className="max-w-3xl mx-auto relative">
-        {/* Slash skill menüsü */}
+
+        {/* ── Slash skill dropdown ── */}
         {slashOpen && filtered.length > 0 && (
-          <div className="absolute bottom-full mb-2 left-0 right-0 bg-bg-secondary border border-border rounded-xl shadow-pop overflow-hidden animate-slide-up z-30">
+          <div className="absolute bottom-full mb-2 left-0 right-0 bg-bg-elevated border border-border rounded-xl overflow-hidden animate-slide-up z-30"
+            style={{ boxShadow: '0 8px 28px color-mix(in srgb, var(--shadow-rgb) 14%, transparent), 0 2px 6px color-mix(in srgb, var(--shadow-rgb) 6%, transparent)' }}
+          >
             <div className="px-3 py-2 border-b border-border-subtle flex items-center gap-1.5">
               <BookOpen size={11} className="text-accent" />
-              <span className="text-2xs text-text-muted font-medium uppercase tracking-wider">Invoke skill</span>
+              <span className="text-2xs text-text-muted font-semibold uppercase tracking-widest">Invoke skill</span>
             </div>
             <div className="max-h-64 overflow-y-auto py-1">
               {filtered.map((s, i) => (
@@ -121,14 +177,14 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId }: Props) {
                   key={s.id}
                   onMouseEnter={() => setActiveIdx(i)}
                   onClick={() => pickSkill(s)}
-                  className={`w-full flex items-start gap-2.5 px-3 py-2 text-left transition-colors ${
-                    i === activeIdx ? 'bg-bg-hover' : ''
+                  className={`w-full flex items-start gap-2.5 px-3 py-2.5 text-left transition-colors ${
+                    i === activeIdx ? 'bg-bg-hover' : 'hover:bg-bg-hover/60'
                   }`}
                 >
                   <BookOpen size={13} className={`mt-0.5 flex-shrink-0 ${i === activeIdx ? 'text-accent' : 'text-text-muted'}`} />
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-medium text-text-primary truncate">/{s.id}</p>
-                    <p className="text-2xs text-text-muted truncate">{s.description}</p>
+                    <p className="text-2xs text-text-muted truncate mt-0.5">{s.description}</p>
                   </div>
                   {i === activeIdx && <CornerDownLeft size={11} className="text-text-muted mt-1 flex-shrink-0" />}
                 </button>
@@ -137,10 +193,29 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId }: Props) {
           </div>
         )}
 
-        {/* Composer */}
-        <div className="flex flex-col bg-bg-secondary border border-border rounded-2xl shadow-card focus-within:border-accent/50 transition-colors">
-          {/* Skill chip'leri — onaylanan skill'ler */}
-          {confirmedSkills.length > 0 && (
+        {/* ── Plus menu ── */}
+        {plusMenuOpen && (
+          <div
+            ref={plusMenuRef}
+            className="absolute bottom-full mb-3 left-0 w-60 bg-bg-elevated border border-border rounded-xl overflow-hidden animate-slide-up z-30"
+            style={{ boxShadow: '0 8px 28px color-mix(in srgb, var(--shadow-rgb) 14%, transparent), 0 2px 6px color-mix(in srgb, var(--shadow-rgb) 6%, transparent)' }}
+          >
+            <div className="py-1">
+              <button
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-bg-hover transition-colors"
+                onClick={async () => { await ipc.fs.pickFile(); setPlusMenuOpen(false) }}
+              >
+                <Paperclip size={14} className="text-text-muted" />
+                <span className="text-sm text-text-primary">Upload Project Files</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Composer ── */}
+        <div className="flex flex-col bg-bg-elevated border border-border rounded-2xl composer-shadow focus-within:border-accent/45 focus-within:composer-shadow-focus transition-all">
+          {/* Skill, Connector, Plugin chip'leri */}
+          {(confirmedSkills.length > 0 || confirmedConnectors.length > 0 || confirmedPlugins.length > 0) && (
             <div className="flex flex-wrap gap-1.5 px-3 pt-2.5 pb-1">
               {confirmedSkills.map(skill => (
                 <div
@@ -158,17 +233,53 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId }: Props) {
                   </button>
                 </div>
               ))}
+              {confirmedConnectors.map(c => (
+                <div
+                  key={`conn-${c.name}`}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-accent/12 border border-accent/25 text-accent text-xs font-medium"
+                >
+                  <Plug size={10} className="flex-shrink-0" />
+                  <span>/{c.name}</span>
+                  <button
+                    onClick={() => toggleConnector(c)}
+                    className="ml-0.5 hover:text-accent-hover transition-colors"
+                    title="Remove"
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              ))}
+              {confirmedPlugins.map(p => (
+                <div
+                  key={`plug-${p.id}`}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-accent/12 border border-accent/25 text-accent text-xs font-medium"
+                >
+                  <Box size={10} className="flex-shrink-0" />
+                  <span>/{p.id}</span>
+                  <button
+                    onClick={() => togglePlugin(p)}
+                    className="ml-0.5 hover:text-accent-hover transition-colors"
+                    title="Remove"
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              ))}
             </div>
           )}
 
           {/* Textarea satırı */}
           <div className="flex items-end gap-2 px-2.5 py-2">
             <button
-              className="p-2 text-text-muted hover:text-text-secondary hover:bg-bg-hover rounded-lg transition-colors flex-shrink-0"
-              title="Dosya ekle"
-              onClick={async () => { await ipc.fs.pickFile() }}
+              onClick={() => setPlusMenuOpen(!plusMenuOpen)}
+              title="Add context"
+              className={`p-2 rounded-lg transition-colors flex-shrink-0 ${
+                plusMenuOpen
+                  ? 'bg-accent/12 text-accent'
+                  : 'text-text-muted hover:text-text-secondary hover:bg-bg-hover'
+              }`}
             >
-              <Paperclip size={16} />
+              <Plus size={16} />
             </button>
 
             <textarea
@@ -186,28 +297,36 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId }: Props) {
             {disabled ? (
               <button
                 onClick={onInterrupt}
-                className="flex items-center justify-center w-9 h-9 rounded-xl bg-error/15 text-error hover:bg-error/25 transition-colors flex-shrink-0"
-                title="Durdur (Esc)"
+                title="Stop (Esc)"
+                className="flex items-center justify-center w-9 h-9 rounded-xl bg-error/12 text-error
+                           hover:bg-error/22 transition-colors flex-shrink-0"
               >
-                <Square size={15} className="fill-current" />
+                <Square size={14} className="fill-current" />
               </button>
             ) : (
               <button
                 onClick={handleSend}
                 disabled={!hasContent}
-                className="flex items-center justify-center w-9 h-9 rounded-xl bg-accent text-accent-fg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-accent-hover transition-colors flex-shrink-0"
                 title="Send (Enter)"
+                className="flex items-center justify-center w-9 h-9 rounded-xl text-accent-fg
+                           disabled:opacity-25 disabled:cursor-not-allowed transition-all active:scale-95 flex-shrink-0"
+                style={hasContent ? {
+                  background: 'linear-gradient(160deg, rgb(var(--accent)) 0%, rgb(var(--accent-press)) 100%)',
+                  boxShadow: '0 2px 8px color-mix(in srgb, rgb(var(--accent)) 30%, transparent)',
+                } : {
+                  background: 'rgb(var(--bg-hover))',
+                }}
               >
-                <ArrowUp size={17} />
+                <ArrowUp size={16} />
               </button>
             )}
           </div>
         </div>
 
-        <p className="text-2xs text-text-muted text-center mt-2">
+        <p className="text-2xs text-text-muted/70 text-center mt-2 select-none">
           {disabled
             ? 'Agent is working — press ■ to stop'
-            : 'Enter to send · Shift+Enter new line · / for skills'}
+            : 'Enter to send  ·  Shift+Enter for new line  ·  / to invoke a skill'}
         </p>
       </div>
     </div>

@@ -6,6 +6,7 @@ interface SettingsState {
   config: Record<string, any>
   apiKeys: ApiKeyInfo[]
   models: ModelInfo[]
+  savedModels: string[]
   loading: boolean
 
   loadAll: () => Promise<void>
@@ -15,6 +16,9 @@ interface SettingsState {
   getModel: () => string
   setModel: (modelId: string) => Promise<void>
   refreshModels: () => Promise<void>
+  loadSavedModels: () => Promise<void>
+  addSavedModel: (modelId: string) => Promise<void>
+  removeSavedModel: (modelId: string) => Promise<void>
 
   getTheme: () => ThemePref
   setTheme: (theme: ThemePref) => Promise<void>
@@ -26,19 +30,36 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   config: {},
   apiKeys: [],
   models: [],
+  savedModels: [],
   loading: false,
 
   loadAll: async () => {
     set({ loading: true })
-    const [config, apiKeys, models] = await Promise.all([
+    const [config, apiKeys, models, savedModels] = await Promise.all([
       ipc.settings.get(),
       ipc.settings.getApiKeys(),
       ipc.settings.getModels(),
+      ipc.settings.savedModels.list(),
     ])
-    set({ config, apiKeys, models, loading: false })
+    set({ config, apiKeys, models, savedModels, loading: false })
     // Tema + font tercihini DOM'a uygula
     applyTheme((config['desktop.theme'] as ThemePref) || 'light')
     applyFontSize((config['desktop.fontSize'] as string) || 'normal')
+  },
+
+  loadSavedModels: async () => {
+    const savedModels = await ipc.settings.savedModels.list()
+    set({ savedModels })
+  },
+
+  addSavedModel: async (modelId) => {
+    await ipc.settings.savedModels.add(modelId)
+    set(s => ({ savedModels: [...new Set([...s.savedModels, modelId.trim()])] }))
+  },
+
+  removeSavedModel: async (modelId) => {
+    await ipc.settings.savedModels.remove(modelId)
+    set(s => ({ savedModels: s.savedModels.filter(m => m !== modelId) }))
   },
 
   setConfig: async (key, value) => {

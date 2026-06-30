@@ -94,6 +94,15 @@ export function registerFSIPC(ipcMain: IpcMain): void {
     }
   })
 
+  ipcMain.handle('fs:writeFile', async (_, filePath: string, content: string) => {
+    try {
+      fs.writeFileSync(filePath, content, 'utf-8')
+      return { ok: true }
+    } catch (err: any) {
+      return { error: err.message }
+    }
+  })
+
   ipcMain.handle('fs:openInFinder', async (_, filePath: string) => {
     shell.showItemInFolder(filePath)
     return { ok: true }

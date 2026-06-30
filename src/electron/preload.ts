@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('agent:getTodo', projectId, sessionId),
     setActiveSession: (sessionId: string | null) =>
       ipcRenderer.invoke('agent:setActiveSession', sessionId),
+    answerQuestion: (answer: string) =>
+      ipcRenderer.invoke('agent:answerQuestion', answer),
 
     // Streaming events (main → renderer)
     onToolCall: (cb: (data: any) => void) => {
@@ -27,6 +29,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const listener = (_: IpcRendererEvent, text: string) => cb(text)
       ipcRenderer.on('agent:stepText', listener)
       return () => ipcRenderer.removeListener('agent:stepText', listener)
+    },
+    onReasoningText: (cb: (text: string) => void) => {
+      const listener = (_: IpcRendererEvent, text: string) => cb(text)
+      ipcRenderer.on('agent:reasoningText', listener)
+      return () => ipcRenderer.removeListener('agent:reasoningText', listener)
+    },
+    onQaPrompt: (cb: (payload: any) => void) => {
+      const listener = (_: any, payload: any) => cb(payload)
+      ipcRenderer.on('agent:qaPrompt', listener)
+      return () => ipcRenderer.removeListener('agent:qaPrompt', listener)
     },
     onProgress: (cb: (tasks: any[]) => void) => {
       const listener = (_: IpcRendererEvent, tasks: any[]) => cb(tasks)
@@ -54,7 +66,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => ipcRenderer.removeListener('agent:approvalRequest', listener)
     },
     removeAllListeners: () => {
-      ;['agent:toolCall', 'agent:stepText', 'agent:progress', 'agent:done', 'agent:error', 'agent:interrupted', 'agent:approvalRequest']
+      ;['agent:toolCall', 'agent:stepText', 'agent:qaPrompt', 'agent:progress', 'agent:done', 'agent:error', 'agent:interrupted', 'agent:approvalRequest', 'agent:reasoningText']
         .forEach(ch => ipcRenderer.removeAllListeners(ch))
     },
   },
@@ -91,7 +103,49 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getApiKeys: () => ipcRenderer.invoke('settings:apiKeys'),
     setApiKey: (provider: string, key: string) => ipcRenderer.invoke('settings:setApiKey', provider, key),
     removeApiKey: (provider: string) => ipcRenderer.invoke('settings:removeApiKey', provider),
-    getModels: () => ipcRenderer.invoke('settings:models'),
+    getModels: (opts?: { refresh?: boolean }) => ipcRenderer.invoke('settings:models', opts),
+    savedModels: {
+      list: () => ipcRenderer.invoke('settings:savedModels:list'),
+      add: (modelId: string) => ipcRenderer.invoke('settings:savedModels:add', modelId),
+      remove: (modelId: string) => ipcRenderer.invoke('settings:savedModels:remove', modelId),
+    },
+  },
+
+  // ── Design ────────────────────────────────────────────────────────────────
+  design: {
+    openWindow: () => ipcRenderer.invoke('design:openWindow'),
+    createProject: (data: { name: string; type: string; designSystemId?: string }) =>
+      ipcRenderer.invoke('design:createProject', data),
+    listProjects: () => ipcRenderer.invoke('design:listProjects'),
+    listSystems: () => ipcRenderer.invoke('design:listSystems'),
+    createSystem: (data: { name: string; blurb?: string; notes?: string }) =>
+      ipcRenderer.invoke('design:createSystem', data),
+    deleteSystem: (id: string) => ipcRenderer.invoke('design:deleteSystem', id),
+    attachSystem: (payload: { projectId: string; designSystemId: string | null }) =>
+      ipcRenderer.invoke('design:attachSystem', payload),
+    exportProject: (payload: { projectId: string; destDir: string }) =>
+      ipcRenderer.invoke('design:exportProject', payload),
+    getCanvas: (projectId: string) => ipcRenderer.invoke('design:getCanvas', projectId),
+    saveCanvas: (payload: { projectId: string; frames: any[] }) =>
+      ipcRenderer.invoke('design:saveCanvas', payload),
+    scanScreens: (projectId: string) => ipcRenderer.invoke('design:scanScreens', projectId),
+    readFile: (filePath: string) => ipcRenderer.invoke('design:readFile', filePath),
+    readMeta: (screenPath: string) => ipcRenderer.invoke('design:readMeta', screenPath),
+    saveMeta: (payload: { screenPath: string; meta: any }) => ipcRenderer.invoke('design:saveMeta', payload),
+    deleteProject: (projectId: string) => ipcRenderer.invoke('design:deleteProject', projectId),
+    renameProject: (payload: { projectId: string; name: string }) =>
+      ipcRenderer.invoke('design:renameProject', payload),
+  },
+
+  // ── Export / download ───────────────────────────────────────────────────────
+  exporter: {
+    saveCopy: (payload: { srcPath: string }) => ipcRenderer.invoke('export:saveCopy', payload),
+    toPdf: (payload: { srcPath?: string; html?: string; name?: string; landscape?: boolean }) => ipcRenderer.invoke('export:toPdf', payload),
+    // accepts width/height so a multi-slide HTML keeps its real aspect ratio
+    toImage: (payload: { srcPath?: string; html?: string; name?: string; width?: number; height?: number }) => ipcRenderer.invoke('export:toImage', payload),
+    fileToPptx: (payload: { srcPath: string; name?: string; width?: number; height?: number }) => ipcRenderer.invoke('export:fileToPptx', payload),
+    deckToPdf: (payload: { files: string[]; name?: string; slideW?: number; slideH?: number }) => ipcRenderer.invoke('export:deckToPdf', payload),
+    deckToPptx: (payload: { files: string[]; name?: string; slideW?: number; slideH?: number }) => ipcRenderer.invoke('export:deckToPptx', payload),
   },
 
   // ── Skills ─────────────────────────────────────────────────────────────────
@@ -129,12 +183,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     test: (name: string) => ipcRenderer.invoke('mcp:test', name),
   },
 
-  // ── Plugins (cowrangler imzalı bundled) ──────────────────────────────────────
-  plugins: {
-    list: () => ipcRenderer.invoke('plugins:list'),
-    setEnabled: (id: string, on: boolean) => ipcRenderer.invoke('plugins:setEnabled', id, on),
-  },
-
   // ── Memory ─────────────────────────────────────────────────────────────────
   memory: {
     readGlobal: () => ipcRenderer.invoke('memory:readGlobal'),
@@ -163,6 +211,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     pickFile: () => ipcRenderer.invoke('fs:pickFile'),
     fileTree: (dirPath: string, depth?: number) => ipcRenderer.invoke('fs:fileTree', dirPath, depth),
     readFile: (filePath: string) => ipcRenderer.invoke('fs:readFile', filePath),
+    writeFile: (filePath: string, content: string) => ipcRenderer.invoke('fs:writeFile', filePath, content),
     openInFinder: (filePath: string) => ipcRenderer.invoke('fs:openInFinder', filePath),
     openExternal: (url: string) => ipcRenderer.invoke('fs:openExternal', url),
   },

@@ -57,4 +57,10 @@ export function registerSessionsIPC(ipcMain: IpcMain): void {
     sessionDB.updateSession(sessionId, { title })
     return { ok: true }
   })
+
+  ipcMain.handle('sessions:pin', async (_, sessionId: string, pinned: boolean) => {
+    const sessionDB = getSessionDB()
+    sessionDB.updateSession(sessionId, { pinned: pinned ? 1 : 0 })
+    return { ok: true }
+  })
 }

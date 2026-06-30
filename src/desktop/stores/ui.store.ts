@@ -9,7 +9,11 @@ interface UIState {
   searchQuery: string
   onboardingVisible: boolean
   newProjectModalOpen: boolean
-  settingsPage: string | null  // null = settings kapalı, 'models' | 'connectors' | 'skills' | 'appearance'
+  /** New Task modal — hangi projeyle açıldığını tutar; null = global (proje seçilmemiş) */
+  newTaskModalOpen: boolean
+  newTaskPreselectedProjectId: string | null
+  settingsPage: string | null  // null = settings kapalı, 'models' | 'permissions' | 'appearance'
+  customizeOpen: boolean
   previewFile: string | null
 
   toggleRightPanel: () => void
@@ -22,8 +26,12 @@ interface UIState {
   setSearchQuery: (q: string) => void
   setOnboardingVisible: (v: boolean) => void
   setNewProjectModal: (open: boolean) => void
+  openNewTask: (preselectedProjectId?: string | null) => void
+  closeNewTask: () => void
   openSettings: (page?: string) => void
   closeSettings: () => void
+  openCustomize: () => void
+  closeCustomize: () => void
   setPreviewFile: (file: string | null) => void
 }
 
@@ -36,7 +44,10 @@ export const useUIStore = create<UIState>((set) => ({
   searchQuery: '',
   onboardingVisible: false,
   newProjectModalOpen: false,
+  newTaskModalOpen: false,
+  newTaskPreselectedProjectId: null,
   settingsPage: null,
+  customizeOpen: false,
   previewFile: null,
 
   toggleRightPanel: () => set(s => ({ rightPanelOpen: !s.rightPanelOpen })),
@@ -49,8 +60,12 @@ export const useUIStore = create<UIState>((set) => ({
   setSearchQuery: (q) => set({ searchQuery: q }),
   setOnboardingVisible: (v) => set({ onboardingVisible: v }),
   setNewProjectModal: (open) => set({ newProjectModalOpen: open }),
-  openSettings: (page = 'models') => set({ settingsPage: page }),
+  openNewTask: (preselectedProjectId = null) => set({ newTaskModalOpen: true, newTaskPreselectedProjectId: preselectedProjectId }),
+  closeNewTask: () => set({ newTaskModalOpen: false, newTaskPreselectedProjectId: null }),
+  openSettings: (page = 'models') => set({ settingsPage: page, customizeOpen: false }),
   closeSettings: () => set({ settingsPage: null }),
+  openCustomize: () => set({ customizeOpen: true, settingsPage: null }),
+  closeCustomize: () => set({ customizeOpen: false }),
   setPreviewFile: (file) => set({ previewFile: file }),
 }))
 

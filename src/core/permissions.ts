@@ -23,6 +23,7 @@ export interface PermissionResult {
   reason?: string;
   mode: PermissionMode;
   riskLevel: RiskLevel;
+  requiresApproval?: boolean;
 }
 
 // Tehlikeli bash pattern'leri — otomatik olarak reddedilir veya kullanıcıya sorulur
@@ -169,16 +170,16 @@ export function checkPermission(
     return { allowed: true, mode, riskLevel };
   }
 
-  // Default ve plan modlarda: safe ve moderate otomatik izinli
-  if (riskLevel === "safe" || riskLevel === "moderate") {
+  // Default ve plan modlarda: safe otomatik izinli
+  if (riskLevel === "safe") {
     return { allowed: true, mode, riskLevel };
   }
 
-  // Dangerous + default/plan: izin verilir ama loglanır
-  // (Gerçek interactive dialog için UI katmanı gerekir — şimdilik logluyoruz)
+  // Moderate ve Dangerous + default/plan: ask for user approval
   return {
-    allowed: true,
-    reason: `[${riskLevel.toUpperCase()}] ${toolName} — logged for audit`,
+    allowed: false,
+    requiresApproval: true,
+    reason: `[${riskLevel.toUpperCase()}] ${toolName} requires explicit user approval.`,
     mode,
     riskLevel,
   };

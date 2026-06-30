@@ -23,6 +23,7 @@ import {
   filterForMode,
   applyCompletion,
 } from "./completion.js";
+import { setAskUserListener, resolveAskUser } from "../../tools/ask_user.js";
 import fs from "fs";
 import { loadHistory, appendHistory } from "./history.js";
 import { Prompt, PromptHint } from "./Prompt.js";
@@ -140,7 +141,17 @@ export const App: React.FC<AppProps> = ({ agent }) => {
   const [streamingText, setStreamingText] = useState<string>("");
   const streamBufRef = useRef<string>("");
   const streamThrottleRef = useRef<NodeJS.Timeout | null>(null);
+  const [streamingThinking, setStreamingThinking] = useState<string>("");
+  const streamThinkingBufRef = useRef<string>("");
+  const streamThinkingThrottleRef = useRef<NodeJS.Timeout | null>(null);
   const [activeTodoItem, setActiveTodoItem] = useState<string | null>(null); // current pending TODO
+  
+  // ── Interactive Ask User QA states ──
+  const [qaPrompt, setQaPrompt] = useState<any | null>(null);
+  const [qaIndex, setQaIndex] = useState<number>(0);
+  const [qaSelectedSet, setQaSelectedSet] = useState<Set<number>>(new Set());
+  const [currentQuestionIdx, setCurrentQuestionIdx] = useState<number>(0);
+  const [accumulatedAnswers, setAccumulatedAnswers] = useState<string[]>([]);
   const stepStartRef = useRef<number>(0);
   const runStartRef = useRef<number>(0); // wall-clock start of the whole run
   const busyRef = useRef<boolean>(false); // synchronous mirror for input gating
@@ -157,6 +168,20 @@ export const App: React.FC<AppProps> = ({ agent }) => {
   useEffect(() => {
     return () => {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
+  // Listen to ask_user prompts interactively
+  useEffect(() => {
+    setAskUserListener((payload: any) => {
+      setQaPrompt(payload);
+      setQaIndex(0);
+      setQaSelectedSet(new Set());
+      setCurrentQuestionIdx(0);
+      setAccumulatedAnswers([]);
+    });
+    return () => {
+      setAskUserListener(null);
     };
   }, []);
 
@@ -238,11 +263,18 @@ export const App: React.FC<AppProps> = ({ agent }) => {
 
       let collected: TraceEntry[] = [];
       let toolCallCount = 0;
+      let currentThinking = "";
       try {
         const { text: reply, tokenCount } = await agent.chat(
           userInput,
           // onToolCall
           (toolName, args) => {
+            if (currentThinking.trim()) {
+              const thinkEntry: TraceEntry = { kind: "thinking", text: currentThinking.trim() };
+              collected.push(thinkEntry);
+              setLiveTrace((p) => [...p, thinkEntry]);
+              currentThinking = "";
+            }
             toolCallCount++;
             const elapsed = Date.now() - stepStartRef.current;
 
@@ -270,6 +302,8 @@ export const App: React.FC<AppProps> = ({ agent }) => {
             // Tool çağrısı başladı → canlı metin akışını sıfırla.
             streamBufRef.current = "";
             setStreamingText("");
+            streamThinkingBufRef.current = "";
+            setStreamingThinking("");
             const displayTool = toolName.replace(/_/g, " ");
             setSpinnerLabel(`${displayTool}...`);
             setSpinnerMode("tool");
@@ -277,9 +311,17 @@ export const App: React.FC<AppProps> = ({ agent }) => {
           },
           // onStepText (intermediate narrative between tool calls)
           (text) => {
+            if (currentThinking.trim()) {
+              const thinkEntry: TraceEntry = { kind: "thinking", text: currentThinking.trim() };
+              collected.push(thinkEntry);
+              setLiveTrace((p) => [...p, thinkEntry]);
+              currentThinking = "";
+            }
             // Adım bitti → streaming buffer'ı sıfırla (bu metin artık narrative).
             streamBufRef.current = "";
             setStreamingText("");
+            streamThinkingBufRef.current = "";
+            setStreamingThinking("");
             if (!text.trim()) return;
             const entry: TraceEntry = { kind: "narrative", text: text.trim() };
             collected.push(entry);
@@ -297,7 +339,25 @@ export const App: React.FC<AppProps> = ({ agent }) => {
               setStreamingText(streamBufRef.current);
             }, 80);
           },
+          // onToolEvent
+          undefined,
+          // onReasoningToken
+          (delta) => {
+            currentThinking += delta;
+            streamThinkingBufRef.current += delta;
+            if (streamThinkingThrottleRef.current) return;
+            streamThinkingThrottleRef.current = setTimeout(() => {
+              streamThinkingThrottleRef.current = null;
+              setStreamingThinking(streamThinkingBufRef.current);
+            }, 80);
+          }
         );
+
+        if (currentThinking.trim()) {
+          const thinkEntry: TraceEntry = { kind: "thinking", text: currentThinking.trim() };
+          collected.push(thinkEntry);
+          currentThinking = "";
+        }
 
         const rendered = await UI.renderMarkdown(reply);
         commitTurn({
@@ -326,8 +386,14 @@ export const App: React.FC<AppProps> = ({ agent }) => {
           clearTimeout(streamThrottleRef.current);
           streamThrottleRef.current = null;
         }
+        if (streamThinkingThrottleRef.current) {
+          clearTimeout(streamThinkingThrottleRef.current);
+          streamThinkingThrottleRef.current = null;
+        }
         streamBufRef.current = "";
         setStreamingText("");
+        streamThinkingBufRef.current = "";
+        setStreamingThinking("");
       }
     },
     [agent, commitTurn, viewMode],
@@ -433,6 +499,58 @@ export const App: React.FC<AppProps> = ({ agent }) => {
   useInput((char, key) => {
     // Model picker açıkken ana input'u engelle — picker kendi useInput'unu yönetir.
     if (modelPickerOpen) return;
+
+    // QA Prompt (ask_user) active: intercept keys
+    if (qaPrompt && qaPrompt.questions[currentQuestionIdx]) {
+      const question = qaPrompt.questions[currentQuestionIdx];
+      const optionsCount = question.options.length;
+
+      if (key.upArrow) {
+        setQaIndex((i) => (i - 1 + optionsCount) % optionsCount);
+        return;
+      }
+      if (key.downArrow) {
+        setQaIndex((i) => (i + 1) % optionsCount);
+        return;
+      }
+      if (char === " " && question.is_multi_select) {
+        setQaSelectedSet((prev) => {
+          const next = new Set(prev);
+          if (next.has(qaIndex)) {
+            next.delete(qaIndex);
+          } else {
+            next.add(qaIndex);
+          }
+          return next;
+        });
+        return;
+      }
+      if (key.return) {
+        let answerText = "";
+        if (question.is_multi_select) {
+          answerText = Array.from(qaSelectedSet).map(idx => question.options[idx]).join(", ");
+        } else {
+          answerText = question.options[qaIndex];
+        }
+
+        const nextAnswers = [...accumulatedAnswers, answerText];
+
+        if (currentQuestionIdx + 1 < qaPrompt.questions.length) {
+          // Move to the next question in the wizard
+          setAccumulatedAnswers(nextAnswers);
+          setCurrentQuestionIdx(currentQuestionIdx + 1);
+          setQaIndex(0);
+          setQaSelectedSet(new Set());
+        } else {
+          // Last question answered, resolve ask_user
+          resolveAskUser(nextAnswers.join(" | "));
+          setQaPrompt(null);
+        }
+        return;
+      }
+      // Consume all other inputs when QA prompt is active
+      return;
+    }
 
     // Ctrl-C: graceful exit. Ink restores the terminal automatically.
     if (key.ctrl && char === "c") {
@@ -734,6 +852,14 @@ export const App: React.FC<AppProps> = ({ agent }) => {
               </Box>
             )}
 
+            {/* ── Canlı thinking akışı ── */}
+            {streamingThinking.trim() && viewMode !== "brief" && (
+              <Box paddingLeft={2} marginTop={0} flexDirection="column">
+                <Text color="yellow">{"🧠 Düşünülüyor..."}</Text>
+                <Text dimColor italic>{streamingThinking.slice(-600)}</Text>
+              </Box>
+            )}
+
             {/* ── Canlı token akışı (streamText delta'ları) ── */}
             {streamingText.trim() && viewMode !== "brief" && (
               <Box paddingLeft={2} marginTop={0}>
@@ -748,6 +874,38 @@ export const App: React.FC<AppProps> = ({ agent }) => {
               startTime={runStartRef.current}
               verbose={viewMode === "transcript"}
             />
+
+            {qaPrompt && qaPrompt.questions[currentQuestionIdx] && (
+              <Box flexDirection="column" borderStyle="round" borderColor="yellow" padding={1} marginLeft={2} marginTop={1}>
+                <Box flexDirection="column">
+                  <Text bold color="yellow">
+                    {`❓ Soru ${currentQuestionIdx + 1}/${qaPrompt.questions.length}: ${qaPrompt.questions[currentQuestionIdx].question}`}
+                  </Text>
+                  <Box flexDirection="column" marginTop={1}>
+                    {qaPrompt.questions[currentQuestionIdx].options.map((opt: string, oIdx: number) => {
+                      const isSelected = oIdx === qaIndex;
+                      const isChecked = qaPrompt.questions[currentQuestionIdx].is_multi_select && qaSelectedSet.has(oIdx);
+                      const prefix = isSelected ? " > " : "   ";
+                      const checkMark = qaPrompt.questions[currentQuestionIdx].is_multi_select ? (isChecked ? "[x] " : "[ ] ") : "";
+                      return (
+                        <Box key={oIdx}>
+                          <Text color={isSelected ? "cyan" : "white"} bold={isSelected}>
+                            {prefix + checkMark + opt}
+                          </Text>
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                </Box>
+                <Box marginTop={1}>
+                  <Text dimColor>
+                    {qaPrompt.questions[currentQuestionIdx].is_multi_select 
+                      ? " [Space: Seçimi değiştir  |  Enter: Seçimi onayla ve ilerle]" 
+                      : " [↑/↓: Gezin  |  Enter: Seçimi onayla ve ilerle]"}
+                  </Text>
+                </Box>
+              </Box>
+            )}
           </Box>
         ) : (
           <Prompt value={input} cursor={cursor} active={!busy} />

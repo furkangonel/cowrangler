@@ -93,6 +93,13 @@ export class LLM {
     } else if (modelName.startsWith("openrouter/") || modelName.includes("/")) {
       if (!process.env.OPENROUTER_API_KEY)
         throw new Error("MISSING_KEY:OPENROUTER_API_KEY");
+    } else if (
+      modelName.startsWith("ollama/") ||
+      modelName.startsWith("lmstudio/") ||
+      modelName.startsWith("local/")
+    ) {
+      // Yerel modeller API key gerektirmez.
+      return;
     } else if (!modelName.includes("/")) {
       throw new Error(`UNSUPPORTED_MODEL:${modelName}`);
     }
@@ -220,7 +227,32 @@ export class LLM {
         baseURL: "https://api.groq.com/openai/v1",
       });
       return groq(modelName.replace("groq/", ""));
-    } // 7. OPENROUTER KONTROLÜ (openrouter/ öneki veya provider/model formatı)
+    } 
+    
+    // 7. YEREL MODELLER (ollama/, lmstudio/, local/)
+    if (modelName.startsWith("ollama/")) {
+      const ollama = createOpenAI({
+        apiKey: "ollama", // Dummy key, required by OpenAI SDK
+        baseURL: process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434/v1",
+      });
+      return ollama(modelName.replace("ollama/", ""));
+    }
+    if (modelName.startsWith("lmstudio/")) {
+      const lmstudio = createOpenAI({
+        apiKey: "lmstudio",
+        baseURL: process.env.LMSTUDIO_BASE_URL || "http://127.0.0.1:1234/v1",
+      });
+      return lmstudio(modelName.replace("lmstudio/", ""));
+    }
+    if (modelName.startsWith("local/")) {
+      const local = createOpenAI({
+        apiKey: "local",
+        baseURL: process.env.LOCAL_API_BASE_URL || "http://127.0.0.1:8080/v1",
+      });
+      return local(modelName.replace("local/", ""));
+    }
+    
+    // 8. OPENROUTER KONTROLÜ (openrouter/ öneki veya provider/model formatı)
     // Bu kural en sona gelir çünkü '/' içeren tüm tanımsız modelleri yakalar.
     // vertex/, groq/ gibi özel önekler yukarıda zaten işlenmiş olur.
 

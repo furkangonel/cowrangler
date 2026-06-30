@@ -1,6 +1,6 @@
 {
   "name": "co-wrangler",
-  "version": "2.0.7",
+  "version": "2.0.8",
   "description": "An enterprise-grade personal AI agent for the terminal — powered by Claude, GPT, Gemini & more",
   "author": "Furkan Gönel <frkngnl000@gmail.com>",
   "type": "module",
@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "NODE_OPTIONS='--loader ts-node/esm --no-warnings' ts-node src/main.ts",
     "build": "tsc && npm run copy-assets && chmod +x dist/main.js",
-    "copy-assets": "mkdir -p dist/bundled_skills && cp -rf src/bundled_skills/* dist/bundled_skills/ && mkdir -p dist/i18n/messages && cp src/i18n/messages/*.json dist/i18n/messages/ && mkdir -p dist/kanban && cp src/kanban/board.html dist/kanban/board.html && mkdir -p dist/assets && cp assets/kanban_ui_icon.png dist/assets/",
+    "copy-assets": "mkdir -p dist/bundled_skills && cp -rf src/bundled_skills/* dist/bundled_skills/ && mkdir -p dist/i18n/messages && cp src/i18n/messages/*.json dist/i18n/messages/ && mkdir -p dist/kanban && cp src/kanban/board.html dist/kanban/board.html && mkdir -p dist/assets && cp assets/kanban_ui_icon.png dist/assets/ && mkdir -p dist/core/cowrangler-sandbox.bundle && cp -rf src/core/cowrangler-sandbox.bundle/* dist/core/cowrangler-sandbox.bundle/",
     "start": "node dist/main.js",
     "setup": "npm install && npm run build && npm link",
     "clean": "rm -rf dist",
@@ -41,6 +41,10 @@
       {
         "from": "src/bundled_skills",
         "to": "bundled_skills"
+      },
+      {
+        "from": "src/core/cowrangler-sandbox.bundle",
+        "to": "cowrangler-sandbox.bundle"
       }
     ],
     "publish": [
@@ -159,6 +163,7 @@
     "node-telegram-bot-api": "^0.67.0",
     "ora": "^8.0.1",
     "pdf-parse": "^1.1.1",
+    "pptxgenjs": "^4.0.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.24.0",

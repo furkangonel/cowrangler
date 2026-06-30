@@ -13,6 +13,7 @@ import { useSettingsStore } from '../../stores/settings.store'
 import { useUIStore } from '../../stores/ui.store'
 import { MessageBubble } from './MessageBubble'
 import { InputArea } from './InputArea'
+import { AskUserPrompt } from './AskUserPrompt'
 
 export const GLOBAL_PROJECT_ID = '__global__'
 
@@ -133,11 +134,18 @@ export function GlobalChatView() {
         </div>
       </div>
 
+      {agentStore.qaPrompt && agentStore.qaPrompt.meta?.sessionId === activeGlobalSessionId && (
+        <AskUserPrompt
+          payload={agentStore.qaPrompt}
+          onSubmit={(ans) => agentStore.answerQaPrompt(ans)}
+        />
+      )}
+
       {/* Input */}
       <InputArea
         onSend={handleSend}
         onInterrupt={handleInterrupt}
-        disabled={status === 'thinking'}
+        disabled={status === 'thinking' && !(agentStore.qaPrompt && agentStore.qaPrompt.meta?.sessionId === activeGlobalSessionId)}
         projectId={GLOBAL_PROJECT_ID}
       />
     </div>

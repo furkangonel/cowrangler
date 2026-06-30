@@ -1,12 +1,13 @@
-import React from 'react'
-import octopus from '../../assets/octopus.png'
+import React from "react";
+import octopusImg from "@/assets/cw.png";
+import iconCircleImg from "@/assets/icon_circle.png";
 
 interface Props {
   /** Piksel cinsinden boyut */
-  size?: number
+  size?: number;
   /** Geriye dönük uyumluluk için tutuldu — artık kendi kendine animasyon YOK. */
-  thinking?: boolean
-  className?: string
+  thinking?: boolean;
+  className?: string;
 }
 
 /**
@@ -14,14 +15,26 @@ interface Props {
  * Kendi kendine OYNAMAZ; yalnızca imleç üzerine gelince nazikçe hareket eder
  * (CSS: `.octo-idle:hover`).
  */
-export function Octopus({ size = 28, className = '' }: Props) {
+export function Octopus({ size = 28, className = "" }: Props) {
   return (
     <img
-      src={octopus}
+      src={octopusImg}
       alt="Cowrangler"
       draggable={false}
       className={`octo octo-idle ${className}`}
-      style={{ width: size, height: size, userSelect: 'none' }}
+      style={{ width: size, height: size, userSelect: "none" }}
     />
-  )
+  );
+}
+
+export function OctopusCircle({ size = 28, className = "" }: Props) {
+  return (
+    <img
+      src={iconCircleImg}
+      alt="Cowrangler"
+      draggable={false}
+      className={`octo octo-idle ${className}`}
+      style={{ width: size, height: size, userSelect: "none" }}
+    />
+  );
 }

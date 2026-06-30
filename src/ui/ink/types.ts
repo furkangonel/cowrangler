@@ -61,7 +61,8 @@ export type SpinnerMode =
 export type TraceEntry =
   | { kind: "tool"; tool: string; args?: Record<string, any>; ms: number }
   | { kind: "narrative"; text: string }
-  | { kind: "brief"; message: string; status: "normal" | "proactive"; sentAt: string };
+  | { kind: "brief"; message: string; status: "normal" | "proactive"; sentAt: string }
+  | { kind: "thinking"; text: string };
 
 /**
  * A completed conversation turn. Pushed into the <Static> list so it

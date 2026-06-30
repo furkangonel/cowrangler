@@ -136,6 +136,21 @@ function normalizeModelKey(model: string): string {
 }
 
 export function getModelMeta(model: string): ModelMeta | null {
+  // Yerel modeller
+  if (model.startsWith("ollama/") || model.startsWith("lmstudio/") || model.startsWith("local/")) {
+    return {
+      contextWindow: 128_000,
+      maxOutputTokens: 8_192,
+      inputPricePerMToken: 0,
+      outputPricePerMToken: 0,
+      supportsThinking: model.includes("thinking") || model.includes("reasoning") || model.includes("r1") || model.includes("deepseek"),
+      supportsVision: model.includes("vision") || model.includes("llava") || model.includes("pixtral"),
+      supportsCaching: false,
+      provider: "local",
+      displayName: model.split("/").slice(1).join("/") || model,
+    };
+  }
+
   // Doğrudan eşleşme
   if (MODEL_REGISTRY[model]) return MODEL_REGISTRY[model];
 
@@ -176,6 +191,22 @@ export function formatTokenCount(count: number): string {
 
 /** Model extended thinking destekliyor mu? */
 export function modelSupportsThinking(model: string): boolean {
+  const norm = model.toLowerCase();
+  
+  // Explicitly check for known thinking models (including OpenRouter variants)
+  if (
+    norm.includes("deepseek-r1") || 
+    norm.includes("deepseek/r1") ||
+    norm.includes("o1-") || 
+    norm.includes("o3-") || 
+    norm.includes("claude-sonnet-4-6") || 
+    norm.includes("claude-3.7-sonnet") ||
+    norm.includes("thinking") ||
+    norm.includes("reasoning")
+  ) {
+    return true;
+  }
+  
   return getModelMeta(model)?.supportsThinking ?? false;
 }
 
@@ -223,7 +254,7 @@ export async function prefetchModelMeta(modelName: string): Promise<void> {
   if (MODEL_REGISTRY[modelName] || MODEL_REGISTRY[normalizeModelKey(modelName)]) return;
 
   // OpenRouter modeli mi? (openrouter/ öneki veya bilinmeyen provider/model formatı)
-  const knownPrefixes = ["anthropic/", "google/", "vertex/", "copilot/", "groq/"];
+  const knownPrefixes = ["anthropic/", "google/", "vertex/", "copilot/", "groq/", "ollama/", "lmstudio/", "local/"];
   const isKnownProvider = knownPrefixes.some((p) => modelName.startsWith(p));
   if (isKnownProvider) return; // Kendi registry'imizde olmayan bilinen provider → fallback yeterli
 

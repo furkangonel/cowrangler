@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react'
-import { CheckCircle2, Circle, Loader2 } from 'lucide-react'
+import { Check, Circle, Loader2 } from 'lucide-react'
 import { useAgentStore } from '../../stores/agent.store'
 import { TaskProgress, ipc } from '../../lib/ipc'
 
@@ -27,45 +27,39 @@ export function ProgressPanel({ projectId, sessionId }: { projectId: string; ses
   const pct = total > 0 ? Math.round((completed / total) * 100) : 0
 
   return (
-    <div className="px-4 py-4">
-      <div className="flex items-center justify-between mb-2.5">
-        <h3 className="text-2xs font-semibold text-text-muted uppercase tracking-wider">Tasks</h3>
-        {total > 0 && <span className="text-2xs text-text-muted tabular-nums">{completed}/{total}</span>}
-      </div>
-
+    <div className="px-4 py-4 bg-bg-elevated/60 transition-colors">
       {total === 0 ? (
-        <p className="text-2xs text-text-muted leading-relaxed py-1">
+        <p className="text-xs text-text-muted leading-relaxed py-1">
           {working
             ? 'The agent is building the task list…'
             : 'No task list. It appears here once the agent creates a plan.'}
         </p>
       ) : (
-        <>
-          <div className="h-1.5 bg-bg-tertiary rounded-full mb-3 overflow-hidden">
-            <div className="h-full bg-accent rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
-          </div>
-          <div className="space-y-0.5">
-            {progress.map(task => <TaskItem key={task.id} task={task} />)}
-          </div>
-        </>
+        <div className="flex flex-col gap-3.5 pr-1 max-h-[350px] overflow-y-auto overflow-x-hidden custom-scrollbar">
+          {progress.map(task => <TaskItem key={task.id} task={task} />)}
+        </div>
       )}
     </div>
   )
 }
 
-function TaskItem({ task }: { task: TaskProgress }) {
+function TaskItem({ task, index }: { task: TaskProgress; index: number }) {
   return (
-    <div className="flex items-start gap-2.5 py-1">
-      <div className="flex-shrink-0 mt-0.5">
-        {task.status === 'completed'
-          ? <CheckCircle2 size={14} className="text-success" />
-          : task.status === 'in_progress'
-          ? <Loader2 size={14} className="text-accent animate-spin" />
-          : <Circle size={14} className="text-text-muted" />}
+    <div className="flex items-start gap-3.5">
+      <div className="flex-shrink-0 mt-[3px]">
+        {task.status === 'completed' ? (
+          <div className="flex items-center justify-center w-[16px] h-[16px] rounded-full bg-[#5B89F7]/90 shadow-sm">
+            <Check size={10} className="text-[#1c1c1c]" strokeWidth={2.5} />
+          </div>
+        ) : task.status === 'in_progress' ? (
+          <Loader2 size={16} className="text-accent animate-spin" />
+        ) : (
+          <Circle size={16} className="text-text-muted/60" strokeWidth={2} />
+        )}
       </div>
-      <span className={`text-xs leading-relaxed ${
+      <span className={`text-[13.5px] tracking-[0.01em] leading-relaxed ${
         task.status === 'completed'
-          ? 'task-completed text-text-muted'
+          ? 'line-through decoration-text-muted/30 decoration-1 text-text-muted/80'
           : task.status === 'in_progress'
           ? 'text-text-primary font-medium'
           : 'text-text-secondary'

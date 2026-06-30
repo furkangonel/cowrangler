@@ -16,6 +16,8 @@ import { registerMCPIPC } from './ipc/mcp.ipc.js'
 import { registerMemoryIPC } from './ipc/memory.ipc.js'
 import { registerFSIPC } from './ipc/fs.ipc.js'
 import { registerUpdateIPC, checkForUpdatesOnStartup } from './ipc/update.ipc.js'
+import { registerDesignIPC } from './ipc/design.ipc.js'
+import { registerExportIPC } from './ipc/export.ipc.js'
 import { agentManager } from './agent_manager.js'
 // KRİTİK: Tüm yerleşik araçları (system/git/web/dev/skill/file/brief/computer_use +
 // mcp_status) registry'ye kaydet. Bu import olmadan desktop agent'ı yalnızca
@@ -68,6 +70,35 @@ function createWindow(): void {
     registerMemoryIPC(ipcMain)
     registerFSIPC(ipcMain)
     registerUpdateIPC(ipcMain, () => mainWindow)
+    registerDesignIPC()
+    registerExportIPC()
+
+    // ── Design window ──────────────────────────────────────────────────────
+    ipcMain.handle('design:openWindow', () => {
+      const designWin = new BrowserWindow({
+        width: 1280,
+        height: 860,
+        minWidth: 900,
+        minHeight: 600,
+        titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
+        backgroundColor: '#0f0f0f',
+        show: false,
+        webPreferences: {
+          preload: path.join(__dirname, '../preload/index.mjs'),
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: false,
+          webSecurity: true,
+        },
+      })
+      const designUrl = process.env.NODE_ENV === 'development'
+        ? 'http://localhost:5173/#/design'
+        : `file://${path.join(__dirname, '../../dist/renderer/index.html')}#/design`
+      designWin.loadURL(designUrl)
+      designWin.once('ready-to-show', () => designWin.show())
+      return { ok: true }
+    })
+
     ipcRegistered = true
   }
 
