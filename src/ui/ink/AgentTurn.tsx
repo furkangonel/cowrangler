@@ -102,7 +102,31 @@ export const AgentTurn: React.FC<AgentTurnProps> = ({
             </Box>
           ) : null}
 
-          {turn.reply ? (
+          {/* send_message ile gönderilen asıl yanıt(lar). COMPLETION_FORMAT
+              gereği turn.reply de bir "Done:" checklist özeti taşır ama bu
+              iç denetim/audit-trail içindir — kullanıcıya gösterilecek olan
+              gerçek metin send_message ile gelir (brief entry, status
+              normal|proactive). Önceden sadece proactive olanlar
+              gösteriliyordu; normal-status yanıtlar default modda hiç
+              render edilmiyordu, sadece transcript modda (Ctrl+O)
+              görünüyordu. */}
+          {briefEntries.length > 0 ? (
+            briefEntries.map((entry, i) => {
+              if (entry.kind !== "brief") return null;
+              const isProactive = entry.status === "proactive";
+              return (
+                <Box key={i} marginTop={1} flexDirection="row">
+                  <Text dimColor>{"  ⎿  "}</Text>
+                  <Box flexShrink={1} flexGrow={1}>
+                    {isProactive ? (
+                      <Text color={PROACTIVE_COLOR}>{"⚡ "}</Text>
+                    ) : null}
+                    <Text>{entry.message}</Text>
+                  </Box>
+                </Box>
+              );
+            })
+          ) : turn.reply ? (
             <Box marginTop={1} flexDirection="row">
               <Text dimColor>{"  ⎿  "}</Text>
               <Box flexShrink={1} flexGrow={1}>
@@ -110,19 +134,6 @@ export const AgentTurn: React.FC<AgentTurnProps> = ({
               </Box>
             </Box>
           ) : null}
-
-          {/* Proactive mesajlar default modda da gösterilir */}
-          {briefEntries
-            .filter((e) => e.kind === "brief" && e.status === "proactive")
-            .map((entry, i) => {
-              if (entry.kind !== "brief") return null;
-              return (
-                <Box key={i} marginTop={1} paddingLeft={2}>
-                  <Text color={PROACTIVE_COLOR}>{"⚡ "}</Text>
-                  <Text dimColor>{entry.message}</Text>
-                </Box>
-              );
-            })}
         </>
       )}
 

@@ -1,6 +1,129 @@
-import React, { useState } from 'react'
-import { Eye, EyeOff, Check, Plus, Trash2, AlertCircle } from 'lucide-react'
+import React, { useState, useEffect } from 'react'
+import { Eye, EyeOff, Check, Plus, Trash2, AlertCircle, LogIn, LogOut, Copy, ExternalLink, Loader2 } from 'lucide-react'
 import { useSettingsStore } from '../../stores/settings.store'
+import { ipc, OAuthLoginEvent } from '../../lib/ipc'
+
+type OAuthProvider = { id: string; name: string; connected: boolean }
+/** Live login state for the provider currently being authorized. */
+type LoginFlow = { id: string; url?: string; code?: string; message?: string }
+
+/** Pull a short device/verification code out of an instructions string. */
+function extractCode(instructions?: string): string | undefined {
+  if (!instructions) return undefined
+  const m = instructions.match(/\b([A-Z0-9]{4}-[A-Z0-9]{4})\b/) || instructions.match(/code\s+([A-Z0-9-]{6,})/i)
+  return m?.[1]
+}
+
+function SubscriptionLogin() {
+  const [providers, setProviders] = useState<OAuthProvider[]>([])
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [flow, setFlow] = useState<LoginFlow | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  async function refresh() {
+    try { setProviders(await ipc.settings.oauth.list()) } catch { /* yok say */ }
+  }
+  useEffect(() => { void refresh() }, [])
+
+  // Live login events: device code, progress, done/error.
+  useEffect(() => {
+    const off = ipc.settings.oauth.onEvent((e: OAuthLoginEvent) => {
+      if (e.type === 'auth') {
+        setFlow({ id: e.id, url: e.url, code: extractCode(e.instructions), message: e.instructions })
+      } else if (e.type === 'progress') {
+        setFlow(f => (f && f.id === e.id ? { ...f, message: e.message } : f))
+      } else if (e.type === 'done') {
+        setFlow(f => (f?.id === e.id ? null : f))
+        // Newly connected provider seeded models — refresh the picker list.
+        void useSettingsStore.getState().loadSavedModels()
+      } else if (e.type === 'error') {
+        setFlow(f => (f?.id === e.id ? null : f))
+      }
+    })
+    return off
+  }, [])
+
+  async function login(id: string) {
+    setBusy(id); setError(null); setFlow({ id })
+    try {
+      const r = await ipc.settings.oauth.login(id)
+      if (!r.ok) setError(r.error ?? 'Login failed')
+    } catch (e: any) { setError(e?.message ?? String(e)) }
+    setBusy(null); setFlow(null); void refresh()
+  }
+  async function logout(id: string) {
+    setBusy(id)
+    try { await ipc.settings.oauth.logout(id) } catch { /* yok say */ }
+    setBusy(null); void refresh()
+  }
+
+  function copyCode(code: string) {
+    try { navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch {}
+  }
+
+  return (
+    <section>
+      <h4 className="text-sm font-semibold text-text-primary mb-1">Sign in with a subscription</h4>
+      <p className="text-xs text-text-muted mb-3">
+        Use a plan you already pay for — no API key required. A browser window opens to complete sign-in.
+      </p>
+      {error && (
+        <div className="flex items-start gap-2 px-3 py-2 mb-3 bg-bg-tertiary border border-border rounded-xl text-xs text-red-400">
+          <AlertCircle size={14} /> {error}
+        </div>
+      )}
+      <div className="space-y-2">
+        {providers.map(p => {
+          const active = flow?.id === p.id
+          return (
+          <div key={p.id} className="p-3 bg-bg-tertiary border border-border rounded-xl">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-text-primary">{p.name}</span>
+                {p.connected && <span className="text-[11px] text-green-400 flex items-center gap-1"><Check size={12} /> connected</span>}
+              </div>
+              {p.connected ? (
+                <button onClick={() => logout(p.id)} disabled={busy === p.id}
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border border-border hover:bg-bg-hover disabled:opacity-50">
+                  <LogOut size={12} /> Sign out
+                </button>
+              ) : (
+                <button onClick={() => login(p.id)} disabled={busy === p.id}
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg bg-accent text-white hover:opacity-90 disabled:opacity-50">
+                  <LogIn size={12} /> {busy === p.id ? 'Waiting…' : 'Sign in'}
+                </button>
+              )}
+            </div>
+
+            {/* Live authorization panel — device code, link, progress. */}
+            {active && (
+              <div className="mt-3 pt-3 border-t border-border space-y-2">
+                {flow?.code && (
+                  <div>
+                    <p className="text-2xs text-text-muted mb-1">Enter this code on the verification page:</p>
+                    <button onClick={() => copyCode(flow.code!)} className="flex items-center gap-2 px-3 py-2 bg-bg-primary border border-border rounded-lg font-mono text-base tracking-widest text-text-primary hover:border-accent/60 transition-colors">
+                      {flow.code} <Copy size={13} className="text-text-muted" /> {copied && <span className="text-2xs text-green-400">copied</span>}
+                    </button>
+                  </div>
+                )}
+                {flow?.url && (
+                  <button onClick={() => ipc.fs.openExternal(flow.url!)} className="flex items-center gap-1.5 text-xs text-accent hover:underline">
+                    <ExternalLink size={12} /> {flow.code ? 'Open verification page' : "Open sign-in page (if it didn't open automatically)"}
+                  </button>
+                )}
+                <p className="flex items-center gap-1.5 text-2xs text-text-muted">
+                  <Loader2 size={11} className="animate-spin" /> {flow?.message || 'Waiting for authorization in your browser…'}
+                </p>
+              </div>
+            )}
+          </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
 
 export function ModelsTab() {
   const { apiKeys, savedModels, setApiKey, removeApiKey, addSavedModel, removeSavedModel } = useSettingsStore()
@@ -30,6 +153,9 @@ export function ModelsTab() {
 
   return (
     <div className="p-6 space-y-8 max-w-2xl">
+
+      {/* Subscription OAuth login */}
+      <SubscriptionLogin />
 
       {/* Saved Models */}
       <section>

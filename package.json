@@ -1,6 +1,6 @@
 {
   "name": "co-wrangler",
-  "version": "2.0.8",
+  "version": "2.0.9",
   "description": "An enterprise-grade personal AI agent for the terminal — powered by Claude, GPT, Gemini & more",
   "author": "Furkan Gönel <frkngnl000@gmail.com>",
   "type": "module",
@@ -11,12 +11,13 @@
   "scripts": {
     "dev": "NODE_OPTIONS='--loader ts-node/esm --no-warnings' ts-node src/main.ts",
     "build": "tsc && npm run copy-assets && chmod +x dist/main.js",
-    "copy-assets": "mkdir -p dist/bundled_skills && cp -rf src/bundled_skills/* dist/bundled_skills/ && mkdir -p dist/i18n/messages && cp src/i18n/messages/*.json dist/i18n/messages/ && mkdir -p dist/kanban && cp src/kanban/board.html dist/kanban/board.html && mkdir -p dist/assets && cp assets/kanban_ui_icon.png dist/assets/ && mkdir -p dist/core/cowrangler-sandbox.bundle && cp -rf src/core/cowrangler-sandbox.bundle/* dist/core/cowrangler-sandbox.bundle/",
+    "copy-assets": "mkdir -p dist/bundled_skills && cp -rf src/bundled_skills/* dist/bundled_skills/ && mkdir -p dist/i18n/messages && cp src/i18n/messages/*.json dist/i18n/messages/ && mkdir -p dist/core/cowrangler-sandbox.bundle && cp -rf src/core/cowrangler-sandbox.bundle/* dist/core/cowrangler-sandbox.bundle/",
     "start": "node dist/main.js",
     "setup": "npm install && npm run build && npm link",
     "clean": "rm -rf dist",
     "test": "vitest run",
     "test:watch": "vitest",
+    "bench": "node scripts/microbench/run.mjs",
     "test:coverage": "vitest run --coverage",
     "desktop:dev": "electron-vite dev",
     "desktop:build": "electron-vite build",
@@ -90,6 +91,12 @@
           "arch": [
             "x64"
           ]
+        },
+        {
+          "target": "msi",
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },
@@ -104,6 +111,18 @@
       "target": [
         {
           "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "rpm",
           "arch": [
             "x64"
           ]
@@ -147,6 +166,7 @@
     "cli-table3": "^0.6.5",
     "discord.js": "^14.26.4",
     "dotenv": "^16.4.5",
+    "esbuild-wasm": "^0.24.0",
     "electron-updater": "^6.3.9",
     "fast-glob": "^3.3.3",
     "fix-path": "^5.0.0",

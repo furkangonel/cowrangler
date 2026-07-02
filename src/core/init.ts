@@ -95,13 +95,6 @@ export function initEnvironment() {
         keep_recent: 8,
         summary_model: null,
       },
-      // Kanban dispatcher ayarları.
-      kanban: {
-        max_concurrent: 3,
-        tick_ms: 10000,
-        reclaim_timeout_ms: 600000,
-        fail_backoff_ms: 30000,
-      },
     };
     fs.writeFileSync(DIRS.global.config, yaml.dump(defaultGlobal), "utf-8");
   }
@@ -265,19 +258,12 @@ export function getConfig() {
     summary_model: null,
     ...(config.context ?? {}),
   };
-  config.kanban = {
-    max_concurrent: 3,
-    tick_ms: 10000,
-    reclaim_timeout_ms: 600000,
-    fail_backoff_ms: 30000,
-    ...(config.kanban ?? {}),
-  };
   return config;
 }
 
 /**
  * Global config.yaml'a tek bir değeri yazar. Nokta-yollu anahtarları destekler
- * (örn: "kanban.max_concurrent", "thinking.enabled"). Değer tipi otomatik
+ * (örn: "context.keep_recent", "thinking.enabled"). Değer tipi otomatik
  * çıkarılır: "true"/"false" → boolean, sayısal → number, "null" → null,
  * aksi halde string. `/config set` komutu tarafından kullanılır.
  */

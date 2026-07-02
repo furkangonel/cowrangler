@@ -88,3 +88,16 @@ release/
 *.snap
 *.deb
 *.rpm
+
+# 11. electron-vite auto-generated temp config dumps — it recompiles
+# electron.vite.config.ts to a timestamped .mjs/.cjs at boot; these are pure
+# build output and regenerate every run. Root-anchored so the real
+# electron.vite.config.ts (tracked) is never matched.
+/electron.vite.config.*.mjs
+/electron.vite.config.*.cjs
+
+# 12. Ad-hoc scratch/debug scripts left at repo root (e.g. one-off `__t.mjs`
+# repro scripts) and stray temp tsconfigs used for isolated typecheck runs.
+/__t*.mjs
+/__t*.cjs
+tsconfig.*.tmp.json

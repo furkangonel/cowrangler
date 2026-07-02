@@ -7,12 +7,14 @@ import pdfParse from "pdf-parse";
 import xlsx from "xlsx";
 import fg from "fast-glob";
 import { registerTool } from "./registry.js";
+import { beforeMutation, setCheckpointBase } from "../core/checkpoints.js";
 
 let _WORKSPACE = path.resolve("./workspace");
 
 export function setWorkspace(workspacePath: string) {
   _WORKSPACE = path.resolve(workspacePath);
   if (!existsSync(_WORKSPACE)) mkdirSync(_WORKSPACE, { recursive: true });
+  setCheckpointBase(_WORKSPACE);
 }
 
 function _safePath(relativePath: string): string {
@@ -195,6 +197,7 @@ registerTool(
   async ({ path: relPath, content }: { path: string; content: string }) => {
     try {
       const target = _safePath(relPath);
+      beforeMutation(target, `write_file ${relPath}`);
       await fs.mkdir(path.dirname(target), { recursive: true });
       await fs.writeFile(target, content, "utf-8");
       return `OK: Written ${content.length} chars (${content.split("\n").length} lines) → ${relPath}`;
@@ -218,6 +221,7 @@ registerTool(
   async ({ path: relPath, content, newline }: { path: string; content: string; newline: boolean }) => {
     try {
       const target = _safePath(relPath);
+      beforeMutation(target, `append_to_file ${relPath}`);
       await fs.mkdir(path.dirname(target), { recursive: true });
       const prefix = newline && existsSync(target) ? "\n" : "";
       await fs.appendFile(target, prefix + content, "utf-8");
@@ -247,9 +251,46 @@ registerTool(
       const count = content.split(old_text).length - 1;
       if (count === 0) return `ERROR: old_text not found in file. Check your text carefully.`;
       if (count > 1) return `ERROR: old_text appears ${count} times — provide more context to make it unique.`;
+      beforeMutation(target, `edit_file ${relPath}`);
       content = content.replace(old_text, new_text);
       await fs.writeFile(target, content, "utf-8");
       return `OK: ${relPath} updated.`;
+    } catch (e: any) {
+      return `ERROR: ${e.message}`;
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// APPLY PATCH — çoklu search/replace hunk'ı tek çağrıda (edit-format)
+// ─────────────────────────────────────────────────────────────────────────────
+registerTool(
+  "apply_patch",
+  "Apply multiple search/replace edits to a single file in one call. Each hunk's old_text must appear exactly once. More efficient than repeated edit_file calls for multi-spot changes.",
+  z.object({
+    path: z.string(),
+    hunks: z.array(z.object({
+      old_text: z.string().describe("Exact text to replace (unique in file)"),
+      new_text: z.string().describe("Replacement text"),
+    })).describe("Ordered list of edits to apply"),
+  }),
+  async ({ path: relPath, hunks }: { path: string; hunks: { old_text: string; new_text: string }[] }) => {
+    try {
+      const target = _safePath(relPath);
+      if (!existsSync(target)) return `File not found: ${relPath}`;
+      let content = await fs.readFile(target, "utf-8");
+      const applied: string[] = [];
+      for (let i = 0; i < hunks.length; i++) {
+        const { old_text, new_text } = hunks[i];
+        const count = content.split(old_text).length - 1;
+        if (count === 0) return `ERROR: hunk #${i + 1} old_text not found (applied ${applied.length} of ${hunks.length}; file unchanged).`;
+        if (count > 1) return `ERROR: hunk #${i + 1} old_text appears ${count} times — add more context (file unchanged).`;
+        content = content.replace(old_text, new_text);
+        applied.push(`#${i + 1}`);
+      }
+      beforeMutation(target, `apply_patch ${relPath}`);
+      await fs.writeFile(target, content, "utf-8");
+      return `OK: ${relPath} — applied ${hunks.length} hunk(s).`;
     } catch (e: any) {
       return `ERROR: ${e.message}`;
     }
@@ -294,6 +335,7 @@ registerTool(
       const src = _safePath(source);
       const dst = _safePath(destination);
       if (!existsSync(src)) return `ERROR: Source not found: ${source}`;
+      if (!statSync(src).isDirectory()) { beforeMutation(src, `move ${source}`); beforeMutation(dst, `move ${destination}`); }
       await fs.mkdir(path.dirname(dst), { recursive: true });
       await fs.rename(src, dst);
       return `OK: '${source}' → '${destination}'`;
@@ -319,6 +361,7 @@ registerTool(
       const target = _safePath(relPath);
       if (!existsSync(target)) return `Not found: ${relPath}`;
       if ((await fs.stat(target)).isDirectory()) return `ERROR: '${relPath}' is a directory. Use delete_folder.`;
+      beforeMutation(target, `delete_file ${relPath}`);
       await fs.unlink(target);
       return `OK: Deleted '${relPath}'`;
     } catch (e: any) {

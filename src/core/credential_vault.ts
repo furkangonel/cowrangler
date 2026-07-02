@@ -71,13 +71,15 @@ function writeStore(store: Store): void {
   }
 }
 
-function encryptCell(plain: string): Cell {
-  const ss = safeStorage();
-  if (ss) {
-    try {
-      return { m: "safe", d: ss.encryptString(plain).toString("base64") };
-    } catch {
-      /* düşüş */
+function encryptCell(plain: string, forcePlain = false): Cell {
+  if (!forcePlain) {
+    const ss = safeStorage();
+    if (ss) {
+      try {
+        return { m: "safe", d: ss.encryptString(plain).toString("base64") };
+      } catch {
+        /* düşüş */
+      }
     }
   }
   return { m: "plain", d: Buffer.from(plain, "utf-8").toString("base64") };
@@ -98,8 +100,28 @@ function decryptCell(cell: Cell): string {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+interface SetSecretsOpts {
+  /**
+   * true ise `electron.safeStorage` (OS keychain) mevcut olsa bile kullanılmaz;
+   * her zaman taşınabilir "plain" (base64 + 0600 dosya izni) modunda yazılır.
+   *
+   * Neden gerekli: safeStorage yalnızca Electron (desktop) sürecinde çalışır.
+   * "safe" modda yazılan bir hücre, plain Node CLI sürecinden ASLA çözülemez
+   * (decryptCell "" döner) — aynı ~/.cowrangler/secrets.json dosyasını
+   * paylaşsalar bile. Desktop + CLI arasında paylaşılması GEREKEN kayıtlar
+   * (ör. `oauth_subscriptions.ts`'in abonelik token'ları — desktop'ta login
+   * olup CLI'da da API anahtarsız çalışması beklenir) bu yüzden her zaman
+   * forcePlain:true ile yazılmalı.
+   */
+  forcePlain?: boolean;
+}
+
 /** Bir namespace (ör. connector id) için verilen anahtarları şifreleyip yazar (merge). */
-export function setSecrets(namespace: string, secrets: Record<string, string | null | undefined>): void {
+export function setSecrets(
+  namespace: string,
+  secrets: Record<string, string | null | undefined>,
+  opts?: SetSecretsOpts,
+): void {
   const store = readStore();
   const bucket = { ...(store[namespace] ?? {}) };
   for (const [k, v] of Object.entries(secrets)) {
@@ -107,15 +129,20 @@ export function setSecrets(namespace: string, secrets: Record<string, string | n
       delete bucket[k];
       continue;
     }
-    bucket[k] = encryptCell(v);
+    bucket[k] = encryptCell(v, opts?.forcePlain);
   }
   store[namespace] = bucket;
   writeStore(store);
 }
 
 /** Tek bir gizli değeri yazar. */
-export function setSecret(namespace: string, key: string, value: string | null | undefined): void {
-  setSecrets(namespace, { [key]: value });
+export function setSecret(
+  namespace: string,
+  key: string,
+  value: string | null | undefined,
+  opts?: SetSecretsOpts,
+): void {
+  setSecrets(namespace, { [key]: value }, opts);
 }
 
 /** Namespace'in tüm gizli değerlerini (çözülmüş) döndürür. */
@@ -135,6 +162,18 @@ export function getSecrets(namespace: string): Record<string, string> {
 export function getSecret(namespace: string, key: string): string | undefined {
   const bucket = getSecrets(namespace);
   return bucket[key];
+}
+
+/**
+ * Bir hücrenin şifreleme modunu (deşifre ETMEDEN) döndürür — "safe" ise
+ * yalnızca Electron sürecinde, safeStorage ile açılabilir; CLI'dan asla değil.
+ * Çağıranlar bunu (ör. `oauth_subscriptions.ts`) desktop'ta yazılmış bir
+ * kaydı otomatik olarak taşınabilir "plain" moda geçirmek (self-heal) için
+ * kullanır. Kayıt yoksa null.
+ */
+export function getSecretMode(namespace: string, key: string): Mode | null {
+  const store = readStore();
+  return store[namespace]?.[key]?.m ?? null;
 }
 
 /** Namespace'te en az bir gizli değer var mı. */

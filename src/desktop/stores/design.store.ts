@@ -22,6 +22,34 @@ export interface DesignChatMessage {
   activity?: DesignActivity[]
 }
 
+/** A saved snapshot of the project's screens, taken before an agent edit. */
+export interface DesignCheckpoint {
+  id: string
+  label: string
+  createdAt: number
+  fileCount: number
+  /** true = created automatically before an agent turn; false = user "Save version". */
+  auto: boolean
+}
+
+/** An element the user clicked in inspect mode, used to build a targeted prompt. */
+export interface InspectorPick {
+  filePath: string
+  selector: string
+  tag: string
+  text: string
+  w: number
+  h: number
+}
+
+/** One accessibility finding from the in-iframe scan. */
+export interface A11yIssue {
+  type: 'contrast' | 'touch'
+  severity: 'error' | 'warn'
+  selector: string
+  detail: string
+}
+
 /** Friendly one-line summary of a tool call for the activity feed. */
 export function summarizeTool(name: string, args: Record<string, any> = {}): string {
   const base = (p?: string) => (p ? String(p).split('/').pop() : undefined)
@@ -106,6 +134,28 @@ interface DesignState {
   setCanvasView: (scale: number, offsetX: number, offsetY: number) => void
   setRefreshTick: () => void
 
+  // Version history (checkpoints)
+  checkpoints: DesignCheckpoint[]
+  loadCheckpoints: (projectId: string) => Promise<void>
+  saveCheckpoint: (projectId: string, label?: string, auto?: boolean) => Promise<void>
+  restoreCheckpoint: (projectId: string, checkpointId: string) => Promise<void>
+
+  // Element inspector (click-to-edit)
+  inspectMode: boolean
+  inspectorPick: InspectorPick | null
+  setInspectMode: (on: boolean) => void
+  setInspectorPick: (pick: InspectorPick | null) => void
+
+  // Accessibility scan results, keyed by filePath.
+  a11yResults: Record<string, A11yIssue[]>
+  a11yRunning: boolean
+  /** Bumped to ask the iframe for `filePath` to run a scan (nonce forces re-fire). */
+  a11yRequest: { filePath: string; nonce: number } | null
+  requestA11y: (filePath: string) => void
+  setA11yResult: (filePath: string, issues: A11yIssue[]) => void
+  setA11yRunning: (on: boolean) => void
+  clearA11y: (filePath?: string) => void
+
   // Actions — chat
   sendMessage: (message: string, model?: string) => Promise<void>
   interruptChat: () => Promise<void>
@@ -145,6 +195,12 @@ export const useDesignStore = create<DesignState>((set, get) => ({
   streamingText: '',
   qaPrompt: null,
   pendingMessage: null,
+  checkpoints: [],
+  inspectMode: false,
+  inspectorPick: null,
+  a11yResults: {},
+  a11yRunning: false,
+  a11yRequest: null,
 
   setPending: (p) => set({ pendingMessage: p }),
 
@@ -196,6 +252,12 @@ export const useDesignStore = create<DesignState>((set, get) => ({
       canvasOffsetY: 0,
       tweaksOn: false,
       tweakValues: {},
+      checkpoints: [],
+      inspectMode: false,
+      inspectorPick: null,
+      a11yResults: {},
+      a11yRunning: false,
+      a11yRequest: null,
     })
   },
 
@@ -324,6 +386,41 @@ export const useDesignStore = create<DesignState>((set, get) => ({
 
   setRefreshTick: () => set(s => ({ refreshTick: s.refreshTick + 1 })),
 
+  // ── Version history (checkpoints) ────────────────────────────────────────────
+  loadCheckpoints: async (projectId) => {
+    try { set({ checkpoints: await ipc.design.listCheckpoints(projectId) }) }
+    catch (e) { console.error('[design] loadCheckpoints failed', e) }
+  },
+
+  saveCheckpoint: async (projectId, label, auto = false) => {
+    try {
+      const res = await ipc.design.createCheckpoint({ projectId, label, auto })
+      if (res?.ok) set({ checkpoints: await ipc.design.listCheckpoints(projectId) })
+    } catch (e) { console.error('[design] saveCheckpoint failed', e) }
+  },
+
+  restoreCheckpoint: async (projectId, checkpointId) => {
+    try {
+      await ipc.design.restoreCheckpoint({ projectId, checkpointId })
+      // Re-sync canvas + force previews to reload from the restored files.
+      await get().loadCanvas(projectId)
+      set(s => ({ refreshTick: s.refreshTick + 1 }))
+    } catch (e) { console.error('[design] restoreCheckpoint failed', e) }
+  },
+
+  // ── Element inspector ─────────────────────────────────────────────────────────
+  setInspectMode: (on) => set({ inspectMode: on, inspectorPick: on ? get().inspectorPick : null }),
+  setInspectorPick: (pick) => set({ inspectorPick: pick }),
+
+  // ── Accessibility ──────────────────────────────────────────────────────────────
+  requestA11y: (filePath) => set(s => ({ a11yRunning: true, a11yRequest: { filePath, nonce: (s.a11yRequest?.nonce ?? 0) + 1 } })),
+  setA11yResult: (filePath, issues) => set(s => ({ a11yResults: { ...s.a11yResults, [filePath]: issues }, a11yRunning: false })),
+  setA11yRunning: (on) => set({ a11yRunning: on }),
+  clearA11y: (filePath) => set(s => {
+    if (!filePath) return { a11yResults: {} }
+    const next = { ...s.a11yResults }; delete next[filePath]; return { a11yResults: next }
+  }),
+
   // ── Tweaks ──────────────────────────────────────────────────────────────────
   setTweaksOn: (on) => set({ tweaksOn: on }),
 
@@ -358,6 +455,13 @@ export const useDesignStore = create<DesignState>((set, get) => ({
       chatLoading: true,
       streamingText: '',
     }))
+
+    // Auto-snapshot before the agent edits, so any turn can be rolled back. Skipped
+    // silently when there are no screens yet (nothing to protect).
+    if (get().frames.length > 0) {
+      const label = message.trim().slice(0, 60) || 'Before edit'
+      get().saveCheckpoint(activeProject.id, label, true).catch(() => {})
+    }
 
     // Poll for new HTML files while agent works
     let pollInterval: ReturnType<typeof setInterval> | null = null
@@ -456,7 +560,11 @@ export const useDesignStore = create<DesignState>((set, get) => ({
         }),
       }))
       // New screens may have just been written — refresh promptly.
-      if (ev.status === 'done') get().scanAndMergeScreens(activeProject.id)
+      if (ev.status === 'done') {
+        get().scanAndMergeScreens(activeProject.id).then(() => {
+          set(s => ({ refreshTick: s.refreshTick + 1 }))
+        })
+      }
     })
 
     removeListeners = () => {
@@ -471,7 +579,9 @@ export const useDesignStore = create<DesignState>((set, get) => ({
 
     // Poll every 2s for new HTML files
     pollInterval = setInterval(() => {
-      get().scanAndMergeScreens(activeProject.id)
+      get().scanAndMergeScreens(activeProject.id).then(() => {
+        set(s => ({ refreshTick: s.refreshTick + 1 }))
+      })
     }, 2000)
 
     try {

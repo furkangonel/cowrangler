@@ -6,6 +6,56 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.0.9] — 2026-07-02
+
+### Added
+- **Subscription OAuth login** — `cowrangler login`, in-session `/login`, and a desktop **Models** tab section let you sign in with a plan you already pay for — **Claude Pro/Max, ChatGPT Plus, GitHub Copilot, Gemini, and Antigravity** — no API key required. PKCE + loopback (and device-code for Copilot) flows in `src/core/oauth_subscriptions.ts`; tokens are stored in the encrypted vault and auto-refreshed. `applyOAuthEnv()` injects valid tokens at CLI and desktop boot so models run keyless.
+- **Checkpoints & `/undo`** — every agent file mutation (`write_file`, `edit_file`, `apply_patch`, `append_to_file`, `delete_file`, `move_item`) is snapshotted first (`src/core/checkpoints.ts`); `/undo` reverts the last change and `/checkpoints` lists history — without touching your real git history.
+- **Terse output mode** — `/terse` (or `config.terse`) enables a token-efficient output profile that trims prose while keeping code, identifiers, and errors verbatim.
+- **Plan mode commands** — `/plan` (read-only exploration) and `/act` (edits enabled) map to the existing permission system.
+- **Autonomous goal mode** — `/goal <description>` drives the agent to break down, execute, verify, and complete a goal end-to-end.
+- **`repo_map` tool** — lightweight repository map ranking the most-referenced source files with their top symbols, for fast orientation in large codebases.
+- **Recipes** — parametrized, reusable workflows from `.cowrangler/recipes/*.yaml`, run with `/recipe <name> key=value …`.
+- **Lifecycle hooks** — `.cowrangler/hooks.yaml` runs shell commands on `pre_tool_call` / `post_tool_call` / `session_start` / `session_end`.
+- **`apply_patch` tool** — apply multiple search/replace hunks to a file atomically in one call.
+- **More providers** — Mistral, DeepSeek, xAI (Grok), Together, Cerebras, Fireworks (`prefix/model`), alongside existing local models (Ollama/LM Studio/`local`).
+- **Fuzzy model search** in the model picker (subsequence matching).
+- **Prompt-injection scanner** (`src/core/context_security.ts`) sanitizes `COWRNGLR.md` and project memory before they're injected into the system prompt (strips hidden/zero-width characters, flags injection patterns).
+- **Desktop packaging targets** — Windows `msi`, Linux `deb` and `rpm` in addition to the existing installers.
+- **Image tools** — `generate_image` (OpenAI images / Google Imagen) and `analyze_image` (vision via OpenAI/OpenRouter/Anthropic) — synergistic with Design mode (asset generation, mockup→analysis).
+- **Custom providers** — `config.custom_providers` lets you add any OpenAI-compatible endpoint (`<prefix>/model`) without touching code.
+- **Long-term memory** — pluggable `MemoryProvider` interface (`src/core/memory_provider.ts`) + a dependency-free local recall backend that stores conversation turns and surfaces relevant past work each turn (`config.memory.recall: false` to disable).
+- **Remote/isolated execution** — `execute_bash` honors `config.terminal.backend`: `ssh` runs commands on a remote host (the host is the isolation boundary), `docker` runs them in the sandbox's Docker provider.
+- **Git worktrees** — `git_worktree` tool (create/list/remove) and a `spawn_subagent` `isolate: true` option that gives a sub-agent its own worktree so parallel/experimental work never touches the main tree.
+- **`cowrangler serve`** — run the agent as a local HTTP service (`GET /health`, `POST /chat`, `POST /reset`) with optional bearer-token auth, for desktop/SDK/script integration.
+- **Cron power features** — jobs now apply `context_from` (feed one job's output into another), `script` (pre-run data collection injected into the prompt), `provider` override, `workdir`, and `skills`.
+- **`/copy`** — copy the last assistant response to the clipboard via OSC 52 (works over SSH).
+- **Microbench eval harness** — `npm run bench` runs `scripts/microbench` against `cowrangler serve`, reporting pass rate and token totals per task.
+- **Design mode P0 tooling**:
+  - **Ahead-of-time esbuild-wasm compilation** for `jsx` screens (~10× faster than the previous in-iframe Babel-standalone path, adds TypeScript support); Babel is kept as an automatic fallback when esbuild-wasm can't initialize.
+  - **Click-to-edit element inspector** — click any element in a rendered screen to select it; the next chat message is pre-seeded with a reference to that exact element/selector.
+  - **WCAG AA accessibility scanner** — on-demand per-screen contrast and touch-target check, with an inline issue panel and a re-scan button.
+  - **Version history / checkpoints for design screens** — manual "Save" snapshots plus an automatic snapshot before every restore (`design:createCheckpoint` / `design:listCheckpoints` / `design:restoreCheckpoint`).
+  - **Mermaid diagrams** as a first-class screen kind alongside `html` / `jsx` / `svg`.
+- **Global chat right panel** — the projesiz "General Chat" now shows the same Progress + Context side panel project sessions get, including which skills/tools were used in that conversation (previously hidden entirely for global chat).
+- **Animated mascot loader** (`RobotLoader`) — a pixel-accurate loader generated from the real brand mark (`cw.png`'s own silhouette, sampled onto a 7px grid) replaces the plain spinner / "Thinking…" text as the chat "thinking" avatar and the Design mode thinking indicator: it scatters into pixels, reforms, and gives its legs a little step on every cycle.
+
+### Changed
+- **Chat tool allowlists tightened per surface** — General Chat now exposes only a lean, conversational tool set (`web_search`, `fetch_webpage`, `read_file`, `search_in_files`); Design chat gets a focused write/read/search/image/`ask_user` set (no `manage_task`, `spawn_subagent`, `execute_bash`, or git tools) with a 60-step budget (up from the default 25) so multi-screen requests don't get cut off mid-build.
+
+### Fixed
+- **`utilize_skill` no longer leaks across sessions** — a skill's SOP used to be copied into a project-wide context folder that got re-injected into *every* session for that project (and even the projesiz global chat) forever after one use. It's now scoped to the session/chat that invoked it (`.cowrangler/context/skills/<sessionId>/`), matching the existing per-session `tasks`/`plans` pattern. The `agent:chat` IPC handler is now the single authoritative place that syncs the active-session id, fixing General Chat and Design chat, which previously relied on a renderer-side call only project sessions made.
+- **Stream-stall watchdog** — if a provider's response stream goes idle mid-turn (network hiccup, provider-side stall) past `config.stream_idle_timeout_ms` / `COWRANGLER_STREAM_IDLE_TIMEOUT_MS` (default 120s), the request is aborted and retried instead of hanging the turn forever.
+- **`ask_user` auto-timeout** — a pending question now auto-resolves after 5 minutes (`COWRANGLER_ASK_USER_TIMEOUT_MS` to override, `0` to disable) so a turn can't hang indefinitely waiting on a prompt nobody answers.
+- **Design mode CDN failover** — React/ReactDOM/Babel/Tailwind/Mermaid now load from an ordered list of mirrors (unpkg → jsdelivr → cdnjs); a single mirror 404ing no longer blanks the whole screen.
+- **Design mode no-output nudge** — if the model ends its first turn describing a plan without writing any screen file, it gets one automatic follow-up nudge to start producing files instead of leaving the user with nothing.
+- **Subscription OAuth logins now work across CLI and desktop** — tokens saved via the desktop app used to be encrypted with Electron's OS-keychain `safeStorage`, which a plain-Node CLI process can never decrypt (even though both read the same `~/.cowrangler/secrets.json`), so a provider connected in the desktop app silently looked "not logged in" to the CLI. Subscription tokens are now always stored in the portable format both environments can read, and existing keychain-encrypted logins self-migrate automatically the next time the desktop app applies OAuth env (no re-login needed once that happens). `missingKeyHint()` also now points at `cowrangler login <provider>` for Anthropic/OpenAI/Copilot/Antigravity instead of only suggesting an API key.
+
+### Removed
+- **Kanban** — the entire Kanban board subsystem (`cowrangler kanban …` CLI, `manage_kanban` tool, dispatcher/daemon, web board, config, and log channel) has been removed. Session task tracking continues via `manage_task`. The CLI README's Kanban section and tool-table reference have been cleaned up to match.
+
+---
+
 ## [2.0.8] — 2026-06-30
 
 ### Added

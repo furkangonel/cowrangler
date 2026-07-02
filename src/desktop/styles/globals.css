@@ -337,6 +337,74 @@ textarea:focus, input:focus { outline: none; }
   100% { transform: translateY(0) scale(1, 1); }
 }
 
+/* ── Robot pixel loader ───────────────────────────────────────────────────
+   Marka maskotunun (cw.png) piksel-gridi siluetinden üretilir (bkz.
+   RobotLoader.tsx / robotCells.generated.ts). `--active` iken gövde piksel
+   piksel dağılıp karmaşa halinde hareket eder, tekrar toplanır; bacaklar
+   toplanma anlarında adım atar; gözler yumuşakça parlar. Yazı yok. */
+.robot-loader { display: inline-block; overflow: visible; }
+
+.robot-loader__px {
+  fill: var(--robot-color, #EC5A29);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.robot-loader__eye {
+  fill: #FFC69B;
+  opacity: 0.18;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.robot-loader__bob { transform-box: view-box; transform-origin: 90px 91px; }
+.robot-loader__part--leg-left { transform-box: view-box; transform-origin: 45px 119px; }
+.robot-loader__part--leg-right { transform-box: view-box; transform-origin: 137px 119px; }
+
+.robot-loader--active .robot-loader__bob { animation: robotBob 3.4s ease-in-out infinite; }
+.robot-loader--active .robot-loader__eye { animation: robotEyeGlow 3.4s ease-in-out infinite; }
+.robot-loader--active .robot-loader__px {
+  animation: robotScatter 3.4s cubic-bezier(.62, 0, .38, 1) infinite;
+  animation-delay: var(--dl);
+}
+.robot-loader--active .robot-loader__part--leg-left { animation: robotLegLeft 3.4s ease-in-out infinite; }
+.robot-loader--active .robot-loader__part--leg-right { animation: robotLegRight 3.4s ease-in-out infinite; }
+
+@keyframes robotBob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-3px); }
+}
+@keyframes robotEyeGlow {
+  0%, 100% { opacity: 0.15; }
+  45%      { opacity: 0.9; }
+  62%      { opacity: 0.3; }
+}
+@keyframes robotScatter {
+  0%, 12%   { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+  38%       { transform: translate(var(--dx), var(--dy)) rotate(var(--rot)); opacity: .78; }
+  50%       { transform: translate(calc(var(--dx) * 0.82), calc(var(--dy) * 0.82 - 4px)) rotate(calc(var(--rot) * -0.7)); opacity: .68; }
+  62%       { transform: translate(calc(var(--dx) * 0.4), calc(var(--dy) * 0.5)) rotate(calc(var(--rot) * 0.3)); opacity: .85; }
+  88%, 100% { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+}
+@keyframes robotLegLeft {
+  0%        { transform: rotate(0deg); }
+  4%        { transform: rotate(-8deg); }
+  8%        { transform: rotate(3deg); }
+  12%, 88%  { transform: rotate(0deg); }
+  92%       { transform: rotate(-6deg); }
+  96%       { transform: rotate(3deg); }
+  100%      { transform: rotate(0deg); }
+}
+@keyframes robotLegRight {
+  0%        { transform: rotate(0deg); }
+  4%        { transform: rotate(7deg); }
+  8%        { transform: rotate(-3deg); }
+  12%, 88%  { transform: rotate(0deg); }
+  92%       { transform: rotate(7deg); }
+  96%       { transform: rotate(-3deg); }
+  100%      { transform: rotate(0deg); }
+}
+
 /* ── Sidebar nav active bar ──────────────────────────────────────────────── */
 .nav-active-bar { position: relative; }
 .nav-active-bar::before {

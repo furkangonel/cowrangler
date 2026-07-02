@@ -624,17 +624,20 @@ export function missingKeyHint(missingKey: string): string {
         "API key is required for Google Gemini.\n" +
         "  /key set GOOGLE_GENERATIVE_AI_API_KEY AIza...\n" +
         "  Key: https://aistudio.google.com/app/apikey\n" +
-        "  To use via Vertex: vertex/gemini-2.0-flash  →  /key set VERTEX"
+        "  To use via Vertex: vertex/gemini-2.0-flash  →  /key set VERTEX\n" +
+        "  Or sign in with your Gemini subscription instead: cowrangler login gemini"
       );
     case "OPENAI_API_KEY":
       return (
         "API key is required for OpenAI models.\n" +
-        "  /key set OPENAI_API_KEY sk-..."
+        "  /key set OPENAI_API_KEY sk-...\n" +
+        "  Or sign in with ChatGPT Plus instead: cowrangler login openai"
       );
     case "ANTHROPIC_API_KEY":
       return (
         "API key is required for Anthropic models.\n" +
-        "  /key set ANTHROPIC_API_KEY sk-ant-..."
+        "  /key set ANTHROPIC_API_KEY sk-ant-...\n" +
+        "  Or sign in with Claude Pro/Max instead: cowrangler login anthropic"
       );
     case "GROQ_API_KEY":
       return (
@@ -652,7 +655,17 @@ export function missingKeyHint(missingKey: string): string {
         "  /key set GITHUB_TOKEN ghp_...\n" +
         "  If gh CLI exists: gh auth token  →  /key set GITHUB_TOKEN $(gh auth token)\n" +
         "  To create a token: https://github.com/settings/tokens\n" +
+        "  Or sign in with your Copilot subscription instead: cowrangler login copilot\n" +
         "  Interactive wizard: cowrangler setup"
+      );
+    case "ANTIGRAVITY_OAUTH":
+      return (
+        "No Antigravity subscription login found for THIS environment.\n" +
+        "  /login antigravity   (or: cowrangler login antigravity)\n" +
+        "  Already connected Antigravity in the desktop app? Older cowrangler builds\n" +
+        "  encrypted that login with the OS keychain, which only the desktop app can\n" +
+        "  read — the CLI couldn't see it. Reopening the desktop app once re-syncs it\n" +
+        "  for the CLI automatically from now on; or just log in here directly."
       );
     default:
       return `Missing configuration: ${missingKey}\n  /key set ${missingKey} <value>`;

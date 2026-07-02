@@ -1,0 +1,22 @@
+[
+  {
+    "id": "arithmetic",
+    "prompt": "What is 17 * 23? Reply with just the number.",
+    "verify": "391"
+  },
+  {
+    "id": "capital",
+    "prompt": "What is the capital of Japan? One word.",
+    "verify": "tokyo"
+  },
+  {
+    "id": "code-fix",
+    "prompt": "In JavaScript, how do you check if an array `a` is empty? Give the shortest expression.",
+    "verify": "a\\.length\\s*===?\\s*0|!a\\.length"
+  },
+  {
+    "id": "json",
+    "prompt": "Return a JSON object with keys name='cowrangler' and version=2. Only the JSON.",
+    "verify": "\"?name\"?\\s*:\\s*\"cowrangler\""
+  }
+]

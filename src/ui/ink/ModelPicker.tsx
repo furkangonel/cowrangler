@@ -101,15 +101,29 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
     return DEFAULT_SUGGESTIONS.map((s) => s.model);
   }, []);
 
-  // Filtrelenmiş liste
+  // Filtrelenmiş liste — fuzzy alt-dizi eşleşmesi (harfler sırayla geçerse eşleşir)
   const filtered = useMemo(() => {
     if (!filter) return allModels;
-    const q = filter.toLowerCase();
-    return allModels.filter(
-      (m) =>
-        m.toLowerCase().includes(q) ||
-        modelLabel(m).toLowerCase().includes(q),
-    );
+    const q = filter.toLowerCase().replace(/\s+/g, "");
+    const fuzzy = (text: string): boolean => {
+      const t = text.toLowerCase();
+      let i = 0;
+      for (const ch of q) {
+        i = t.indexOf(ch, i);
+        if (i === -1) return false;
+        i++;
+      }
+      return true;
+    };
+    const scored = allModels
+      .map((m) => {
+        const hay = `${m} ${modelLabel(m)}`;
+        const substr = hay.toLowerCase().includes(filter.toLowerCase());
+        return { m, ok: substr || fuzzy(hay), rank: substr ? 0 : 1 };
+      })
+      .filter((x) => x.ok)
+      .sort((a, b) => a.rank - b.rank);
+    return scored.map((x) => x.m);
   }, [allModels, filter]);
 
   // Seçili index'i filtre değişiminde sınırla

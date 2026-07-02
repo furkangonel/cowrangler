@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react'
 import {
   Square, ArrowUp, ArrowRight, Layers, Database, Code2, PenTool, X, Check, Pencil, Trash2,
   ChevronDown, Eye, PanelLeft, MessageSquare, Palette, Monitor, Smartphone, Tablet, FolderOpen, Download, HelpCircle,
-  SlidersHorizontal, RotateCcw,
+  SlidersHorizontal, RotateCcw, MousePointerClick, ShieldCheck, History, AlertTriangle, Clock,
 } from 'lucide-react'
 import { useDesignStore, DesignSystemRecord, DesignFrame, DesignTweak, DesignDevice, DesignActivity } from '../../stores/design.store'
 import { useSettingsStore } from '../../stores/settings.store'
@@ -10,6 +10,7 @@ import { DesignCanvas, isDeviceTemplate } from './DesignCanvas'
 import { buildSrcDoc, kindFromName } from './renderScreen'
 
 import { CopyButton } from '../shared/CopyButton'
+import { RobotLoader } from '../shared/RobotLoader'
 import { DesignTopBar } from './DesignTopBar'
 import { renderMarkdown } from '../../lib/markdown'
 import { ipc } from '../../lib/ipc'
@@ -30,6 +31,9 @@ export function DesignEditor({ onBack }: Props) {
     sendMessage, interruptChat, answerQa, clearChat, loadCanvas, loadHistory, switchSession, scanAndMergeScreens,
     renameProject, deleteProject, systems, loadSystems, setPending,
     tweaksOn, setTweaksOn, tweakValues, setTweakValue, resetTweaks, persistTweaks,
+    checkpoints, loadCheckpoints, saveCheckpoint, restoreCheckpoint,
+    inspectMode, setInspectMode, inspectorPick, setInspectorPick,
+    a11yResults, a11yRunning, requestA11y, clearA11y,
   } = useDesignStore()
   const startedRef = useRef<string | null>(null)
   const { savedModels, getModel } = useSettingsStore()
@@ -52,6 +56,8 @@ export function DesignEditor({ onBack }: Props) {
   const [dlMenu, setDlMenu] = useState<string | null>(null)
   const [deckMenu, setDeckMenu] = useState(false)
   const [historyMenuOpen, setHistoryMenuOpen] = useState(false)
+  const [versionsMenuOpen, setVersionsMenuOpen] = useState(false)
+  const [a11yPanelOpen, setA11yPanelOpen] = useState(false)
   const [toast, setToast] = useState<{ ok: boolean; msg: string; path?: string; busy?: boolean } | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -66,10 +72,30 @@ export function DesignEditor({ onBack }: Props) {
   useEffect(() => {
     if (!activeProject) return
     loadCanvas(activeProject.id)
+    loadCheckpoints(activeProject.id)
     // Restore prior conversation — unless the home screen queued a first message
     // to auto-send (a brand-new project has no history to load).
     if (!useDesignStore.getState().pendingMessage) loadHistory(activeProject.id)
   }, [activeProject?.id])
+
+  // A click in inspect mode drops a targeted reference into the composer so the
+  // next prompt is scoped to that element.
+  useEffect(() => {
+    if (!inspectorPick) return
+    const label = inspectorPick.text ? `"${inspectorPick.text}"` : `<${inspectorPick.tag}>`
+    const ref = `On ${inspectorPick.selector} (${label}), `
+    setInput(prev => (prev.startsWith(ref) ? prev : ref + prev))
+    setInspectMode(false)
+    setInspectorPick(null)
+    requestAnimationFrame(() => {
+      const el = textareaRef.current
+      if (!el) return
+      el.focus()
+      el.style.height = 'auto'
+      el.style.height = Math.min(el.scrollHeight, 168) + 'px'
+      el.style.overflowY = el.scrollHeight > 168 ? 'auto' : 'hidden'
+    })
+  }, [inspectorPick])
 
   // Auto-send the prompt typed on the home screen so generation starts on open.
   useEffect(() => {
@@ -188,18 +214,22 @@ export function DesignEditor({ onBack }: Props) {
     } catch (e: any) { showToast({ ok: false, msg: `Export failed — ${e?.message ?? e}` }) }
   }
 
+  // Grow the composer up to ~7 lines, then scroll. Line height (1.625) × 14px
+  // text-sm × 7 rows + vertical padding ≈ 168px.
+  const COMPOSER_MAX_H = 168
   const handleTextareaChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const el = e.target
     setInput(el.value)
     el.style.height = 'auto'
-    el.style.height = Math.min(el.scrollHeight, 160) + 'px'
+    el.style.height = Math.min(el.scrollHeight, COMPOSER_MAX_H) + 'px'
+    el.style.overflowY = el.scrollHeight > COMPOSER_MAX_H ? 'auto' : 'hidden'
   }, [])
 
   const handleSend = useCallback(async () => {
     const msg = input.trim()
     if (!msg || chatLoading) return
     setInput('')
-    if (textareaRef.current) textareaRef.current.style.height = 'auto'
+    if (textareaRef.current) { textareaRef.current.style.height = 'auto'; textareaRef.current.style.overflowY = 'hidden' }
     await sendMessage(msg, effectiveModel)
   }, [input, chatLoading, effectiveModel, sendMessage])
 
@@ -363,8 +393,8 @@ export function DesignEditor({ onBack }: Props) {
                   placeholder="Describe what you want to create…"
                   rows={1}
                   disabled={chatLoading}
-                  className="w-full resize-none bg-transparent outline-none text-sm leading-relaxed px-1.5 pt-1 overflow-y-auto"
-                  style={{ color: 'var(--d-ink)', maxHeight: 160, minHeight: 28 }}
+                  className="w-full resize-none bg-transparent outline-none text-sm leading-relaxed px-1.5 pt-1"
+                  style={{ color: 'var(--d-ink)', maxHeight: 168, minHeight: 28, overflowY: 'hidden' }}
                 />
                 <div className="flex items-center justify-end pt-1.5">
                   <div className="flex items-center gap-2">
@@ -447,6 +477,97 @@ export function DesignEditor({ onBack }: Props) {
                <button onClick={() => setViewMode('preview')} className="px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1" style={{ background: viewMode === 'preview' ? '#fff' : 'transparent', boxShadow: viewMode === 'preview' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none', color: 'var(--d-ink)' }}><Eye size={12}/> Preview</button>
                <button onClick={() => setViewMode('code')} className="px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1" style={{ background: viewMode === 'code' ? '#fff' : 'transparent', boxShadow: viewMode === 'code' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none', color: 'var(--d-ink)' }}><Code2 size={12}/> Code</button>
             </div>
+
+            {/* Inspect — click an element on the canvas to target it in the next prompt. */}
+            {frames.length > 0 && (
+              <button onClick={() => setInspectMode(!inspectMode)} className="ml-2 flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors"
+                style={{ background: inspectMode ? 'var(--d-clay-wash)' : 'transparent', color: inspectMode ? 'var(--d-clay)' : 'var(--d-ink-soft)', border: `1px solid ${inspectMode ? 'var(--d-clay)' : 'var(--d-line)'}` }}
+                title="Click an element on the canvas to target it in your next prompt">
+                <MousePointerClick size={13} /> Inspect
+              </button>
+            )}
+
+            {/* Accessibility — run a WCAG AA contrast + touch-target scan on the active screen. */}
+            {frames.length > 0 && (
+              <div className="relative ml-2">
+                {(() => {
+                  const issues = activeFilePath ? (a11yResults[activeFilePath] ?? null) : null
+                  const errs = issues?.filter(i => i.severity === 'error').length ?? 0
+                  const warns = issues?.filter(i => i.severity === 'warn').length ?? 0
+                  const clean = issues != null && issues.length === 0
+                  return (
+                    <button
+                      onClick={() => { if (!activeFilePath) return; if (issues) setA11yPanelOpen(o => !o); else { requestA11y(activeFilePath); setA11yPanelOpen(true) } }}
+                      disabled={a11yRunning}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors disabled:opacity-60"
+                      style={{ background: a11yPanelOpen ? 'var(--d-clay-wash)' : 'transparent', color: errs ? '#c0392b' : clean ? '#2e7d5b' : 'var(--d-ink-soft)', border: '1px solid var(--d-line)' }}
+                      title="Check accessibility (WCAG AA contrast + touch targets)">
+                      <ShieldCheck size={13} /> {a11yRunning ? 'Checking…' : issues ? (issues.length ? `${errs + warns} issue${errs + warns > 1 ? 's' : ''}` : 'A11y OK') : 'A11y'}
+                    </button>
+                  )
+                })()}
+                {a11yPanelOpen && activeFilePath && (
+                  <>
+                    <div className="fixed inset-0 z-30" onClick={() => setA11yPanelOpen(false)} />
+                    <div className="absolute right-0 top-full mt-1 z-40 rounded-xl overflow-hidden design-elev-lg w-80 max-h-80 overflow-y-auto" style={{ background: 'var(--d-surface)', border: '1px solid var(--d-line)' }}>
+                      <div className="flex items-center gap-2 px-3 py-2 sticky top-0" style={{ background: 'var(--d-cream-2)', borderBottom: '1px solid var(--d-line)' }}>
+                        <ShieldCheck size={13} style={{ color: 'var(--d-clay)' }} />
+                        <span className="text-xs font-bold" style={{ color: 'var(--d-ink)' }}>Accessibility</span>
+                        <button onClick={() => { clearA11y(activeFilePath); requestA11y(activeFilePath) }} className="ml-auto text-xs px-1.5 py-0.5 rounded hover:bg-black/5" style={{ color: 'var(--d-ink-muted)' }} title="Re-scan"><RotateCcw size={11} /></button>
+                      </div>
+                      {(() => {
+                        const issues = a11yResults[activeFilePath] ?? []
+                        if (a11yRunning) return <p className="px-3 py-3 text-xs italic" style={{ color: 'var(--d-ink-faint)' }}>Scanning…</p>
+                        if (issues.length === 0) return <p className="px-3 py-3 text-xs" style={{ color: '#2e7d5b' }}>No contrast or touch-target issues found. ✓</p>
+                        return issues.map((it, i) => (
+                          <div key={i} className="flex items-start gap-2 px-3 py-2 border-b" style={{ borderColor: 'var(--d-line)' }}>
+                            <AlertTriangle size={12} className="mt-0.5 flex-shrink-0" style={{ color: it.severity === 'error' ? '#c0392b' : '#c1693f' }} />
+                            <div className="min-w-0">
+                              <p className="text-xs leading-snug" style={{ color: 'var(--d-ink-soft)' }}>{it.detail}</p>
+                              <code className="text-[10px] truncate block" style={{ color: 'var(--d-ink-faint)' }}>{it.selector}</code>
+                            </div>
+                          </div>
+                        ))
+                      })()}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Versions — restore a snapshot taken before an agent edit. */}
+            {frames.length > 0 && (
+              <div className="relative ml-2">
+                <button onClick={() => { setVersionsMenuOpen(o => !o); if (activeProject) loadCheckpoints(activeProject.id) }} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors hover:bg-black/5" style={{ color: 'var(--d-ink-soft)', border: '1px solid var(--d-line)' }} title="Version history">
+                  <History size={13} /> Versions <ChevronDown size={11} />
+                </button>
+                {versionsMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-30" onClick={() => setVersionsMenuOpen(false)} />
+                    <div className="absolute right-0 top-full mt-1 z-40 rounded-xl overflow-hidden design-elev-lg w-72 max-h-80 overflow-y-auto" style={{ background: 'var(--d-surface)', border: '1px solid var(--d-line)' }}>
+                      <div className="flex items-center gap-2 px-3 py-2 sticky top-0" style={{ background: 'var(--d-cream-2)', borderBottom: '1px solid var(--d-line)' }}>
+                        <History size={13} style={{ color: 'var(--d-clay)' }} />
+                        <span className="text-xs font-bold" style={{ color: 'var(--d-ink)' }}>Version history</span>
+                        <button onClick={() => { if (activeProject) saveCheckpoint(activeProject.id, 'Saved version', false) }} className="ml-auto text-xs px-1.5 py-0.5 rounded hover:bg-black/5 font-medium" style={{ color: 'var(--d-clay)' }} title="Save current state">+ Save</button>
+                      </div>
+                      {checkpoints.length === 0 ? (
+                        <p className="px-3 py-3 text-xs italic" style={{ color: 'var(--d-ink-faint)' }}>No saved versions yet</p>
+                      ) : checkpoints.map(cp => (
+                        <div key={cp.id} className="flex items-center gap-2 px-3 py-2 border-b group" style={{ borderColor: 'var(--d-line)' }}>
+                          <Clock size={11} className="flex-shrink-0" style={{ color: 'var(--d-ink-faint)' }} />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-medium truncate" style={{ color: 'var(--d-ink-soft)' }}>{cp.label}</p>
+                            <span className="text-[10px]" style={{ color: 'var(--d-ink-faint)' }}>{new Date(cp.createdAt).toLocaleString()} · {cp.fileCount} file{cp.fileCount !== 1 ? 's' : ''}{cp.auto ? ' · auto' : ''}</span>
+                          </div>
+                          <button onClick={async () => { if (activeProject && confirm('Restore this version? Current screens are snapshotted first.')) { await restoreCheckpoint(activeProject.id, cp.id); setVersionsMenuOpen(false) } }} className="flex-shrink-0 text-xs px-2 py-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity" style={{ background: 'var(--d-clay-wash)', color: 'var(--d-clay)' }}>Restore</button>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
             <div className="flex-1" />
             {frames.length > 1 && (
               <div className="relative">
@@ -773,18 +894,10 @@ function ActivityFeed({ items, live }: { items: DesignActivity[]; live: boolean 
   )
 }
 
-const THINKING_VERBS = ['Thinking', 'Sketching', 'Composing', 'Shaping', 'Refining', 'Considering layout', 'Choosing type', 'Picking palette']
 function ThinkingPulse() {
-  const [i, setI] = useState(0)
-  useEffect(() => { const t = setInterval(() => setI(v => (v + 1) % THINKING_VERBS.length), 1600); return () => clearInterval(t) }, [])
   return (
-    <div className="flex items-center gap-2.5 pb-1">
-      <span className="flex items-center gap-1">
-        <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: 'var(--d-clay)', animationDelay: '0ms' }} />
-        <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: 'var(--d-clay)', animationDelay: '150ms' }} />
-        <span className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ background: 'var(--d-clay)', animationDelay: '300ms' }} />
-      </span>
-      <span className="text-[11px] font-semibold tracking-wide transition-opacity" style={{ color: 'var(--d-clay)' }}>{THINKING_VERBS[i]}…</span>
+    <div className="flex items-center pb-1">
+      <RobotLoader size={30} active color="var(--d-clay)" />
     </div>
   )
 }

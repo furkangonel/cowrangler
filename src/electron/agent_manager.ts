@@ -32,13 +32,20 @@ export class AgentManager {
    */
   getOrCreate(
     projectId: string,
-    config: { model: string; systemPrompt: string },
+    config: { model: string; systemPrompt: string; allowedTools?: string[]; maxIterations?: number },
     workdir?: string,
   ): Agent {
     if (!this.agents.has(projectId)) {
       const llm = new LLM(config.model)
-      const agent = new Agent(llm, config.systemPrompt, 25, undefined, 'desktop')
+      const agent = new Agent(llm, config.systemPrompt, config.maxIterations ?? 25, config.allowedTools, 'desktop')
       this.agents.set(projectId, agent)
+    } else {
+      const existing = this.agents.get(projectId)!
+      if (config.allowedTools !== undefined) {
+        // Keep tool scope in sync for a cached agent (e.g. chat vs session mode).
+        existing.setAllowedTools(config.allowedTools)
+      }
+      if (config.maxIterations !== undefined) existing.maxIterations = config.maxIterations
     }
     if (workdir) this.workdirs.set(projectId, workdir)
     return this.agents.get(projectId)!
@@ -47,7 +54,7 @@ export class AgentManager {
   /** Agent'ı yeniden oluştur (model/instructions değişti) */
   recreate(
     projectId: string,
-    config: { model: string; systemPrompt: string },
+    config: { model: string; systemPrompt: string; allowedTools?: string[]; maxIterations?: number },
     workdir?: string,
   ): Agent {
     this.destroy(projectId)

@@ -16,6 +16,8 @@ import "./file_tools.js";
 import "./web_tools.js";
 import "./skill_tools.js";
 import "./dev_tools.js";
+import "./repomap_tool.js";
+import "./media_tools.js";
 import "./brief_tool.js";
 import "./computer_use.js";
 import "./mcp_status_tool.js";

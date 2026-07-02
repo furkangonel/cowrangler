@@ -3,6 +3,17 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createVertex } from "@ai-sdk/google-vertex";
 import { LanguageModelV1 } from "ai";
+import { getConfig } from "./init.js";
+import { makeCloudCodeModel, resolveCloudCodeCreds } from "./google_cloudcode.js";
+
+/** config.custom_providers — koda dokunmadan OpenAI-uyumlu sağlayıcı ekleme. */
+interface CustomProviderCfg { base_url: string; api_key_env?: string; headers?: Record<string, string>; }
+function getCustomProviders(): Record<string, CustomProviderCfg> {
+  try {
+    const cp = (getConfig() as any)?.custom_providers;
+    return cp && typeof cp === "object" ? cp : {};
+  } catch { return {}; }
+}
 
 export class LLM {
   public model: string;
@@ -51,18 +62,23 @@ export class LLM {
     // ── provider/model_name format (örn: anthropic/claude-sonnet-4-6) ──────
     // eski kısa prefix'ler (claude-*, gpt-*) hâlâ çalışır.
     if (modelName.startsWith("anthropic/")) {
-      if (!process.env.ANTHROPIC_API_KEY)
+      if (!process.env.ANTHROPIC_API_KEY && !process.env.COWRANGLER_OAUTH_ANTHROPIC)
         throw new Error("MISSING_KEY:ANTHROPIC_API_KEY");
       return;
     }
     if (modelName.startsWith("openai/")) {
-      if (!process.env.OPENAI_API_KEY)
+      if (!process.env.OPENAI_API_KEY && !process.env.COWRANGLER_OAUTH_OPENAI)
         throw new Error("MISSING_KEY:OPENAI_API_KEY");
       return;
     }
     if (modelName.startsWith("google/")) {
-      if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY)
+      if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY && !process.env.COWRANGLER_OAUTH_GEMINI && !process.env.COWRANGLER_OAUTH_ANTIGRAVITY)
         throw new Error("MISSING_KEY:GOOGLE_GENERATIVE_AI_API_KEY");
+      return;
+    }
+    if (modelName.startsWith("antigravity/")) {
+      if (!process.env.COWRANGLER_OAUTH_ANTIGRAVITY)
+        throw new Error("MISSING_KEY:ANTIGRAVITY_OAUTH");
       return;
     }
 
@@ -73,26 +89,23 @@ export class LLM {
       modelName.startsWith("o3-") ||
       modelName.startsWith("o4-")
     ) {
-      if (!process.env.OPENAI_API_KEY)
+      if (!process.env.OPENAI_API_KEY && !process.env.COWRANGLER_OAUTH_OPENAI)
         throw new Error("MISSING_KEY:OPENAI_API_KEY");
     } else if (modelName.startsWith("claude-")) {
-      if (!process.env.ANTHROPIC_API_KEY)
+      if (!process.env.ANTHROPIC_API_KEY && !process.env.COWRANGLER_OAUTH_ANTHROPIC)
         throw new Error("MISSING_KEY:ANTHROPIC_API_KEY");
     } else if (modelName.startsWith("gemini-")) {
-      if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY)
+      if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY && !process.env.COWRANGLER_OAUTH_GEMINI && !process.env.COWRANGLER_OAUTH_ANTIGRAVITY)
         throw new Error("MISSING_KEY:GOOGLE_GENERATIVE_AI_API_KEY");
     } else if (modelName.startsWith("vertex/")) {
       if (!process.env.GOOGLE_VERTEX_PROJECT)
         throw new Error("MISSING_KEY:GOOGLE_VERTEX_PROJECT");
     } else if (modelName.startsWith("copilot/")) {
-      if (!process.env.GITHUB_TOKEN)
+      if (!process.env.GITHUB_TOKEN && !process.env.COWRANGLER_OAUTH_COPILOT)
         throw new Error("MISSING_KEY:GITHUB_TOKEN");
     } else if (modelName.startsWith("groq/")) {
       if (!process.env.GROQ_API_KEY)
         throw new Error("MISSING_KEY:GROQ_API_KEY");
-    } else if (modelName.startsWith("openrouter/") || modelName.includes("/")) {
-      if (!process.env.OPENROUTER_API_KEY)
-        throw new Error("MISSING_KEY:OPENROUTER_API_KEY");
     } else if (
       modelName.startsWith("ollama/") ||
       modelName.startsWith("lmstudio/") ||
@@ -100,6 +113,26 @@ export class LLM {
     ) {
       // Yerel modeller API key gerektirmez.
       return;
+    } else if (
+      modelName.startsWith("mistral/") ||
+      modelName.startsWith("deepseek/") ||
+      modelName.startsWith("xai/") ||
+      modelName.startsWith("together/") ||
+      modelName.startsWith("cerebras/") ||
+      modelName.startsWith("fireworks/")
+    ) {
+      const envKey: Record<string, string> = {
+        "mistral": "MISTRAL_API_KEY", "deepseek": "DEEPSEEK_API_KEY", "xai": "XAI_API_KEY",
+        "together": "TOGETHER_API_KEY", "cerebras": "CEREBRAS_API_KEY", "fireworks": "FIREWORKS_API_KEY",
+      };
+      const prov = modelName.split("/")[0];
+      if (!process.env[envKey[prov]]) throw new Error(`MISSING_KEY:${envKey[prov]}`);
+    } else if (getCustomProviders()[modelName.split("/")[0]]?.base_url && modelName.includes("/")) {
+      const cfg = getCustomProviders()[modelName.split("/")[0]];
+      if (cfg.api_key_env && !process.env[cfg.api_key_env]) throw new Error(`MISSING_KEY:${cfg.api_key_env}`);
+    } else if (modelName.startsWith("openrouter/") || modelName.includes("/")) {
+      if (!process.env.OPENROUTER_API_KEY)
+        throw new Error("MISSING_KEY:OPENROUTER_API_KEY");
     } else if (!modelName.includes("/")) {
       throw new Error(`UNSUPPORTED_MODEL:${modelName}`);
     }
@@ -110,30 +143,73 @@ export class LLM {
    * Lazy + fresh: /key set sonrası bir sonraki mesajda otomatik yansır.
    */
 
+  // ── OAuth-farkında sağlayıcı üreticileri ────────────────────────────────
+  // API key yoksa fakat abonelik OAuth token'ı varsa (applyOAuthEnv tarafından
+  // COWRANGLER_OAUTH_* env'lerine yerleştirilir) onu kullanır.
+  private _makeAnthropic(modelId: string): LanguageModelV1 {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const oauth = process.env.COWRANGLER_OAUTH_ANTHROPIC;
+    if (!apiKey && !oauth) throw new Error("MISSING_KEY:ANTHROPIC_API_KEY");
+    const anthropic = createAnthropic(
+      apiKey
+        ? { apiKey }
+        : {
+            apiKey: "",
+            headers: {
+              authorization: `Bearer ${oauth}`,
+              "anthropic-beta": "oauth-2025-04-20",
+            },
+          },
+    );
+    return anthropic(modelId);
+  }
+
+  private _makeOpenAI(modelId: string): LanguageModelV1 {
+    const apiKey = process.env.OPENAI_API_KEY || process.env.COWRANGLER_OAUTH_OPENAI;
+    if (!apiKey) throw new Error("MISSING_KEY:OPENAI_API_KEY");
+    const headers: Record<string, string> = {};
+    if (!process.env.OPENAI_API_KEY && process.env.COWRANGLER_OAUTH_OPENAI_ACCOUNT)
+      headers["chatgpt-account-id"] = process.env.COWRANGLER_OAUTH_OPENAI_ACCOUNT;
+    const openai = createOpenAI({ apiKey, ...(Object.keys(headers).length ? { headers } : {}) });
+    return openai(modelId);
+  }
+
+  private _makeGoogle(modelId: string): LanguageModelV1 {
+    // Real API key → standard generativelanguage API.
+    const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+    if (apiKey) {
+      const google = createGoogleGenerativeAI({ apiKey });
+      return google(modelId);
+    }
+    // Otherwise route through Cloud Code Assist using a subscription OAuth token
+    // (Gemini-CLI preferred; Antigravity as fallback).
+    const cc = resolveCloudCodeCreds(false);
+    if (cc) return makeCloudCodeModel({ variant: cc.variant, modelId, token: cc.token, projectId: cc.projectId });
+    throw new Error("MISSING_KEY:GOOGLE_GENERATIVE_AI_API_KEY");
+  }
+
+  private _makeAntigravity(modelId: string): LanguageModelV1 {
+    const token = process.env.COWRANGLER_OAUTH_ANTIGRAVITY;
+    const projectId = process.env.COWRANGLER_OAUTH_ANTIGRAVITY_PROJECT;
+    if (!token) throw new Error("MISSING_KEY:ANTIGRAVITY_OAUTH");
+    if (!projectId) throw new Error("MISSING_KEY:ANTIGRAVITY_PROJECT");
+    return makeCloudCodeModel({ variant: "antigravity", modelId, token, projectId });
+  }
+
   private resolveProvider(modelName: string): LanguageModelV1 {
     // 0. PROVIDER/MODEL_NAME FORMAT (eg. anthropic/claude-sonnet-4-6)
     // Uzun format kısa prefix'lerden önce kontrol edilir.
     if (modelName.startsWith("anthropic/")) {
-      if (!process.env.ANTHROPIC_API_KEY)
-        throw new Error("MISSING_KEY:ANTHROPIC_API_KEY");
-      const anthropic = createAnthropic({
-        apiKey: process.env.ANTHROPIC_API_KEY,
-      });
-      return anthropic(modelName.slice("anthropic/".length));
+      return this._makeAnthropic(modelName.slice("anthropic/".length));
     }
     if (modelName.startsWith("openai/")) {
-      if (!process.env.OPENAI_API_KEY)
-        throw new Error("MISSING_KEY:OPENAI_API_KEY");
-      const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY });
-      return openai(modelName.slice("openai/".length));
+      return this._makeOpenAI(modelName.slice("openai/".length));
     }
     if (modelName.startsWith("google/")) {
-      if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY)
-        throw new Error("MISSING_KEY:GOOGLE_GENERATIVE_AI_API_KEY");
-      const google = createGoogleGenerativeAI({
-        apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
-      });
-      return google(modelName.slice("google/".length));
+      return this._makeGoogle(modelName.slice("google/".length));
+    }
+    if (modelName.startsWith("antigravity/")) {
+      return this._makeAntigravity(modelName.slice("antigravity/".length));
     }
 
     // 1. OFFICIAL OPENAI KONTROLÜ (gpt-..., o1-..., o3-..., o4-...)
@@ -143,33 +219,20 @@ export class LLM {
       modelName.startsWith("o3-") ||
       modelName.startsWith("o4-")
     ) {
-      if (!process.env.OPENAI_API_KEY)
-        throw new Error("MISSING_KEY:OPENAI_API_KEY");
-      const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY });
-      return openai(modelName);
+      return this._makeOpenAI(modelName);
     }
 
     // 2. OFFICIAL ANTHROPIC KONTROLÜ (claude-...)
     // @ai-sdk/anthropic 1.2+ → cacheControl varsayılan açık, thinking ayrıca
     // generateText providerOptions üzerinden aktarılır (model-level değil).
     if (modelName.startsWith("claude-")) {
-      if (!process.env.ANTHROPIC_API_KEY)
-        throw new Error("MISSING_KEY:ANTHROPIC_API_KEY");
-      const anthropic = createAnthropic({
-        apiKey: process.env.ANTHROPIC_API_KEY,
-      });
-      return anthropic(modelName);
+      return this._makeAnthropic(modelName);
     }
 
     // 3. OFFICIAL GOOGLE GEMINI KONTROLÜ (gemini-...)
 
     if (modelName.startsWith("gemini-")) {
-      if (!process.env.GOOGLE_GENERATIVE_AI_API_KEY)
-        throw new Error("MISSING_KEY:GOOGLE_GENERATIVE_AI_API_KEY");
-      const google = createGoogleGenerativeAI({
-        apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
-      });
-      return google(modelName);
+      return this._makeGoogle(modelName);
     }
 
     // 4. GOOGLE VERTEX AI KONTROLÜ (vertex/...)
@@ -206,11 +269,29 @@ export class LLM {
     // GITHUB_TOKEN ile api.githubcopilot.com üzerinden OpenAI-uyumlu API.
     // Abonelik gerektiren modeller: gpt-4o, claude-3.5-sonnet, gemini-2.0-flash, o3-mini...
     if (modelName.startsWith("copilot/")) {
-      if (!process.env.GITHUB_TOKEN)
-        throw new Error("MISSING_KEY:GITHUB_TOKEN");
+      const copilotKey = process.env.GITHUB_TOKEN || process.env.COWRANGLER_OAUTH_COPILOT;
+      if (!copilotKey) throw new Error("MISSING_KEY:GITHUB_TOKEN");
+      const oauthCopilot = process.env.COWRANGLER_OAUTH_COPILOT && !process.env.GITHUB_TOKEN;
+      // caveman parity: derive the API base from the token's proxy-ep
+      // (tid=…;proxy-ep=proxy.individual.githubcopilot.com;…) and send the
+      // Copilot editor headers the backend expects.
+      const baseFromToken = (() => {
+        const m = process.env.COWRANGLER_OAUTH_COPILOT?.match(/proxy-ep=([^;]+)/);
+        return m ? `https://${m[1].replace(/^proxy\./, "api.")}` : null;
+      })();
       const copilot = createOpenAI({
-        apiKey: process.env.GITHUB_TOKEN,
-        baseURL: "https://models.inference.ai.azure.com",
+        apiKey: copilotKey,
+        baseURL: oauthCopilot
+          ? (baseFromToken ?? "https://api.individual.githubcopilot.com")
+          : "https://models.inference.ai.azure.com",
+        headers: oauthCopilot
+          ? {
+              "User-Agent": "GitHubCopilotChat/0.35.0",
+              "Editor-Version": "vscode/1.107.0",
+              "Editor-Plugin-Version": "copilot-chat/0.35.0",
+              "Copilot-Integration-Id": "vscode-chat",
+            }
+          : undefined,
       });
       return copilot(modelName.slice("copilot/".length));
     }
@@ -227,8 +308,28 @@ export class LLM {
         baseURL: "https://api.groq.com/openai/v1",
       });
       return groq(modelName.replace("groq/", ""));
-    } 
-    
+    }
+
+    // 6b. OPENAI-UYUMLU SAĞLAYICILAR (mistral/, deepseek/, xai/, together/, cerebras/, fireworks/)
+    {
+      const compat: Record<string, { env: string; baseURL: string }> = {
+        "mistral/":   { env: "MISTRAL_API_KEY",   baseURL: "https://api.mistral.ai/v1" },
+        "deepseek/":  { env: "DEEPSEEK_API_KEY",  baseURL: "https://api.deepseek.com/v1" },
+        "xai/":       { env: "XAI_API_KEY",       baseURL: "https://api.x.ai/v1" },
+        "together/":  { env: "TOGETHER_API_KEY",  baseURL: "https://api.together.xyz/v1" },
+        "cerebras/":  { env: "CEREBRAS_API_KEY",  baseURL: "https://api.cerebras.ai/v1" },
+        "fireworks/": { env: "FIREWORKS_API_KEY", baseURL: "https://api.fireworks.ai/inference/v1" },
+      };
+      for (const [prefix, cfg] of Object.entries(compat)) {
+        if (modelName.startsWith(prefix)) {
+          const key = process.env[cfg.env];
+          if (!key) throw new Error(`MISSING_KEY:${cfg.env}`);
+          const client = createOpenAI({ apiKey: key, baseURL: cfg.baseURL });
+          return client(modelName.slice(prefix.length));
+        }
+      }
+    }
+
     // 7. YEREL MODELLER (ollama/, lmstudio/, local/)
     if (modelName.startsWith("ollama/")) {
       const ollama = createOpenAI({
@@ -252,6 +353,23 @@ export class LLM {
       return local(modelName.replace("local/", ""));
     }
     
+    // 7b. CUSTOM PROVIDERS (config.custom_providers) — <prefix>/model
+    {
+      const custom = getCustomProviders();
+      const prefix = modelName.split("/")[0];
+      const cfg = custom[prefix];
+      if (cfg?.base_url && modelName.includes("/")) {
+        const key = cfg.api_key_env ? process.env[cfg.api_key_env] : undefined;
+        if (cfg.api_key_env && !key) throw new Error(`MISSING_KEY:${cfg.api_key_env}`);
+        const client = createOpenAI({
+          apiKey: key ?? "custom",
+          baseURL: cfg.base_url,
+          ...(cfg.headers ? { headers: cfg.headers } : {}),
+        });
+        return client(modelName.slice(prefix.length + 1));
+      }
+    }
+
     // 8. OPENROUTER KONTROLÜ (openrouter/ öneki veya provider/model formatı)
     // Bu kural en sona gelir çünkü '/' içeren tüm tanımsız modelleri yakalar.
     // vertex/, groq/ gibi özel önekler yukarıda zaten işlenmiş olur.

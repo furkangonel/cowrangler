@@ -79,37 +79,6 @@ cowrangler model
 cowrangler config
 ```
 
-### Kanban Board Commands
-
-Cowrangler includes a persistent project-level Kanban board to manage tasks:
-
-```bash
-# List all kanban tasks in the terminal
-cowrangler kanban list
-
-# Create a new kanban task
-cowrangler kanban create --title "Implement Auth" --priority high --tags "api,auth"
-
-# Inspect task details, comments, and blockers
-cowrangler kanban show <task-id>
-
-# Complete, block, or comment on tasks
-cowrangler kanban complete <task-id>
-cowrangler kanban block <task-id> "Missing API keys"
-cowrangler kanban comment <task-id> "Working on layout"
-
-# Launch the visual web UI dashboard on http://localhost:4242
-cowrangler kanban board
-
-# Run the dispatcher in the foreground to process pending tasks automatically
-cowrangler kanban dispatch
-
-# Manage the background kanban runner daemon
-cowrangler kanban daemon start
-cowrangler kanban daemon stop
-cowrangler kanban daemon status
-```
-
 ### MCP Connector Commands
 
 Connect any Model Context Protocol (MCP) server:
@@ -155,7 +124,7 @@ The agent is equipped with over 25 built-in tools to act on your workspace:
 | **File System** | `read_file`, `write_file`, `edit_file`, `list_files`, `glob_files`, `search_in_files`, `copy_file`, `move_item`, `delete_file`, `file_info`, `append_to_file` |
 | **Git** | `git_status`, `git_diff`, `git_log`, `git_add`, `git_commit`, `git_branch`, `git_stash`, `git_checkout_file` |
 | **Web** | `fetch_webpage`, `web_search`, `http_request` |
-| **System** | `execute_bash`, `get_system_info`, `which_command`, `sleep`, `notify`, `manage_task`, `manage_kanban` |
+| **System** | `execute_bash`, `get_system_info`, `which_command`, `sleep`, `notify`, `manage_task` |
 | **Agent** | `spawn_subagent`, `spawn_subagent_parallel`, `utilize_skill`, `create_skill`, `list_skills` |
 | **Desktop** | `computer_use` — macOS background automation (clicks, keyboard strokes, capture) |
 
