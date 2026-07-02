@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { AssistantMessage } from "./AssistantMessage";
 import { ToolGroup } from "./ToolGroup";
-import { Octopus } from "../shared/Octopus";
+import { RobotLoader } from "../shared/RobotLoader";
 import { CopyButton } from "../shared/CopyButton";
 import { TimelineSegment } from "../../stores/agent.store";
 import { Brain, ChevronDown, ChevronRight } from "lucide-react";
@@ -76,7 +76,7 @@ export function MessageBubble({ message, timeline, isLast = false }: Props) {
       <div className="flex gap-3 animate-fade-in">
         {/* Avatar — her mesajda, alt (son satır) hizalı. */}
         <div className="flex-shrink-0 w-8 flex justify-center self-end mb-1">
-          {isLast && <Octopus size={26} />}
+          {isLast && <RobotLoader size={26} active={!!message.isStreaming} />}
         </div>
 
         <div className="flex-1 min-w-0 flex flex-col gap-2 group">

@@ -82,7 +82,18 @@ export function getProjectContextDir(): string {
   return path.join(_workdir, '.cowrangler', 'context')
 }
 
-/** CONTEXT'e kopyalanmış SKILL'lerin dizini ({workdir}/.cowrangler/context/skills) */
-export function getProjectContextSkillsDir(): string {
-  return path.join(getProjectContextDir(), 'skills')
+/**
+ * CONTEXT'e kopyalanmış SKILL'lerin dizini
+ * ({workdir}/.cowrangler/context/skills/<sessionId>).
+ *
+ * SESSION-SCOPED — tasks/plans ile aynı desen (bkz. getProjectTasksDir /
+ * getProjectPlanFile). Bir skill `utilize_skill` ile çağrıldığında yalnızca
+ * ÇAĞRILDIĞI session/chat'in klasörüne kopyalanır; başka session'lara veya
+ * proje genelindeki her sohbete sızmaz. Önceden sessionId'siz, proje-geneli
+ * tek bir dizindi — bu da bir skill bir kez kullanılınca projenin TÜM
+ * session'larında (hatta global chat'te) kalıcı aktif kalmasına yol açıyordu.
+ */
+export function getProjectContextSkillsDir(sessionId?: string): string {
+  const sid = sessionId ?? _activeSessionId ?? "default"
+  return path.join(getProjectContextDir(), 'skills', sid)
 }

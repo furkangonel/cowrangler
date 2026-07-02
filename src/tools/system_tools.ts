@@ -185,6 +185,28 @@ Use execute_bash only when necessary. Prefer purpose-built tools (git_*, file_*)
       return `${riskBadge(permResult.riskLevel)} BLOCKED: ${permResult.reason}`;
     }
 
+    // ── SSH backend — komutu uzak sunucuda çalıştır (yerel izolasyon atlanır;
+    //    uzak host izolasyon görevi görür). config.terminal.backend: "ssh".
+    const backend = (config as any).terminal?.backend ?? "local";
+    if (backend === "ssh") {
+      const ssh = (config as any).terminal?.ssh ?? {};
+      if (!ssh.host) return "ERROR: terminal.backend is 'ssh' but terminal.ssh.host is not set in config.";
+      const { execFile } = await import("child_process");
+      const remoteCwd = ssh.remote_workdir ? `cd ${JSON.stringify(ssh.remote_workdir)} && ` : "";
+      const sshArgs: string[] = [];
+      if (ssh.port) sshArgs.push("-p", String(ssh.port));
+      if (ssh.identity_file) sshArgs.push("-i", ssh.identity_file);
+      if (Array.isArray(ssh.options)) for (const o of ssh.options) sshArgs.push("-o", o);
+      sshArgs.push(ssh.host, `${remoteCwd}${command}`);
+      return await new Promise<string>((resolve) => {
+        execFile("ssh", sshArgs, { timeout, maxBuffer: 512 * 1024 }, (err, stdout, stderr) => {
+          const out = (stdout || "") + (stderr ? `\n${stderr}` : "");
+          if (err && !out.trim()) resolve(`ERROR (ssh): ${err.message}`);
+          else resolve(out || "Command succeeded with no output.");
+        });
+      });
+    }
+
     // ── Configure sandbox from config ───────────────────────────────────────
     configureSandbox({
       enabled: effectivePermMode === "bypass" ? false : (config.sandbox?.enabled ?? true),
@@ -195,6 +217,8 @@ Use execute_bash only when necessary. Prefer purpose-built tools (git_*, file_*)
       auditLogPath: config.sandbox?.audit_log
         ? path.join(LOCAL_DIR, "audit.log")
         : undefined,
+      // Docker backend — sandbox bundle runner'ı docker provider ile çalıştırır.
+      provider: backend === "docker" ? "docker" : (config.sandbox?.provider ?? "auto"),
     });
 
     // ── Run in sandbox (or directly if sandbox disabled) ───────────────────
@@ -460,12 +484,9 @@ registerTool(
   "manage_task",
   `Manage the current session's structured task list.
 
-TWO-TIER TASK SYSTEM — choose the right tier:
-  manage_task   → SHORT-LIVED tasks scoped to THIS conversation.
-                  Use for: implementation steps, sub-goals you'll finish right now.
-                  Automatically cleared between sessions.
-  manage_kanban → PERSISTENT tasks that survive across sessions.
-                  Use for: project-level work, delegation to subagents, user-visible backlogs.
+Session-scoped task list — short-lived tasks scoped to THIS conversation.
+Use for: implementation steps, sub-goals you'll finish right now.
+Automatically cleared between sessions.
 
 Actions:
   create  — Add a task (required: subject; optional: description, activeForm, blocks, blockedBy)
@@ -570,224 +591,6 @@ RULES:
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MANAGE KANBAN — Kalıcı proje görevi kuyruğu
-// ─────────────────────────────────────────────────────────────────────────────
-
-registerTool(
-  "manage_kanban",
-  `Manage the persistent kanban board — tasks that survive across sessions.
-
-TWO-TIER TASK SYSTEM — choose the right tier:
-  manage_kanban → PERSISTENT tasks: project backlogs, delegated subagent work,
-                  multi-session initiatives, user-visible task tracking.
-  manage_task   → Ephemeral tasks: steps within the current conversation only.
-
-Actions:
-  create   — Create a new kanban task (required: title; optional: description, priority low/normal/high/urgent, tags, assign_to)
-  list     — List tasks (optional: status pending/running/done/blocked, assign_to, tag, limit)
-  show     — Show task details + comments (required: id — full or 8-char prefix)
-  assign   — Assign a task to an agent profile (required: id, assign_to)
-  done     — Mark task as done with output (required: id, output)
-  fail     — Mark task as failed (required: id, error)
-  block    — Block a task (required: id; optional: reason)
-  unblock  — Move blocked task back to pending (required: id)
-  comment  — Add a comment to a task (required: id, content)
-  stats    — Board statistics (pending/running/done/blocked counts)`,
-  z.object({
-    action: z
-      .enum(["create", "list", "show", "assign", "done", "fail", "block", "unblock", "comment", "stats"])
-      .describe("Action to perform"),
-    id: z
-      .string()
-      .optional()
-      .describe("Task ID (full UUID or first 8 characters)"),
-    title: z
-      .string()
-      .optional()
-      .describe("Task title (required for create)"),
-    description: z
-      .string()
-      .optional()
-      .describe("Task description"),
-    priority: z
-      .enum(["low", "normal", "high", "urgent"])
-      .optional()
-      .default("normal")
-      .describe("Task priority"),
-    tags: z
-      .array(z.string())
-      .optional()
-      .describe("Tags for categorization"),
-    assign_to: z
-      .string()
-      .optional()
-      .describe("Agent profile name to assign to"),
-    status: z
-      .enum(["pending", "running", "done", "failed", "blocked"])
-      .optional()
-      .describe("Filter by status (for list)"),
-    tag: z
-      .string()
-      .optional()
-      .describe("Filter by tag (for list)"),
-    limit: z
-      .number()
-      .optional()
-      .default(50)
-      .describe("Max tasks to return (default: 50)"),
-    output: z
-      .string()
-      .optional()
-      .describe("Task output / result (for done)"),
-    error: z
-      .string()
-      .optional()
-      .describe("Error message (for fail)"),
-    reason: z
-      .string()
-      .optional()
-      .describe("Reason (for block)"),
-    content: z
-      .string()
-      .optional()
-      .describe("Comment content (for comment)"),
-  }),
-  async ({
-    action,
-    id,
-    title,
-    description,
-    priority,
-    tags,
-    assign_to,
-    status,
-    tag,
-    limit,
-    output,
-    error,
-    reason,
-    content,
-  }: {
-    action: string;
-    id?: string;
-    title?: string;
-    description?: string;
-    priority?: "low" | "normal" | "high" | "urgent";
-    tags?: string[];
-    assign_to?: string;
-    status?: any;
-    tag?: string;
-    limit?: number;
-    output?: string;
-    error?: string;
-    reason?: string;
-    content?: string;
-  }) => {
-    const { getKanbanDB } = await import("../kanban/db.js");
-    const db = getKanbanDB();
-
-    // Resolve short ID
-    const resolveId = (shortId: string): string => {
-      if (shortId.length === 36) return shortId; // full UUID
-      const tasks = db.list({ limit: 500 });
-      const match = tasks.find((t) => t.id.startsWith(shortId));
-      return match?.id ?? shortId;
-    };
-
-    switch (action) {
-      case "create": {
-        if (!title) return "ERROR: 'create' requires title.";
-        const task = db.create({ title, description, priority, tags, assignTo: assign_to });
-        return JSON.stringify({
-          created: true,
-          id: task.id.slice(0, 8),
-          title: task.title,
-          status: task.status,
-          priority: task.priority,
-        }, null, 2);
-      }
-
-      case "list": {
-        const tasks = db.list({ status, assignedTo: assign_to, tag, limit });
-        if (tasks.length === 0) return "No tasks found.";
-
-        const STATUS_ICON: Record<string, string> = {
-          pending: "⏳", claimed: "🔵", running: "🟡", done: "✅", failed: "❌", blocked: "🚫",
-        };
-        const PRIORITY_BADGE: Record<string, string> = {
-          urgent: "[URGENT]", high: "[HIGH]", normal: "", low: "[LOW]",
-        };
-
-        const lines = tasks.map((t) => {
-          const icon = STATUS_ICON[t.status] ?? "?";
-          const p = PRIORITY_BADGE[t.priority] ?? "";
-          const who = t.assigned_to ? ` @${t.assigned_to}` : "";
-          const tags = t.tags.length ? ` [${t.tags.join(",")}]` : "";
-          return `  ${icon} ${t.id.slice(0, 8)}  ${t.title}${p ? " " + p : ""}${who}${tags}`;
-        });
-
-        const s = db.stats();
-        lines.push(`\n  Pending: ${s.pending}  Running: ${s.running}  Done: ${s.done}  Blocked: ${s.blocked}`);
-        return lines.join("\n");
-      }
-
-      case "show": {
-        if (!id) return "ERROR: 'show' requires id.";
-        const task = db.get(resolveId(id));
-        if (!task) return `ERROR: Task not found: ${id}`;
-        const comments = db.getComments(task.id);
-        const blockers = db.getBlockers(task.id);
-        return JSON.stringify({ ...task, comments, blockers }, null, 2);
-      }
-
-      case "assign": {
-        if (!id || !assign_to) return "ERROR: 'assign' requires id and assign_to.";
-        db.assign(resolveId(id), assign_to);
-        return `Assigned ${id} to @${assign_to}`;
-      }
-
-      case "done": {
-        if (!id) return "ERROR: 'done' requires id.";
-        db.markDone(resolveId(id), output ?? "Marked done manually.");
-        return `Task ${id} marked done.`;
-      }
-
-      case "fail": {
-        if (!id) return "ERROR: 'fail' requires id.";
-        db.markFailed(resolveId(id), error ?? "Unknown error");
-        return `Task ${id} marked failed.`;
-      }
-
-      case "block": {
-        if (!id) return "ERROR: 'block' requires id.";
-        db.block(resolveId(id), reason);
-        return `Task ${id} blocked.${reason ? " Reason: " + reason : ""}`;
-      }
-
-      case "unblock": {
-        if (!id) return "ERROR: 'unblock' requires id.";
-        db.unblock(resolveId(id));
-        return `Task ${id} unblocked → pending.`;
-      }
-
-      case "comment": {
-        if (!id || !content) return "ERROR: 'comment' requires id and content.";
-        db.addComment(resolveId(id), "agent", content);
-        return `Comment added to task ${id}.`;
-      }
-
-      case "stats": {
-        const s = db.stats();
-        return JSON.stringify(s, null, 2);
-      }
-
-      default:
-        return "ERROR: Unknown action.";
-    }
-  },
-);
-
-// ─────────────────────────────────────────────────────────────────────────────
 // SPAWN SUBAGENT — Enterprise grade ile sandbox + permission entegreli
 // ─────────────────────────────────────────────────────────────────────────────
 const AGENT_TYPES = [
@@ -840,15 +643,23 @@ The report is returned to you (the calling agent) for review before acting on it
       .describe(
         "Override model for this subagent (default: inherits parent model)",
       ),
+    isolate: z
+      .boolean()
+      .optional()
+      .describe(
+        "Run in an isolated git worktree so parallel/experimental work doesn't touch the main tree. The worktree path is given to the subagent.",
+      ),
   }),
   async ({
     agentType,
     taskDescription,
     model: modelOverride,
+    isolate,
   }: {
     agentType: AgentType;
     taskDescription: string;
     model?: string;
+    isolate?: boolean;
   }) => {
     const agentDef = SUB_AGENTS[agentType];
     if (!agentDef) {
@@ -858,6 +669,20 @@ The report is returned to you (the calling agent) for review before acting on it
     const config = getConfig();
     const effectiveModel = modelOverride ?? config.model;
     const maxIter = agentDef.maxIterations ?? 20;
+
+    // İzole worktree (opsiyonel)
+    let isolationNote = "";
+    if (isolate) {
+      try {
+        const { createWorktree } = await import("../core/worktree.js");
+        const wt = createWorktree(PROJECT_ROOT, `${agentType}-${Date.now().toString(36)}`);
+        isolationNote =
+          `\n\nISOLATION: Do ALL file writes and commands under this dedicated git worktree:\n  ${wt.path}\n` +
+          `(branch: ${wt.branch}). Use absolute paths under it. Do not touch files outside it.`;
+      } catch (e: any) {
+        isolationNote = `\n\n(NOTE: worktree isolation requested but unavailable: ${e?.message ?? e}. Proceeding in the main tree.)`;
+      }
+    }
 
     const subLlm = new LLM(effectiveModel, config.temperature ?? 0.7);
     const subAgent = new Agent(
@@ -874,8 +699,9 @@ The report is returned to you (the calling agent) for review before acting on it
           `CONSTRAINTS:\n` +
           `- Read-only mode: ${agentDef.readOnly ? "YES — do not write or execute" : "No"}\n` +
           `- Sandbox mode: ${agentDef.sandboxMode ?? "inherit"}\n` +
-          `- Max iterations: ${maxIter}\n\n` +
-          `Deliver your findings as a structured markdown report.`,
+          `- Max iterations: ${maxIter}` +
+          isolationNote +
+          `\n\nDeliver your findings as a structured markdown report.`,
       );
       const durationS = ((Date.now() - startMs) / 1000).toFixed(1);
       return (

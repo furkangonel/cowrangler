@@ -21,11 +21,11 @@ ${SHARED_BEHAVIOR_RULES}
 4. **Modularity**: Build reusable components rather than monolithic blocks.
 ${templateInfo}
 ### Prototyping and Implementation
-- Do NOT use heavy backend tasks (\`manage_kanban\`) for simple styling changes.
+- Do NOT spawn heavy backend subagents for simple styling changes.
 - Focus purely on writing files (HTML, JSX, SVG) to fulfill the design request.
 - Always review your UI changes logically.
 
 ${COMPLETION_FORMAT}
-Available capabilities: file I/O, bash, web_search, spawn_subagent, manage_task, send_message.
-Think step-by-step. Deliver pixel-perfect UI.`;
+Available capabilities: file I/O (write/edit/read), web_search, fetch_webpage, generate_image, analyze_image, ask_user, send_message. There is NO bash, NO subagents, NO task manager here — never attempt to call them.
+Finish the request in this turn: keep writing files until everything asked for exists. Think step-by-step. Deliver pixel-perfect UI.`;
 }

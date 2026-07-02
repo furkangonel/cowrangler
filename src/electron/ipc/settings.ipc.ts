@@ -115,6 +115,85 @@ async function discoverModels(creds: Record<string, string>): Promise<Discovered
   return out
 }
 
+// ── OAuth-connected providers → discoverable / curated models ─────────────────
+// Subscription OAuth (Claude Pro, ChatGPT, Copilot, Gemini) doesn't set an API
+// key, so the discovery above skips them. Here we discover with the OAuth access
+// token where the provider's /models endpoint accepts it, and fall back to a
+// small curated set so models always appear once a provider is connected.
+
+/** Model id prefix llm.ts routes each OAuth provider through. */
+const OAUTH_MODEL_PREFIX: Record<string, string> = {
+  anthropic: 'anthropic/',
+  openai: 'openai/',
+  copilot: 'copilot/',
+  gemini: 'google/',
+  antigravity: 'antigravity/',
+}
+
+/** Curated fallback models (routing-correct) when live discovery isn't available.
+ *  Antigravity/Gemini-CLI go through Cloud Code Assist — ids match caveman-code. */
+const OAUTH_CURATED_MODELS: Record<string, string[]> = {
+  anthropic: ['anthropic/claude-opus-4-1', 'anthropic/claude-sonnet-4-5', 'anthropic/claude-3-5-haiku-latest'],
+  openai: ['openai/gpt-4o', 'openai/gpt-4o-mini', 'openai/o4-mini'],
+  copilot: ['copilot/gpt-4o', 'copilot/claude-3.5-sonnet'],
+  gemini: ['google/gemini-2.5-pro', 'google/gemini-2.5-flash'],
+  antigravity: ['antigravity/gemini-3-flash', 'antigravity/gemini-3.1-pro-high', 'antigravity/claude-sonnet-4-6', 'antigravity/claude-opus-4-6-thinking'],
+}
+
+/** Try to list a connected OAuth provider's models using its access token. */
+async function discoverOAuthModels(id: string, token: string, accountId?: string): Promise<DiscoveredModel[]> {
+  const out: DiscoveredModel[] = []
+  try {
+    if (id === 'anthropic') {
+      const r = await fetch('https://api.anthropic.com/v1/models?limit=100', {
+        headers: { authorization: `Bearer ${token}`, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'oauth-2025-04-20' },
+      })
+      if (r.ok) { const j: any = await r.json(); for (const m of j.data ?? []) out.push({ provider: 'anthropic', id: `anthropic/${m.id}`, label: m.display_name ?? m.id, contextK: 200 }) }
+    } else if (id === 'openai') {
+      const headers: Record<string, string> = { Authorization: `Bearer ${token}` }
+      if (accountId) headers['chatgpt-account-id'] = accountId
+      const r = await fetch('https://api.openai.com/v1/models', { headers })
+      if (r.ok) { const j: any = await r.json(); for (const m of j.data ?? []) if (/^(gpt|o[0-9]|chatgpt)/i.test(m.id)) out.push({ provider: 'openai', id: `openai/${m.id}`, label: m.id, contextK: 128 }) }
+    } else if (id === 'copilot') {
+      const r = await fetch('https://api.individual.githubcopilot.com/models', {
+        headers: { Authorization: `Bearer ${token}`, 'Copilot-Integration-Id': 'vscode-chat', 'Editor-Version': 'Cowrangler/2.0', Accept: 'application/json' },
+      })
+      if (r.ok) { const j: any = await r.json(); for (const m of (j.data ?? j.models ?? [])) { const mid = m.id ?? m.model; if (mid) out.push({ provider: 'copilot', id: `copilot/${mid}`, label: m.name ?? mid, contextK: Math.round((m?.capabilities?.limits?.max_context_window_tokens ?? 128000) / 1000) }) } }
+    }
+    // gemini/antigravity: OAuth token is Cloud-scoped, generativelanguage /models
+    // needs an API key — rely on the curated list below.
+  } catch { /* fall through to curated */ }
+  return out
+}
+
+/**
+ * Seed the model picker (savedModels) with a connected provider's models so they
+ * appear immediately. Prefers a small set of live-discovered ids; falls back to
+ * the curated list. Returns the ids that were newly added.
+ */
+async function seedOAuthModels(id: string): Promise<string[]> {
+  const prefix = OAUTH_MODEL_PREFIX[id]
+  if (!prefix) return []
+  let candidates: string[] = []
+  try {
+    const { getValidAccessToken } = await import('../../core/oauth_subscriptions.js')
+    const creds = await getValidAccessToken(id as any)
+    if (creds?.access) {
+      const discovered = await discoverOAuthModels(id, creds.access, creds.accountId as string | undefined)
+      // Pick a compact, relevant subset so we don't flood the picker.
+      const flagship = discovered.filter(m => /(opus|sonnet|haiku|gpt-4o|gpt-4\.1|gpt-5|o4|o3|gemini-2|flash|pro)/i.test(m.id))
+      candidates = (flagship.length ? flagship : discovered).slice(0, 6).map(m => m.id)
+    }
+  } catch { /* discovery unavailable */ }
+  if (candidates.length === 0) candidates = OAUTH_CURATED_MODELS[id] ?? []
+  if (candidates.length === 0) return []
+
+  const current = readSavedModels()
+  const added = candidates.filter(m => !current.includes(m))
+  if (added.length) writeSavedModels([...current, ...added])
+  return added
+}
+
 function readCredentials(): Record<string, string> {
   const creds: Record<string, string> = {}
   if (!fs.existsSync(CREDENTIALS_FILE)) return creds
@@ -225,6 +304,53 @@ export function registerSettingsIPC(ipcMain: IpcMain): void {
     return { ok: true }
   })
 
+  // ─── Subscription OAuth (Claude Pro, ChatGPT, Copilot, Gemini, Antigravity) ─
+  ipcMain.handle('settings:oauthList', async () => {
+    try {
+      const { listOAuthProviders } = await import('../../core/oauth_subscriptions.js')
+      return listOAuthProviders()
+    } catch { return [] }
+  })
+
+  ipcMain.handle('settings:oauthLogin', async (evt, id: string) => {
+    const emit = (payload: any) => { try { evt.sender.send('settings:oauthEvent', { id, ...payload }) } catch {} }
+    try {
+      const { loginOAuth, applyOAuthEnv } = await import('../../core/oauth_subscriptions.js')
+      const { shell } = await import('electron')
+      await loginOAuth(id as any, {
+        // Surface the authorization target AND any device code / instructions to
+        // the renderer (GitHub Copilot's device flow shows a user_code here), then
+        // open the browser. If the browser can't open, the UI shows the link/code.
+        onAuth: ({ url, instructions }) => {
+          emit({ type: 'auth', url, instructions })
+          void shell.openExternal(url).catch(() => {})
+        },
+        onProgress: (message: string) => emit({ type: 'progress', message }),
+      })
+      await applyOAuthEnv().catch(() => {})
+      // Populate the model pickers for the freshly connected provider so its
+      // models are immediately selectable (fixes "connected but no models").
+      let seeded: string[] = []
+      try { seeded = await seedOAuthModels(id) } catch {}
+      emit({ type: 'done', seeded })
+      return { ok: true, seeded }
+    } catch (e: any) {
+      const error = e?.message ?? String(e)
+      emit({ type: 'error', error })
+      return { ok: false, error }
+    }
+  })
+
+  ipcMain.handle('settings:oauthLogout', async (_, id: string) => {
+    try {
+      const { logoutOAuth } = await import('../../core/oauth_subscriptions.js')
+      logoutOAuth(id as any)
+      return { ok: true }
+    } catch (e: any) {
+      return { ok: false, error: e?.message ?? String(e) }
+    }
+  })
+
   // ─── Saved models (model picker only shows these) ─────────────────────────
   ipcMain.handle('settings:savedModels:list', async () => readSavedModels())
 
@@ -253,11 +379,35 @@ export function registerSettingsIPC(ipcMain: IpcMain): void {
       if (models.length) writeModelsCache(models)
       else if (cached) models = cached.models // ağ yoksa eski cache'e düş
     }
-    // Anahtarı olan provider'ların modelleri available
+
+    // Which subscription-OAuth providers are connected? Their models are also
+    // available (no API key) — and we merge in any we can discover / curate.
+    const oauthConnected = new Set<string>()
+    try {
+      const { listOAuthProviders } = await import('../../core/oauth_subscriptions.js')
+      for (const p of listOAuthProviders()) if (p.connected) oauthConnected.add(p.id)
+    } catch {}
+
+    // Merge curated OAuth models for connected providers not already discovered.
+    const known = new Set(models.map(m => m.id))
+    for (const oid of oauthConnected) {
+      for (const mid of OAUTH_CURATED_MODELS[oid] ?? []) {
+        if (!known.has(mid)) { known.add(mid); models = [...models, { provider: mid.split('/')[0], id: mid, label: mid.split('/').pop() ?? mid, contextK: 128 }] }
+      }
+    }
+
+    // A model is available if its API key is set OR its provider is OAuth-connected.
+    // OAuth ids (gemini/antigravity) route through the "google" provider prefix.
+    const oauthProviderActive = (provider: string): boolean => {
+      if (provider === 'google') return oauthConnected.has('gemini')
+      if (provider === 'antigravity') return oauthConnected.has('antigravity')
+      if (provider === 'copilot') return oauthConnected.has('copilot')
+      return oauthConnected.has(provider) // anthropic / openai
+    }
     return models.map(m => {
       const p = PROVIDERS.find(pr => pr.id === m.provider)
       const hasKey = p ? !!(creds[p.envKey] || process.env[p.envKey]) : false
-      return { ...m, available: hasKey }
+      return { ...m, available: hasKey || oauthProviderActive(m.provider) }
     })
   })
 }

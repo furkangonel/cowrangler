@@ -109,6 +109,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
       add: (modelId: string) => ipcRenderer.invoke('settings:savedModels:add', modelId),
       remove: (modelId: string) => ipcRenderer.invoke('settings:savedModels:remove', modelId),
     },
+    oauth: {
+      list: () => ipcRenderer.invoke('settings:oauthList'),
+      login: (id: string) => ipcRenderer.invoke('settings:oauthLogin', id),
+      logout: (id: string) => ipcRenderer.invoke('settings:oauthLogout', id),
+      onEvent: (cb: (e: { id: string; type: string; url?: string; instructions?: string; message?: string; error?: string; seeded?: string[] }) => void) => {
+        const handler = (_e: any, payload: any) => cb(payload)
+        ipcRenderer.on('settings:oauthEvent', handler)
+        return () => ipcRenderer.removeListener('settings:oauthEvent', handler)
+      },
+    },
   },
 
   // ── Design ────────────────────────────────────────────────────────────────
@@ -135,6 +145,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     deleteProject: (projectId: string) => ipcRenderer.invoke('design:deleteProject', projectId),
     renameProject: (payload: { projectId: string; name: string }) =>
       ipcRenderer.invoke('design:renameProject', payload),
+    createCheckpoint: (payload: { projectId: string; label?: string; auto?: boolean }) =>
+      ipcRenderer.invoke('design:createCheckpoint', payload),
+    listCheckpoints: (projectId: string) => ipcRenderer.invoke('design:listCheckpoints', projectId),
+    restoreCheckpoint: (payload: { projectId: string; checkpointId: string }) =>
+      ipcRenderer.invoke('design:restoreCheckpoint', payload),
   },
 
   // ── Export / download ───────────────────────────────────────────────────────

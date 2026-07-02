@@ -11,15 +11,40 @@ import { useSessionsStore } from "../../stores/sessions.store";
 import { GLOBAL_PROJECT_ID } from "../session/GlobalChatView";
 
 export function RightPanel() {
-  const { rightPanelOpen } = useUIStore();
+  const { rightPanelOpen, activeGlobalSessionId } = useUIStore();
   const { activeProjectId } = useProjectsStore();
   const { activeSessionId } = useSessionsStore();
 
   if (!rightPanelOpen) return null;
 
-  // Global chat: no project, or global project — right panel hidden
+  // Global (projesiz) sohbet: proje sessionlarındaki panel deneyimini burada da
+  // ver — Progress + Context (aktif skill'ler dahil). Working Folders / Instructions
+  // proje kavramına bağlı olduğundan atlanır.
   const isGlobal = !activeProjectId || activeProjectId === GLOBAL_PROJECT_ID;
-  if (isGlobal) return null;
+
+  if (isGlobal) {
+    return (
+      <aside
+        className="flex flex-col flex-shrink-0 border-l border-border-subtle bg-bg-secondary overflow-y-auto animate-slide-in p-3 gap-3"
+        style={{ width: "var(--right-panel-width)" }}
+      >
+        <div className="flex-1 overflow-y-auto">
+          <div className="flex flex-col gap-3">
+            <CollapsibleBox title="Progress" defaultOpen>
+              <ProgressPanel
+                projectId={GLOBAL_PROJECT_ID}
+                sessionId={activeGlobalSessionId}
+              />
+            </CollapsibleBox>
+
+            <CollapsibleBox title="Context" defaultOpen>
+              <ContextPanel projectId={GLOBAL_PROJECT_ID} isSession />
+            </CollapsibleBox>
+          </div>
+        </div>
+      </aside>
+    );
+  }
 
   // Project session vs project home
   const isSession = !!activeSessionId;

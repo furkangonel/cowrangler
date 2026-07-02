@@ -6,10 +6,11 @@ import { useAgentStore } from '../../stores/agent.store'
 import { useProjectsStore } from '../../stores/projects.store'
 import { useUIStore } from '../../stores/ui.store'
 import { File } from 'lucide-react'
+import { GLOBAL_PROJECT_ID } from '../session/GlobalChatView'
 
-interface Props { 
-  projectId: string | null 
-  isSession?: boolean 
+interface Props {
+  projectId: string | null
+  isSession?: boolean
 }
 
 export function ContextPanel({ projectId, isSession = false }: Props) {
@@ -34,14 +35,15 @@ function MemorySection({ projectId }: { projectId: string | null }) {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [open, setOpen] = useState(true)
-  const [mode, setMode] = useState<'project' | 'global'>('project')
+  const isGlobalChat = !projectId || projectId === GLOBAL_PROJECT_ID
+  const [mode, setMode] = useState<'project' | 'global'>(isGlobalChat ? 'global' : 'project')
 
   async function load() {
     setLoading(true)
     try {
       const text = mode === 'global'
         ? await ipc.memory.readGlobal()
-        : projectId ? await ipc.memory.readProject(projectId) : ''
+        : projectId && !isGlobalChat ? await ipc.memory.readProject(projectId) : ''
       setContent(text)
       setDraft(text)
     } finally {
@@ -55,7 +57,7 @@ function MemorySection({ projectId }: { projectId: string | null }) {
     setSaving(true)
     try {
       if (mode === 'global') await ipc.memory.writeGlobal(draft)
-      else if (projectId) await ipc.memory.writeProject(projectId, draft)
+      else if (projectId && !isGlobalChat) await ipc.memory.writeProject(projectId, draft)
       setContent(draft)
       setEditing(false)
     } finally {
@@ -98,7 +100,7 @@ function MemorySection({ projectId }: { projectId: string | null }) {
               <button
                 key={m}
                 onClick={() => setMode(m)}
-                disabled={m === 'project' && !projectId}
+                disabled={m === 'project' && (!projectId || isGlobalChat)}
                 className={`px-2 py-0.5 rounded text-2xs font-medium transition-colors disabled:opacity-40 ${
                   mode === m ? 'bg-accent/20 text-accent' : 'text-text-muted hover:text-text-secondary hover:bg-bg-hover'
                 }`}

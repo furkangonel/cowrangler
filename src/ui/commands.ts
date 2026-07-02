@@ -33,6 +33,18 @@ export interface CommandContext {
   executeAgentDirective: (directive: string) => Promise<void>;
 }
 
+/** İzin modunu yerel config'e yazar (agent bir sonraki turda okur). */
+function setPermissionModePersist(mode: PermissionMode): void {
+  const cfgPath = DIRS.local.config;
+  let cfg: any = {};
+  if (fs.existsSync(cfgPath)) {
+    try { cfg = (yaml.load(fs.readFileSync(cfgPath, "utf-8")) as any) || {}; } catch { /* yok say */ }
+  }
+  cfg.permission_mode = mode;
+  fs.mkdirSync(path.dirname(cfgPath), { recursive: true });
+  fs.writeFileSync(cfgPath, yaml.dump(cfg), "utf-8");
+}
+
 export class CommandRouter {
   private commands = new Map<
     string,
@@ -109,6 +121,124 @@ export class CommandRouter {
       },
     });
 
+    // ── /login ────────────────────────────────────────────────────────────────
+    this.commands.set("/login", {
+      description: "Sign in with a subscription (Claude Pro, ChatGPT, Copilot, Gemini, Antigravity)",
+      execute: async (args: string[]) => {
+        const { runLoginWizard } = await import("../cli/login_cli.js");
+        await runLoginWizard(args[0]);
+      },
+    });
+
+    // ── /copy — son yanıtı panoya kopyala (OSC52) ──────────────────────────────
+    this.commands.set("/copy", {
+      description: "Copy the last assistant response to the clipboard",
+      execute: async (_args: string[], ctx: CommandContext) => {
+        const text = ctx.agent.getLastAssistantText();
+        if (!text) { UI.warn("Nothing to copy yet."); return; }
+        const { osc52Copy } = await import("./osc52.js");
+        UI.success(osc52Copy(text) ? "Copied last response to clipboard." : "Copy failed.");
+      },
+    });
+
+    // ── /terse — token-verimli çıktı modu ──────────────────────────────────────
+    this.commands.set("/terse", {
+      description: "Toggle terse (token-efficient) output mode on/off",
+      execute: (args: string[]) => {
+        const arg = args[0]?.toLowerCase();
+        const on = arg === "on" ? true : arg === "off" ? false : process.env.COWRANGLER_TERSE !== "1";
+        process.env.COWRANGLER_TERSE = on ? "1" : "";
+        try { setConfigValue("terse", String(on)); } catch { /* yok say */ }
+        UI.success(`Terse mode ${on ? "ON" : "OFF"} — applies from the next message.`);
+      },
+    });
+
+    // ── /undo — son dosya değişikliğini geri al ────────────────────────────────
+    this.commands.set("/undo", {
+      description: "Undo the most recent file change made by the agent",
+      execute: async () => {
+        const { undoLast } = await import("../core/checkpoints.js");
+        const r = undoLast();
+        if (r.ok) UI.success(r.message);
+        else UI.warn(r.message);
+      },
+    });
+
+    // ── /checkpoints — dosya anlık görüntü geçmişi ─────────────────────────────
+    this.commands.set("/checkpoints", {
+      description: "List recent file checkpoints (undo history)",
+      execute: async () => {
+        const { listCheckpoints } = await import("../core/checkpoints.js");
+        const list = listCheckpoints().slice(0, 20);
+        if (list.length === 0) { UI.info("No checkpoints yet."); return; }
+        const lines = list.map((c) => {
+          const when = new Date(c.ts).toLocaleTimeString();
+          return `  ${Theme.dim(when)}  ${c.label}  ${Theme.dim(`(${c.files.length} file)`)}`;
+        });
+        UI.box(lines.join("\n"), "Checkpoints (newest first) — /undo to revert");
+      },
+    });
+
+    // ── /plan — salt-okunur planlama modu ──────────────────────────────────────
+    this.commands.set("/plan", {
+      description: "Enter plan mode — read-only exploration, every step needs approval",
+      execute: () => { setPermissionModePersist("plan"); UI.success("Plan mode ON — exploration only. Use /act to apply changes."); },
+    });
+
+    // ── /act — plan modundan çık ────────────────────────────────────────────────
+    this.commands.set("/act", {
+      description: "Exit plan mode and return to default (edits allowed)",
+      execute: () => { setPermissionModePersist("default"); UI.success("Act mode — edits enabled."); },
+    });
+
+    // ── /goal — otonom hedef modu ──────────────────────────────────────────────
+    this.commands.set("/goal", {
+      description: "Work autonomously toward a goal until complete: /goal <description>",
+      execute: async (args: string[], ctx: CommandContext) => {
+        const goal = args.join(" ").trim();
+        if (!goal) { UI.error("Usage: /goal <description>"); return; }
+        UI.success("Autonomous goal mode — working until complete.");
+        const directive = [
+          `GOAL: ${goal}`,
+          "",
+          "Work autonomously toward this goal until it is fully achieved:",
+          "1. First call manage_task to break the goal into concrete steps.",
+          "2. Execute each step with the appropriate tools, marking tasks done as you go.",
+          "3. After each step, re-assess: is the goal met? If not, continue to the next step.",
+          "4. Verify the result (tests/build/inspection) before declaring completion.",
+          "5. When and only when the goal is fully achieved and verified, reply with a line 'GOAL COMPLETE' and a short summary.",
+          "Do not stop early or ask for confirmation unless you hit a genuine blocker.",
+        ].join("\n");
+        await ctx.executeAgentDirective(directive);
+      },
+    });
+
+    // ── /recipe — parametrik iş akışı çalıştır ─────────────────────────────────
+    this.commands.set("/recipe", {
+      description: "Run a parametrized workflow recipe: /recipe <name> key=value …  (/recipe list)",
+      execute: async (args: string[], ctx: CommandContext) => {
+        const { listRecipes, getRecipe, parseRecipeArgs, renderRecipe } = await import("../core/recipes.js");
+        const sub = args[0];
+        if (!sub || sub === "list") {
+          const recipes = listRecipes();
+          if (recipes.length === 0) { UI.info("No recipes. Add .cowrangler/recipes/<name>.yaml"); return; }
+          const lines = recipes.map((r) => {
+            const ps = (r.params ?? []).map((p) => p.required ? `${p.name}*` : p.name).join(" ");
+            return `  ${Theme.accent(r.name)}${ps ? " " + Theme.dim(ps) : ""}  ${Theme.dim(r.description ?? "")}`;
+          });
+          UI.box(lines.join("\n"), "Recipes  ( * = required param )");
+          return;
+        }
+        const recipe = getRecipe(sub);
+        if (!recipe) { UI.error(`Recipe not found: ${sub}`); return; }
+        const parsed = parseRecipeArgs(args.slice(1).join(" "));
+        const rendered = renderRecipe(recipe, parsed);
+        if (!rendered.ok) { UI.error(rendered.error ?? "Invalid recipe args"); return; }
+        UI.success(`Running recipe: ${recipe.name}`);
+        await ctx.executeAgentDirective(rendered.directive!);
+      },
+    });
+
     // ── /status ───────────────────────────────────────────────────────────────
     this.commands.set("/status", {
       get description() { return t("commands.status_desc"); },
@@ -140,7 +270,7 @@ export class CommandRouter {
 
     // ── /config ────────────────────────────────────────────────────────────────
     this.commands.set("/config", {
-      get description() { return "View or set configuration (e.g. /config set kanban.max_concurrent 5)"; },
+      get description() { return "View or set configuration (e.g. /config set context.keep_recent 12)"; },
       execute: (args: string[]) => {
         const sub = args[0];
         if (sub === "set") {
@@ -171,10 +301,6 @@ export class CommandRouter {
           `  ${Theme.dim("context.threshold")} ${Theme.accent(String(c.context?.compress_threshold))}`,
           `  ${Theme.dim("context.keep     ")} ${Theme.accent(String(c.context?.keep_recent))}`,
           `  ${Theme.dim("context.summary  ")} ${Theme.accent(String(c.context?.summary_model ?? "(main model)"))}`,
-          `  ${Theme.dim("kanban.concurrent")} ${Theme.accent(String(c.kanban?.max_concurrent))}`,
-          `  ${Theme.dim("kanban.tick_ms   ")} ${Theme.accent(String(c.kanban?.tick_ms))}`,
-          `  ${Theme.dim("kanban.reclaim_ms")} ${Theme.accent(String(c.kanban?.reclaim_timeout_ms))}`,
-          `  ${Theme.dim("kanban.backoff_ms")} ${Theme.accent(String(c.kanban?.fail_backoff_ms))}`,
           "",
           `  ${Theme.dim("Set with:")} /config set <key> <value>`,
         ];
@@ -243,9 +369,6 @@ export class CommandRouter {
         lines.push(fs.existsSync(DIRS.global.credentials)
           ? ok("Credentials file present")
           : warn("Credentials file missing — run /key set"));
-
-        // Kanban DB sanity
-        lines.push(ok(`Kanban: concurrency ${c.kanban?.max_concurrent}, reclaim ${Math.round((c.kanban?.reclaim_timeout_ms ?? 0) / 1000)}s, backoff ${Math.round((c.kanban?.fail_backoff_ms ?? 0) / 1000)}s`));
 
         UI.box(lines.join("\n"), "Co-Wrangler Doctor");
       },
@@ -1413,7 +1536,7 @@ After writing, reply: "✓ COWRNGLR.md written. Agent context is now active."
       description: "Show recent log entries. /logs [agent|errors|gateway|cron] [lines]",
       execute: async (args: string[]) => {
         const { getLogger } = await import("../core/logger.js");
-        const validChannels = ["agent", "errors", "gateway", "cron", "kanban"] as const;
+        const validChannels = ["agent", "errors", "gateway", "cron"] as const;
         type Chan = typeof validChannels[number];
 
         const channelArg = args[0] as Chan | undefined;

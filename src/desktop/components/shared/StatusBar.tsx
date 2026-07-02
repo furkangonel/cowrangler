@@ -98,10 +98,14 @@ export function StatusBar() {
           <ChevronUp size={11} className={`transition-transform duration-200 text-text-muted/70 ${modelPickerOpen ? 'rotate-180' : ''}`} />
         </button>
         {modelPickerOpen && (
-          <div className="absolute bottom-full left-0 mb-1.5 z-50 bg-bg-secondary border border-border rounded-xl shadow-pop overflow-hidden animate-slide-up w-56">
+          <div className="absolute bottom-full left-0 mb-1.5 z-50 bg-bg-secondary border border-border rounded-xl shadow-pop overflow-hidden animate-slide-up w-80">
             <div className="p-2 space-y-0.5 max-h-60 overflow-y-auto">
               <p className="px-2.5 py-1.5 text-[9px] font-semibold uppercase tracking-wider text-text-muted select-none">Select active model</p>
-              {savedModels.map(modelId => (
+              {savedModels.map(modelId => {
+                const slash = modelId.indexOf('/')
+                const provider = slash > 0 ? modelId.slice(0, slash) : null
+                const name = slash > 0 ? modelId.slice(slash + 1) : modelId
+                return (
                 <button
                   key={modelId}
                   onClick={() => { setModel(modelId); setModelPickerOpen(false) }}
@@ -109,10 +113,16 @@ export function StatusBar() {
                     model === modelId ? 'bg-accent-subtle text-accent font-medium' : 'text-text-secondary hover:bg-bg-hover'
                   }`}
                 >
-                  <span className="flex-1 truncate font-mono">{modelId.split('/').pop() ?? modelId}</span>
+                  {provider && (
+                    <span className="flex-shrink-0 text-[8px] leading-none font-medium uppercase tracking-wide px-1 py-0.5 rounded bg-bg-tertiary text-text-muted/80 border border-border/50 max-w-[56px] truncate" title={provider}>
+                      {provider}
+                    </span>
+                  )}
+                  <span className="flex-1 truncate font-mono">{name}</span>
                   {model === modelId && <span className="text-2xs opacity-60">●</span>}
                 </button>
-              ))}
+                )
+              })}
               {savedModels.length === 0 && (
                 <p className="px-2.5 py-2 text-2xs text-text-muted italic">No saved models — add in Settings</p>
               )}

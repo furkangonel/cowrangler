@@ -50,6 +50,7 @@ if (args.includes("--help") || args.includes("-h")) {
       chalk.bold("  Usage:"),
       "    cowrangler                     Start the interactive REPL",
       "    cowrangler setup               Interactive provider setup wizard",
+      "    cowrangler login               Sign in with a subscription (Claude Pro, ChatGPT, Copilot, Gemini, Antigravity)",
       "    cowrangler -p <profile>        Run with a named profile",
       "    cowrangler model               Interactive model picker (arrow keys)",
       "    cowrangler gateway setup       Configure Telegram/Discord bot (wizard)",
@@ -60,20 +61,7 @@ if (args.includes("--help") || args.includes("-h")) {
       "    cowrangler cron list           List scheduled jobs",
       "    cowrangler cron create         Create a scheduled job",
       "    cowrangler cron daemon         Start the cron scheduler daemon",
-      "    cowrangler kanban list         Show kanban board (all tasks)",
-      "    cowrangler kanban board        Open live web UI (http://localhost:4242)",
-      "    cowrangler kanban create       Create a task (--title, --priority, --tags, --assign)",
-      "    cowrangler kanban show <id>    Show task details + comments",
-      "    cowrangler kanban assign       Assign task to a profile",
-      "    cowrangler kanban complete     Mark task done",
-      "    cowrangler kanban block        Block a task",
-      "    cowrangler kanban unblock      Unblock a task",
-      "    cowrangler kanban link         Add blocker → blocked dependency",
-      "    cowrangler kanban comment      Add a comment to a task",
-      "    cowrangler kanban tail         Show recent board events",
-      "    cowrangler kanban stats        Show board statistics",
-      "    cowrangler kanban dispatch     Run dispatcher (foreground)",
-      "    cowrangler kanban daemon       Manage background dispatcher",
+      "    cowrangler serve               Run the agent as an HTTP service (--port, --token)",
       "    cowrangler profile list        List profiles",
       "    cowrangler profile create      Create a new profile",
       "    cowrangler --brief             Start in brief view (clean, tool-free output)",
@@ -98,6 +86,10 @@ if (args.includes("--help") || args.includes("-h")) {
       "    /usage       Token & cost stats    /insights    Analytics dashboard",
       "    /plugins     Loaded plugins        /mcp         MCP server status",
       "    /curator     Skill lifecycle       /profile     Profile info",
+      "    /login       Subscription sign-in  /terse       Token-efficient output",
+      "    /plan /act   Plan (read-only)/act  /undo        Revert last file change",
+      "    /goal        Autonomous goal mode  /recipe      Run a workflow recipe",
+      "    /copy        Copy last response    /checkpoints File change history",
       "    /init        AI project scan",
       "",
       chalk.bold("  View modes (Ctrl+O cycles):"),
@@ -119,13 +111,18 @@ if (args.includes("--help") || args.includes("-h")) {
       `    Custom skills:  .cowrangler/skills/  or  ~/.cowrangler/skills/`,
       "",
       chalk.bold("  Supported providers:"),
-      "    Anthropic   (claude-*)               → ANTHROPIC_API_KEY",
-      "    OpenAI      (gpt-*, o1-*, o3-*)      → OPENAI_API_KEY",
-      "    Google      (gemini-*)               → GOOGLE_GENERATIVE_AI_API_KEY",
+      "    Anthropic   (claude-*)               → ANTHROPIC_API_KEY  or  cowrangler login",
+      "    OpenAI      (gpt-*, o1-*, o3-*)      → OPENAI_API_KEY  or  cowrangler login",
+      "    Google      (gemini-*)               → GOOGLE_GENERATIVE_AI_API_KEY  or  cowrangler login",
       "    Vertex AI   (vertex/*)               → GCP Project + gcloud auth",
-      "    GitHub Copilot (copilot/*)           → GITHUB_TOKEN",
+      "    GitHub Copilot (copilot/*)           → GITHUB_TOKEN  or  cowrangler login",
       "    Groq        (groq/*)                 → GROQ_API_KEY",
+      "    Mistral/DeepSeek/xAI/Together/Cerebras/Fireworks (prefix/*) → <PROVIDER>_API_KEY",
+      "    Local       (ollama/*, lmstudio/*, local/*) → no key needed",
       "    OpenRouter  (openrouter/* or x/y)    → OPENROUTER_API_KEY",
+      "",
+      chalk.bold("  Subscription login (no API key):"),
+      "    cowrangler login   → Claude Pro · ChatGPT Plus · Copilot · Gemini · Antigravity",
       "",
       chalk.dim("  https://github.com/furkangonel/cowrangler"),
       "",
@@ -142,6 +139,17 @@ if (args[0] === "setup") {
   loadEnvironmentVariables();
   const { runSetupWizard } = await import("./ui/setup.js");
   await runSetupWizard();
+  process.exit(0);
+}
+
+// ── cowrangler login — subscription OAuth (Claude Pro, ChatGPT, Copilot…) ─
+if (args[0] === "login") {
+  const { initEnvironment, loadEnvironmentVariables } =
+    await import("./core/init.js");
+  initEnvironment();
+  loadEnvironmentVariables();
+  const { runLoginWizard } = await import("./cli/login_cli.js");
+  await runLoginWizard(args[1]);
   process.exit(0);
 }
 
@@ -356,9 +364,41 @@ if (args[0] === "cron") {
     await import("./tools/brief_tool.js");
     await import("./tools/computer_use.js");
 
+    const { getCronJobStore } = await import("./cron/jobs.js");
+    const { execSync } = await import("child_process");
+    const { setWorkspace } = await import("./tools/file_tools.js");
     await startCronDaemon(async (job) => {
       const config = getConfig();
-      const model = job.model ?? config.model;
+      const store = getCronJobStore();
+
+      // provider override — model'e prefix ekle (model provider'ı içermiyorsa)
+      let model = job.model ?? config.model;
+      if (job.provider && !model.includes("/")) model = `${job.provider}/${model}`;
+
+      // workdir override
+      if (job.workdir) { try { setWorkspace(job.workdir); } catch { /* yok say */ } }
+
+      let prompt = job.prompt;
+
+      // context_from — başka bir job'ın son çıktısını bağlama aktar
+      if (job.context_from) {
+        const src = store.get(job.context_from);
+        if (src?.last_output) prompt = `[Context from job "${src.name}"]\n${src.last_output}\n\n---\n\n${prompt}`;
+      }
+
+      // script — ön-veri toplama; çıktısı prompt'a enjekte edilir
+      if (job.script) {
+        try {
+          const out = execSync(job.script, { encoding: "utf-8", timeout: 60_000, cwd: job.workdir ?? process.cwd() });
+          prompt = `[Script output]\n${out}\n\n---\n\n${prompt}`;
+        } catch (e: any) {
+          prompt = `[Script failed: ${e?.message ?? String(e)}]\n\n---\n\n${prompt}`;
+        }
+      }
+
+      // skills — SOP olarak kullanılacak skill'leri belirt
+      if (job.skills?.length) prompt = `Follow these skills as SOPs where relevant: ${job.skills.join(", ")}.\n\n${prompt}`;
+
       const llm = new LLM(model, config.temperature);
       const agent = new Agent(
         llm,
@@ -367,7 +407,7 @@ if (args[0] === "cron") {
         undefined,
         "cron",
       );
-      const result = await agent.chat(job.prompt);
+      const result = await agent.chat(prompt);
       return result.text;
     });
     process.exit(0);
@@ -377,258 +417,23 @@ if (args[0] === "cron") {
   process.exit(1);
 }
 
-// ── cowrangler kanban ─────────────────────────────────────────────────
-if (args[0] === "kanban") {
+// ── cowrangler serve — ajanı HTTP servisi olarak aç ──────────────────
+if (args[0] === "serve") {
   const { initEnvironment, loadEnvironmentVariables } =
     await import("./core/init.js");
   initEnvironment();
   loadEnvironmentVariables();
-
-  const verb = args[1];
-
-  // ── board — web UI ────────────────────────────────────────────────────
-  if (verb === "board") {
-    const portIdx = args.indexOf("--port");
-    const port = portIdx >= 0 ? parseInt(args[portIdx + 1], 10) : 4242;
-    const noOpen = args.includes("--no-open");
-    const { startKanbanBoard } = await import("./kanban/web.js");
-    await startKanbanBoard({ port, openBrowser: !noOpen });
-    process.exit(0);
-  }
-
-  // ── dispatch — foreground dispatcher ─────────────────────────────────
-  if (verb === "dispatch") {
-    const profileIdx = args.indexOf("--profile");
-    const concIdx   = args.indexOf("--concurrency");
-    const { runDispatcherForeground } = await import("./kanban/dispatcher.js");
-    await runDispatcherForeground({
-      profile:       profileIdx >= 0 ? args[profileIdx + 1] : undefined,
-      maxConcurrent: concIdx >= 0 ? parseInt(args[concIdx + 1], 10) : undefined,
-    });
-    process.exit(0);
-  }
-
-  // ── daemon — background dispatcher ────────────────────────────────────
-  if (verb === "daemon") {
-    const daemonVerb = args[2];
-    const { isDaemonRunning, stopDaemon, runDispatcherDaemon } =
-      await import("./kanban/dispatcher.js");
-
-    if (daemonVerb === "status") {
-      console.log(isDaemonRunning() ? "  Daemon: running" : "  Daemon: stopped");
-      process.exit(0);
-    }
-    if (daemonVerb === "stop") {
-      const stopped = stopDaemon();
-      console.log(stopped ? "  Daemon stopped." : "  Daemon was not running.");
-      process.exit(0);
-    }
-    if (!daemonVerb || daemonVerb === "start") {
-      if (isDaemonRunning()) {
-        console.log("  Daemon already running.");
-        process.exit(0);
-      }
-      const concIdx = args.indexOf("--concurrency");
-      console.log("  Starting kanban daemon...");
-      await runDispatcherDaemon({
-        maxConcurrent: concIdx >= 0 ? parseInt(args[concIdx + 1], 10) : undefined,
-      });
-      process.exit(0);
-    }
-    console.error("  Usage: cowrangler kanban daemon [start|stop|status]");
-    process.exit(1);
-  }
-
-  // Shared DB for remaining verbs
-  const { getKanbanDB } = await import("./kanban/db.js");
-  const db = getKanbanDB();
-
-  const STATUS_ICON: Record<string, string> = {
-    pending: "⏳", claimed: "🔵", running: "🟡", done: "✅", failed: "❌", blocked: "🚫",
-  };
-  const PRIORITY_PAD: Record<string, string> = {
-    urgent: " [URGENT]", high: " [HIGH]", normal: "", low: " [LOW]",
-  };
-
-  // Resolve short task ID (first 8 chars → full UUID)
-  const resolveId = (shortId: string): string => {
-    if (shortId.length === 36) return shortId;
-    const tasks = db.list({ limit: 500 });
-    return tasks.find((t) => t.id.startsWith(shortId))?.id ?? shortId;
-  };
-
-  // ── list ───────────────────────────────────────────────────────────────
-  if (!verb || verb === "list") {
-    const statusArg = args[2] as any;
-    const tasks = db.list({ status: statusArg ?? undefined });
-    if (tasks.length === 0) {
-      console.log("  No tasks.");
-    } else {
-      for (const t of tasks) {
-        const who   = t.assigned_to ? `  @${t.assigned_to}` : "";
-        const tags  = t.tags.length ? `  [${t.tags.join(",")}]` : "";
-        const p     = PRIORITY_PAD[t.priority] ?? "";
-        console.log(`  ${STATUS_ICON[t.status] ?? "?"} ${t.id.slice(0, 8)}  ${t.title}${p}${who}${tags}`);
-      }
-      const s = db.stats();
-      console.log(`\n  Pending: ${s.pending}  Running: ${s.running}  Done: ${s.done}  Blocked: ${s.blocked}  Total: ${s.total}`);
-    }
-    process.exit(0);
-  }
-
-  // ── create ─────────────────────────────────────────────────────────────
-  if (verb === "create") {
-    const titleIdx = args.indexOf("--title");
-    if (titleIdx < 0) {
-      console.error("  Usage: cowrangler kanban create --title <title> [--description <desc>] [--priority low|normal|high|urgent] [--tags tag1,tag2] [--assign <profile>]");
-      process.exit(1);
-    }
-    const descIdx     = args.indexOf("--description");
-    const prioIdx     = args.indexOf("--priority");
-    const tagsIdx     = args.indexOf("--tags");
-    const assignIdx   = args.indexOf("--assign");
-    const task = db.create({
-      title:       args[titleIdx + 1],
-      description: descIdx   >= 0 ? args[descIdx + 1]   : undefined,
-      priority:    prioIdx   >= 0 ? args[prioIdx + 1] as any : undefined,
-      tags:        tagsIdx   >= 0 ? args[tagsIdx + 1].split(",").map((t) => t.trim()) : undefined,
-      assignTo:    assignIdx >= 0 ? args[assignIdx + 1]  : undefined,
-    });
-    console.log(`  ✓ Created  ${task.id.slice(0, 8)}  "${task.title}"`);
-    process.exit(0);
-  }
-
-  // ── show ───────────────────────────────────────────────────────────────
-  if (verb === "show") {
-    const id = args[2];
-    if (!id) { console.error("  Usage: cowrangler kanban show <id>"); process.exit(1); }
-    const task = db.get(resolveId(id));
-    if (!task) { console.error(`  Task not found: ${id}`); process.exit(1); }
-    const comments = db.getComments(task.id);
-    const blockers = db.getBlockers(task.id);
-
-    console.log(`\n  ${STATUS_ICON[task.status] ?? "?"} ${task.title}`);
-    console.log(`  ID:       ${task.id}`);
-    console.log(`  Status:   ${task.status}`);
-    console.log(`  Priority: ${task.priority}`);
-    if (task.assigned_to) console.log(`  Assigned: @${task.assigned_to}`);
-    if (task.tags.length) console.log(`  Tags:     ${task.tags.join(", ")}`);
-    if (task.description) console.log(`\n  ${task.description}`);
-    if (blockers.length)  console.log(`\n  Blocked by: ${blockers.map((b) => b.id.slice(0, 8) + " " + b.title).join(", ")}`);
-    if (task.output)      console.log(`\n  Output:\n${task.output.slice(0, 1000)}`);
-    if (task.error)       console.log(`\n  Error:\n${task.error}`);
-    if (comments.length) {
-      console.log(`\n  Comments (${comments.length}):`);
-      for (const c of comments) {
-        console.log(`    [${new Date(c.timestamp).toLocaleString()}] @${c.author}: ${c.content.slice(0, 120)}`);
-      }
-    }
-    console.log("");
-    process.exit(0);
-  }
-
-  // ── assign ─────────────────────────────────────────────────────────────
-  if (verb === "assign") {
-    const id = args[2]; const who = args[3];
-    if (!id || !who) { console.error("  Usage: cowrangler kanban assign <id> <profile>"); process.exit(1); }
-    db.assign(resolveId(id), who);
-    console.log(`  ✓ Assigned ${id} → @${who}`);
-    process.exit(0);
-  }
-
-  // ── complete ───────────────────────────────────────────────────────────
-  if (verb === "complete" || verb === "done") {
-    const id = args[2];
-    if (!id) { console.error("  Usage: cowrangler kanban complete <id> [output]"); process.exit(1); }
-    const output = args.slice(3).join(" ") || "Manual completion";
-    db.markDone(resolveId(id), output);
-    console.log(`  ✅ Completed ${id}`);
-    process.exit(0);
-  }
-
-  // ── fail ───────────────────────────────────────────────────────────────
-  if (verb === "fail") {
-    const id = args[2];
-    if (!id) { console.error("  Usage: cowrangler kanban fail <id> [error]"); process.exit(1); }
-    const error = args.slice(3).join(" ") || "Manual failure";
-    db.markFailed(resolveId(id), error);
-    console.log(`  ❌ Failed ${id}`);
-    process.exit(0);
-  }
-
-  // ── block ──────────────────────────────────────────────────────────────
-  if (verb === "block") {
-    const id = args[2];
-    if (!id) { console.error("  Usage: cowrangler kanban block <id> [reason]"); process.exit(1); }
-    db.block(resolveId(id), args.slice(3).join(" ") || undefined);
-    console.log(`  🚫 Blocked ${id}`);
-    process.exit(0);
-  }
-
-  // ── unblock ────────────────────────────────────────────────────────────
-  if (verb === "unblock") {
-    const id = args[2];
-    if (!id) { console.error("  Usage: cowrangler kanban unblock <id>"); process.exit(1); }
-    db.unblock(resolveId(id));
-    console.log(`  ⏳ Unblocked ${id} → pending`);
-    process.exit(0);
-  }
-
-  // ── link ───────────────────────────────────────────────────────────────
-  if (verb === "link") {
-    const [, , blockerId, blockedId] = args;
-    if (!blockerId || !blockedId) { console.error("  Usage: cowrangler kanban link <blocker-id> <blocked-id>"); process.exit(1); }
-    db.link(resolveId(blockerId), resolveId(blockedId));
-    console.log(`  ✓ Linked: ${blockerId} blocks ${blockedId}`);
-    process.exit(0);
-  }
-
-  // ── unlink ─────────────────────────────────────────────────────────────
-  if (verb === "unlink") {
-    const [, , blockerId, blockedId] = args;
-    if (!blockerId || !blockedId) { console.error("  Usage: cowrangler kanban unlink <blocker-id> <blocked-id>"); process.exit(1); }
-    db.unlink(resolveId(blockerId), resolveId(blockedId));
-    console.log(`  ✓ Unlinked: ${blockerId} no longer blocks ${blockedId}`);
-    process.exit(0);
-  }
-
-  // ── comment ────────────────────────────────────────────────────────────
-  if (verb === "comment") {
-    const id = args[2];
-    if (!id || args.length < 4) { console.error("  Usage: cowrangler kanban comment <id> <text...>"); process.exit(1); }
-    const text = args.slice(3).join(" ");
-    db.addComment(resolveId(id), "user", text);
-    console.log(`  ✓ Comment added to ${id}`);
-    process.exit(0);
-  }
-
-  // ── stats ──────────────────────────────────────────────────────────────
-  if (verb === "stats") {
-    const s = db.stats();
-    console.log(`  Pending: ${s.pending}  Running: ${s.running}  Done: ${s.done}  Failed: ${s.failed}  Blocked: ${s.blocked}  Total: ${s.total}`);
-    process.exit(0);
-  }
-
-  // ── tail ───────────────────────────────────────────────────────────────
-  if (verb === "tail") {
-    const n = parseInt(args[2] ?? "20", 10);
-    const events = db.tailEvents({ limit: n });
-    if (events.length === 0) { console.log("  No events."); process.exit(0); }
-    for (const ev of events) {
-      const time = new Date(ev.timestamp).toLocaleTimeString();
-      const payload = JSON.parse(ev.payload);
-      const detail = Object.entries(payload)
-        .filter(([k]) => k !== "title")
-        .map(([k, v]) => `${k}=${v}`)
-        .join(" ");
-      console.log(`  [${time}] ${ev.task_id.slice(0, 8)}  ${ev.event_type}  ${detail}`);
-    }
-    process.exit(0);
-  }
-
-  console.error(`  Unknown verb: ${verb}`);
-  console.error("  Usage: cowrangler kanban [list|create|show|assign|complete|fail|block|unblock|link|unlink|comment|stats|tail|board|dispatch|daemon]");
-  process.exit(1);
+  const { applyOAuthEnv } = await import("./core/oauth_subscriptions.js");
+  await applyOAuthEnv().catch(() => { /* sessizce geç */ });
+  await import("./tools/builtin.js"); // araçları kaydet
+  const portIdx = args.indexOf("--port");
+  const tokenIdx = args.indexOf("--token");
+  const { startServer } = await import("./core/serve.js");
+  await startServer({
+    port: portIdx >= 0 ? parseInt(args[portIdx + 1], 10) : undefined,
+    token: tokenIdx >= 0 ? args[tokenIdx + 1] : undefined,
+  });
+  process.exit(0);
 }
 
 // ── cowrangler lsp ────────────────────────────────────────────────────
@@ -878,6 +683,19 @@ async function main() {
   const { prefetchModelMeta } = await import("./core/model_metadata.js");
   await prefetchModelMeta(configuration.model).catch(() => { /* sessizce geç */ });
 
+  // ── Abonelik OAuth — bağlı sağlayıcıların token'larını env'e enjekte et ──
+  const { applyOAuthEnv } = await import("./core/oauth_subscriptions.js");
+  await applyOAuthEnv().catch(() => { /* sessizce geç */ });
+
+  // ── Terse (token-verimli çıktı) modu — config.terse'ten oku ─────────────
+  if ((configuration as any).terse === true) process.env.COWRANGLER_TERSE = "1";
+
+  // ── Uzun-dönem hafıza — yerel recall sağlayıcısı (config.memory.recall) ──
+  if ((configuration as any).memory?.recall !== false) {
+    const { initDefaultMemory } = await import("./core/memory_provider.js");
+    await initDefaultMemory(PROJECT_ROOT).catch(() => { /* sessizce geç */ });
+  }
+
   // ── Skin motoru — stored choice'ı yükle ─────────────────────────────────
   const { initSkin } = await import("./core/skin.js");
   initSkin();
@@ -971,11 +789,16 @@ async function main() {
         "\n" + chalk.red(`  ✗ Unrecognized model: ${configuration.model}`),
       );
       console.log(
-        chalk.dim("  Supported prefixes: claude-*, gpt-*, gemini-*, vertex/*,"),
+        chalk.dim("  Supported prefixes: claude-*, gpt-*, gemini-*, vertex/*, copilot/*, groq/*,"),
       );
       console.log(
         chalk.dim(
-          "                        copilot/*, groq/*, openrouter/*, provider/model",
+          "    mistral/*, deepseek/*, xai/*, together/*, cerebras/*, fireworks/*,",
+        ),
+      );
+      console.log(
+        chalk.dim(
+          "    ollama/*, lmstudio/*, local/*, openrouter/*, provider/model",
         ),
       );
       console.log(

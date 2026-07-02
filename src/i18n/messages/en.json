@@ -92,5 +92,19 @@
     "anthropic_key_prompt": "Anthropic API key:",
     "openai_key_prompt": "OpenAI API key:",
     "google_key_prompt": "Google Generative AI API key:"
+  },
+  "login": {
+    "title": "Cowrangler — Subscription login",
+    "which": "Which subscription do you want to sign in with?",
+    "connected": "connected",
+    "signout_option": "Sign out of a provider…",
+    "cancelled": "Cancelled.",
+    "signout_which": "Sign out of which provider?",
+    "signed_out": "Signed out of {id}.",
+    "open_browser": "Open in your browser",
+    "connecting": "Connecting…",
+    "waiting": "Waiting for authorization…",
+    "signed_in": "Signed in with {id}. You can now use it without an API key.",
+    "failed": "Login failed: {error}"
   }
 }

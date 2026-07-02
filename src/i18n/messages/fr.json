@@ -92,5 +92,19 @@
     "anthropic_key_prompt": "Clé API Anthropic :",
     "openai_key_prompt": "Clé API OpenAI :",
     "google_key_prompt": "Clé API Google Generative AI :"
+  },
+  "login": {
+    "title": "Cowrangler — Connexion par abonnement",
+    "which": "Avec quel abonnement voulez-vous vous connecter ?",
+    "connected": "connecté",
+    "signout_option": "Se déconnecter d’un fournisseur…",
+    "cancelled": "Annulé.",
+    "signout_which": "Se déconnecter de quel fournisseur ?",
+    "signed_out": "Déconnecté de {id}.",
+    "open_browser": "Ouvrir dans votre navigateur",
+    "connecting": "Connexion…",
+    "waiting": "En attente de l’autorisation…",
+    "signed_in": "Connecté avec {id}. Vous pouvez l’utiliser sans clé API.",
+    "failed": "Échec de la connexion : {error}"
   }
 }

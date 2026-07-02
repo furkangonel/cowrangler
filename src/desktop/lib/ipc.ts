@@ -134,6 +134,17 @@ export interface ModelInfo {
   available: boolean
 }
 
+/** Streamed during a subscription-OAuth login (device code, progress, result). */
+export interface OAuthLoginEvent {
+  id: string
+  type: 'auth' | 'progress' | 'done' | 'error'
+  url?: string
+  instructions?: string
+  message?: string
+  error?: string
+  seeded?: string[]
+}
+
 export interface SkillDef {
   id: string
   name: string
@@ -260,6 +271,14 @@ export interface DesignScreenFile {
   meta?: DesignMeta | null
 }
 
+export interface DesignCheckpoint {
+  id: string
+  label: string
+  createdAt: number
+  fileCount: number
+  auto: boolean
+}
+
 interface ElectronAPI {
   agent: {
     chat: (projectId: string, sessionId: string | null, message: string, model?: string) => Promise<void>
@@ -314,6 +333,12 @@ interface ElectronAPI {
       add: (modelId: string) => Promise<{ ok: boolean }>
       remove: (modelId: string) => Promise<{ ok: boolean }>
     }
+    oauth: {
+      list: () => Promise<{ id: string; name: string; connected: boolean }[]>
+      login: (id: string) => Promise<{ ok: boolean; error?: string; seeded?: string[] }>
+      logout: (id: string) => Promise<{ ok: boolean; error?: string }>
+      onEvent: (cb: (e: OAuthLoginEvent) => void) => () => void
+    }
   }
   design: {
     openWindow: () => Promise<{ ok: boolean }>
@@ -332,6 +357,9 @@ interface ElectronAPI {
     saveMeta: (payload: { screenPath: string; meta: DesignMeta }) => Promise<{ ok: boolean; error?: string }>
     deleteProject: (projectId: string) => Promise<{ ok: boolean }>
     renameProject: (payload: { projectId: string; name: string }) => Promise<{ ok: boolean }>
+    createCheckpoint: (payload: { projectId: string; label?: string; auto?: boolean }) => Promise<{ ok: boolean; id?: string; error?: string }>
+    listCheckpoints: (projectId: string) => Promise<DesignCheckpoint[]>
+    restoreCheckpoint: (payload: { projectId: string; checkpointId: string }) => Promise<{ ok: boolean; error?: string }>
   }
   exporter: {
     saveCopy: (payload: { srcPath: string }) => Promise<{ ok: boolean; path?: string; error?: string }>

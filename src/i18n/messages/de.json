@@ -92,5 +92,19 @@
     "anthropic_key_prompt": "Anthropic API-Schlüssel:",
     "openai_key_prompt": "OpenAI API-Schlüssel:",
     "google_key_prompt": "Google Generative AI API-Schlüssel:"
+  },
+  "login": {
+    "title": "Cowrangler — Abo-Anmeldung",
+    "which": "Mit welchem Abo möchtest du dich anmelden?",
+    "connected": "verbunden",
+    "signout_option": "Von einem Anbieter abmelden…",
+    "cancelled": "Abgebrochen.",
+    "signout_which": "Von welchem Anbieter abmelden?",
+    "signed_out": "Von {id} abgemeldet.",
+    "open_browser": "Im Browser öffnen",
+    "connecting": "Verbindung wird hergestellt…",
+    "waiting": "Warte auf Autorisierung…",
+    "signed_in": "Mit {id} angemeldet. Du kannst es jetzt ohne API-Schlüssel nutzen.",
+    "failed": "Anmeldung fehlgeschlagen: {error}"
   }
 }

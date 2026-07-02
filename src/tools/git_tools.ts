@@ -102,14 +102,12 @@ registerTool(
 // ── ADD (STAGE) ───────────────────────────────────────────────────────────────
 registerTool(
   "git_add",
-  "Stage files for commit (git add). Use '.' to stage all changes.",
+  "Stage files for commit (git add). Use ['.'] to stage all changes.",
   z.object({
-    files: z.union([z.string(), z.array(z.string())]),
+    files: z.array(z.string()).describe("List of files to stage."),
   }),
-  async ({ files }: { files: string | string[] }) => {
-    const targets = Array.isArray(files)
-      ? files.map((f) => `"${f}"`).join(" ")
-      : `"${files}"`;
+  async ({ files }: { files: string[] }) => {
+    const targets = files.map((f) => `"${f}"`).join(" ");
     return runGit(`git add ${targets}`) || `OK: Staged.`;
   },
 );
@@ -229,5 +227,40 @@ registerTool(
   async ({ file, confirm }: { file: string; confirm: boolean }) => {
     if (!confirm) return "Aborted: set confirm: true to discard changes.";
     return runGit(`git checkout -- "${file}"`);
+  },
+);
+
+// ── WORKTREE ────────────────────────────────────────────────────────────────
+registerTool(
+  "git_worktree",
+  "Manage git worktrees for isolated/parallel work under .cowrangler/worktrees/. Actions: create (new branch+worktree), list, remove.",
+  z.object({
+    action: z.enum(["create", "list", "remove"]),
+    name: z.string().optional().describe("Worktree name (for create/remove)"),
+    from: z.string().optional().describe("Base ref for create (default: HEAD)"),
+    force: z.boolean().optional().describe("Force remove even with uncommitted changes"),
+  }),
+  async ({ action, name, from, force }: { action: string; name?: string; from?: string; force?: boolean }) => {
+    try {
+      const wt = await import("../core/worktree.js");
+      const root = process.cwd();
+      if (action === "list") {
+        const list = wt.listWorktrees(root);
+        return list.length ? list.map((w) => `${w.name}  ${w.branch}  ${w.path}`).join("\n") : "No worktrees.";
+      }
+      if (action === "create") {
+        if (!name) return "ERROR: 'create' requires name.";
+        const w = wt.createWorktree(root, name, from ?? "HEAD");
+        return `OK: worktree '${w.name}' -> ${w.path} (branch ${w.branch})`;
+      }
+      if (action === "remove") {
+        if (!name) return "ERROR: 'remove' requires name.";
+        wt.removeWorktree(root, name, !!force);
+        return `OK: removed worktree '${name}'`;
+      }
+      return `ERROR: unknown action '${action}'`;
+    } catch (e: any) {
+      return `ERROR: ${e?.message ?? String(e)}`;
+    }
   },
 );

@@ -23,7 +23,7 @@ import os from "os";
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
-export type LogChannel = "agent" | "errors" | "gateway" | "cron" | "kanban";
+export type LogChannel = "agent" | "errors" | "gateway" | "cron";
 
 const LEVEL_PRIORITY: Record<LogLevel, number> = {
   debug: 0,
@@ -177,7 +177,7 @@ export class Logger {
    * Log dosyalarının boyutlarını döndürür (doctor/status için).
    */
   stats(): Record<LogChannel, { sizeBytes: number; exists: boolean }> {
-    const channels: LogChannel[] = ["agent", "errors", "gateway", "cron", "kanban"];
+    const channels: LogChannel[] = ["agent", "errors", "gateway", "cron"];
     const result: any = {};
     for (const ch of channels) {
       const filePath = path.join(this.logsDir, `${ch}.log`);

@@ -53,6 +53,9 @@ INTERACTION MODEL (read first — overrides any general workflow guidance):
 - NEVER end a turn with a standalone message like "Waiting for user approval" or "Let me know if I should proceed". That dead-ends the conversation and loses context. It is forbidden here.
 - If — and only if — you genuinely need a decision before building (the direction is ambiguous, there are two equally valid approaches, or a step is destructive), call the \`ask_user\` tool to ask INLINE. Keep it to one short question with 2–4 concrete options. Execution pauses for the answer and then continues IN THE SAME TURN with full context — so you never lose what you were doing.
 - Treat any general instruction about \`write_plan\` or waiting for written approval as NOT applying in Design Mode. Here you act, and you use \`ask_user\` when you must check in.
+- **START WRITING IMMEDIATELY — no preamble tools.** Do NOT call \`manage_task\`, do NOT list or scan the workspace, do NOT "check for existing assets" before you begin. Your very first action for a new design request is writing the first \`screens/NAME.ext\` file. The screens directory starts empty; there is nothing to discover.
+- **NEW files need no read.** Any general "read before write" rule does NOT apply to files that don't exist yet — call \`write_file\` directly for every new screen. Only read a file before EDITING an existing one.
+- **FINISH THE JOB IN ONE TURN.** Keep writing until every requested screen/asset AND its \`.meta.json\` sidecar exists. NEVER end the turn describing what you will do next — if a file is left to write, write it. Ending with "I'll now create…" or a summary of unwritten work is a failure.
 
 THE CANVAS CONTRACT (always):
 - Write each screen/asset as a SEPARATE, self-contained file inside the \`screens/\` directory.
@@ -306,6 +309,107 @@ export function registerDesignIPC(): void {
       return { ok: true, count: files.length, dir: target }
     } catch (e: any) {
       return { ok: false, count: 0, error: e.message }
+    }
+  })
+
+  // ── Version history (checkpoints) ─────────────────────────────────────────────
+  // A checkpoint is a full copy of screens/ + canvas.json taken before an agent
+  // edit (or on demand), stored under workdir/checkpoints/<id>/. Restoring swaps
+  // the live screens/ back to the snapshot so a bad iteration can be undone.
+  interface CheckpointMeta { id: string; label: string; createdAt: number; fileCount: number; auto: boolean }
+
+  function copyDir(src: string, dest: string) {
+    fs.mkdirSync(dest, { recursive: true })
+    for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+      const s = path.join(src, entry.name)
+      const d = path.join(dest, entry.name)
+      if (entry.isDirectory()) copyDir(s, d)
+      else if (entry.isFile()) fs.copyFileSync(s, d)
+    }
+  }
+  function countFiles(dir: string): number {
+    if (!fs.existsSync(dir)) return 0
+    return fs.readdirSync(dir).filter(f => !f.endsWith('.meta.json')).length
+  }
+  function checkpointsDir(workdir: string) { return path.join(workdir, 'checkpoints') }
+  const MAX_CHECKPOINTS = 40
+
+  ipcMain.handle('design:createCheckpoint', (_, { projectId, label, auto }: { projectId: string; label?: string; auto?: boolean }) => {
+    const db = getProjectDB()
+    const project = db.get(projectId)
+    if (!project?.workdir) return { ok: false, error: 'Project not found' }
+    const screensDir = path.join(project.workdir, 'screens')
+    if (!fs.existsSync(screensDir)) return { ok: false, error: 'No screens yet' }
+    const cpRoot = checkpointsDir(project.workdir)
+    const id = `cp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+    const cpDir = path.join(cpRoot, id)
+    try {
+      copyDir(screensDir, path.join(cpDir, 'screens'))
+      const canvasPath = path.join(project.workdir, 'canvas.json')
+      if (fs.existsSync(canvasPath)) fs.copyFileSync(canvasPath, path.join(cpDir, 'canvas.json'))
+      const meta: CheckpointMeta = {
+        id,
+        label: (label || '').trim() || (auto ? 'Auto snapshot' : 'Saved version'),
+        createdAt: Date.now(),
+        fileCount: countFiles(screensDir),
+        auto: !!auto,
+      }
+      fs.writeFileSync(path.join(cpDir, 'checkpoint.json'), JSON.stringify(meta, null, 2))
+      // Prune oldest beyond the cap so history doesn't grow without bound.
+      const all = fs.readdirSync(cpRoot)
+        .filter(f => fs.existsSync(path.join(cpRoot, f, 'checkpoint.json')))
+        .map(f => JSON.parse(fs.readFileSync(path.join(cpRoot, f, 'checkpoint.json'), 'utf-8')) as CheckpointMeta)
+        .sort((a, b) => a.createdAt - b.createdAt)
+      while (all.length > MAX_CHECKPOINTS) {
+        const old = all.shift()!
+        try { fs.rmSync(path.join(cpRoot, old.id), { recursive: true, force: true }) } catch {}
+      }
+      return { ok: true, id }
+    } catch (e: any) {
+      return { ok: false, error: e.message }
+    }
+  })
+
+  ipcMain.handle('design:listCheckpoints', (_, projectId: string) => {
+    const db = getProjectDB()
+    const project = db.get(projectId)
+    if (!project?.workdir) return []
+    const cpRoot = checkpointsDir(project.workdir)
+    if (!fs.existsSync(cpRoot)) return []
+    try {
+      return fs.readdirSync(cpRoot)
+        .filter(f => fs.existsSync(path.join(cpRoot, f, 'checkpoint.json')))
+        .map(f => JSON.parse(fs.readFileSync(path.join(cpRoot, f, 'checkpoint.json'), 'utf-8')) as CheckpointMeta)
+        .sort((a, b) => b.createdAt - a.createdAt)
+    } catch { return [] }
+  })
+
+  ipcMain.handle('design:restoreCheckpoint', (_, { projectId, checkpointId }: { projectId: string; checkpointId: string }) => {
+    const db = getProjectDB()
+    const project = db.get(projectId)
+    if (!project?.workdir) return { ok: false, error: 'Project not found' }
+    const cpDir = path.join(checkpointsDir(project.workdir), checkpointId)
+    const cpScreens = path.join(cpDir, 'screens')
+    if (!fs.existsSync(cpScreens)) return { ok: false, error: 'Checkpoint not found' }
+    const screensDir = path.join(project.workdir, 'screens')
+    try {
+      // Safety net: snapshot the current state before overwriting, so a restore
+      // is itself reversible.
+      if (fs.existsSync(screensDir) && countFiles(screensDir) > 0) {
+        const backupId = `cp_${Date.now()}_pre-restore`
+        const backupDir = path.join(checkpointsDir(project.workdir), backupId)
+        copyDir(screensDir, path.join(backupDir, 'screens'))
+        fs.writeFileSync(path.join(backupDir, 'checkpoint.json'), JSON.stringify({
+          id: backupId, label: 'Before restore', createdAt: Date.now(), fileCount: countFiles(screensDir), auto: true,
+        }, null, 2))
+      }
+      fs.rmSync(screensDir, { recursive: true, force: true })
+      copyDir(cpScreens, screensDir)
+      const cpCanvas = path.join(cpDir, 'canvas.json')
+      if (fs.existsSync(cpCanvas)) fs.copyFileSync(cpCanvas, path.join(project.workdir, 'canvas.json'))
+      return { ok: true }
+    } catch (e: any) {
+      return { ok: false, error: e.message }
     }
   })
 

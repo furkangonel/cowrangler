@@ -92,5 +92,19 @@
     "anthropic_key_prompt": "Anthropic API anahtarı:",
     "openai_key_prompt": "OpenAI API anahtarı:",
     "google_key_prompt": "Google Generative AI API anahtarı:"
+  },
+  "login": {
+    "title": "Cowrangler — Abonelik girişi",
+    "which": "Hangi aboneliğinle giriş yapmak istersin?",
+    "connected": "bağlı",
+    "signout_option": "Bir sağlayıcıdan çıkış yap…",
+    "cancelled": "İptal edildi.",
+    "signout_which": "Hangi sağlayıcıdan çıkış yapılsın?",
+    "signed_out": "{id} oturumu kapatıldı.",
+    "open_browser": "Tarayıcında aç",
+    "connecting": "Bağlanıyor…",
+    "waiting": "Yetkilendirme bekleniyor…",
+    "signed_in": "{id} ile giriş yapıldı. Artık API anahtarı olmadan kullanabilirsin.",
+    "failed": "Giriş başarısız: {error}"
   }
 }

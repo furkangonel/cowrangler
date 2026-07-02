@@ -92,5 +92,19 @@
     "anthropic_key_prompt": "Clave API de Anthropic:",
     "openai_key_prompt": "Clave API de OpenAI:",
     "google_key_prompt": "Clave API de Google Generative AI:"
+  },
+  "login": {
+    "title": "Cowrangler — Inicio con suscripción",
+    "which": "¿Con qué suscripción quieres iniciar sesión?",
+    "connected": "conectado",
+    "signout_option": "Cerrar sesión de un proveedor…",
+    "cancelled": "Cancelado.",
+    "signout_which": "¿Cerrar sesión de qué proveedor?",
+    "signed_out": "Sesión cerrada de {id}.",
+    "open_browser": "Abrir en tu navegador",
+    "connecting": "Conectando…",
+    "waiting": "Esperando autorización…",
+    "signed_in": "Sesión iniciada con {id}. Ya puedes usarlo sin clave API.",
+    "failed": "Error al iniciar sesión: {error}"
   }
 }

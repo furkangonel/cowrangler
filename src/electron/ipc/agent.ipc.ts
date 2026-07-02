@@ -70,11 +70,40 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       return
     }
     const isDesign = !!project?.description?.startsWith('__cowrangler_design__:')
-    const contextType = projectId === GLOBAL_PROJECT_ID 
-      ? 'desktop_chat' 
+    const contextType = projectId === GLOBAL_PROJECT_ID
+      ? 'desktop_chat'
       : isDesign ? 'desktop_design' : 'desktop_session'
     const basePrompt = getSystemPrompt(contextType)
     const systemPrompt = buildSystemPrompt(basePrompt, instructions)
+
+    // General Chat is conversational — expose ONLY a lean, safe tool set so weaker
+    // models don't reflexively call manage_task/spawn_subagent/etc. on a greeting
+    // (that's what caused list_files + manage_task on "merhaba" and the slowness).
+    // Session/Design modes keep full capabilities.
+    // Names must match the registry (search_in_files, not search_files).
+    // send_message is auto-injected only when the allowlist includes it (or is
+    // undefined), so chat mode below intentionally omits it → plain-text replies.
+    //
+    // General Chat: conversational only. No manage_task/spawn/write/exec/git so a
+    // weak model can't turn "merhaba" into a task list + file scan.
+    const CHAT_TOOLS = [
+      'web_search', 'fetch_webpage', 'read_file', 'search_in_files',
+    ]
+    // Design: needs to WRITE screen files + assets, but must START BUILDING
+    // immediately. Excludes manage_task (no task-list stalling), spawn_subagent,
+    // execute_bash, git_*, computer_use, cron, repo_map, skills, etc.
+    const DESIGN_TOOLS = [
+      'write_file', 'read_file', 'edit_file', 'apply_patch', 'append_to_file',
+      'create_folder', 'move_item', 'delete_file',
+      'list_files', 'glob_files', 'search_in_files', 'file_info',
+      'web_search', 'fetch_webpage', 'http_request',
+      'generate_image', 'analyze_image',
+      'ask_user', 'send_message',
+    ]
+    const allowedTools =
+      contextType === 'desktop_chat' ? CHAT_TOOLS
+      : contextType === 'desktop_design' ? DESIGN_TOOLS
+      : undefined
 
     // Çalışma dizini: proje varsa onun workdir'i; projesiz genel sohbette adanmış global klasör.
     const workdir = project?.workdir ?? (projectId === GLOBAL_PROJECT_ID ? getGlobalWorkdir() : undefined)
@@ -88,8 +117,12 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       if (existingAgent && existingAgent.llm.model !== model) {
         existingAgent.llm.setModel(model)
       }
+      // Design projeleri çok dosyalıdır (her ekran = screen + meta.json sidecar);
+      // varsayılan 25 step, 8-10 ekranlık işte ORTADA keser ve "model işi yapmadan
+      // gitti" görünümü yaratır. Design'a daha yüksek step bütçesi ver.
+      const maxIterations = contextType === 'desktop_design' ? 60 : undefined
       // getOrCreate: mevcut agent'ı döndürür (varsa) + workdir map'ini günceller.
-      agent = agentManager.getOrCreate(projectId, { model, systemPrompt }, workdir)
+      agent = agentManager.getOrCreate(projectId, { model, systemPrompt, allowedTools, maxIterations }, workdir)
     } catch (err: any) {
       console.error('[agent:chat] Initialization Error:', err)
       sender.send('agent:error', friendlyError(err.message || String(err)))
@@ -101,6 +134,17 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
     // birden fazla proje aynı süreçte güvenli şekilde yönetilebilir.
     agentManager.applyProjectContext(projectId)
 
+    // Aktif UI-conversation session'ını burada da (yeniden) ayarla — tek yetkili
+    // yer bu, çünkü her `agent:chat` çağrısı zaten kendi `sessionId`'sini taşıyor.
+    // Önceden yalnızca renderer'ın ayrı 'agent:setActiveSession' çağrısına
+    // güveniliyordu; GlobalChatView ve Design chat (design.store.ts) bu çağrıyı
+    // hiç yapmıyordu → skill/task/plan gibi session-scoped kaynaklar o akışlarda
+    // ya stale bir session'a ya da bir önceki proje session'ına yazılıyordu.
+    {
+      const { setActiveSessionId } = await import('../../core/project_context.js')
+      setActiveSessionId(sessionId || null)
+    }
+
     // TODO izlemeyi başlat — workdir'i doğrudan geçir ki agent instance'a bağımlı olmasın
     if (workdir) {
       agentManager.watchTodo(projectId, workdir, sessionId || '__new__', (tasks) => {
@@ -110,6 +154,10 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
 
     // Per-tool events — each tool reports its own start/done/error independently,
     // with a stable id (SDK toolCallId), so loaders/checkmarks update one by one.
+    // Design guard: turda hiç dosya yazıldı mı? (bkz. no-output nudge aşağıda)
+    const WRITE_TOOLS = new Set(['write_file', 'edit_file', 'apply_patch', 'append_to_file'])
+    let writeCount = 0
+
     const onToolEvent = (e: {
       id: string
       name: string
@@ -119,6 +167,7 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       result?: any
       error?: string
     }) => {
+      if (e.phase === 'done' && WRITE_TOOLS.has(e.name)) writeCount++
       sender.send('agent:toolCall', {
         id: e.id,
         name: e.name,
@@ -140,7 +189,25 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
     }
 
     try {
-      const result = await agent.chat(message, undefined, onStepText, undefined, onToolEvent, onReasoningText)
+      const isFirstTurn = agent.contextLength === 0
+      let result = await agent.chat(message, undefined, onStepText, undefined, onToolEvent, onReasoningText)
+
+      // ── Design no-output guard ────────────────────────────────────────────
+      // Zayıf modeller ilk istekte bazen plan anlatıp HİÇ dosya yazmadan turu
+      // bitiriyor. İlk turda sıfır araç çağrısı + sıfır yazma varsa BİR kez
+      // otomatik dürt: hemen üretime başlasın. (Soru sorması gerekiyorsa
+      // ask_user çağırırdı — o durumda toolCallCount > 0 olur, nudge atlanır.)
+      if (
+        contextType === 'desktop_design' &&
+        isFirstTurn &&
+        writeCount === 0 &&
+        result.toolCallCount === 0
+      ) {
+        result = await agent.chat(
+          '[SYSTEM] You ended the turn without producing any design file. The user expects real screens, not a description. Start NOW: write the first screens/ file (plus its .meta.json sidecar), then keep writing until the request is fully built. Do not reply with plans or promises.',
+          undefined, onStepText, undefined, onToolEvent, onReasoningText,
+        )
+      }
 
       // Session'ı projeye bağla + başlığı ilk promptun ilk 20 karakterinden ata
       const currentSessionId = agent.currentSessionId

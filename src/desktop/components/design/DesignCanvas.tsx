@@ -3,6 +3,7 @@ import { X, Maximize2, ExternalLink, GripVertical, ChevronLeft, ChevronRight, Ro
 import { useDesignStore, DesignFrame, DesignTemplateType, DesignDevice, DesignMeta } from '../../stores/design.store'
 import { ipc } from '../../lib/ipc'
 import { buildSrcDoc, resolveTweakVars, kindFromName, RenderKind } from './renderScreen'
+import { compileJsx } from './esbuildCompiler'
 import { DeviceMockup, deviceSpec } from './DeviceMockup'
 
 interface Props {
@@ -88,7 +89,33 @@ function ScaledScreen({ filePath, kind, meta, intrinsicW, intrinsicH, scale, rel
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [loaded, setLoaded] = useState(false)
 
-  const srcDoc = useMemo(() => (raw == null ? null : buildSrcDoc({ kind, raw, filePath, css: sharedCss })), [raw, kind, filePath, sharedCss])
+  // Design-mode bus (inspector + a11y). Selectors keep re-renders minimal.
+  const inspectMode = useDesignStore(s => s.inspectMode)
+  const a11yRequest = useDesignStore(s => s.a11yRequest)
+  const setInspectorPick = useDesignStore(s => s.setInspectorPick)
+  const setA11yResult = useDesignStore(s => s.setA11yResult)
+
+  // Ahead-of-time compile jsx with esbuild-wasm (falls back to in-iframe Babel).
+  const [compiled, setCompiled] = useState<{ src: string; js?: string } | null>(null)
+  useEffect(() => {
+    if (kind !== 'jsx' || raw == null) { setCompiled(null); return }
+    let alive = true
+    compileJsx(raw).then(r => {
+      if (!alive) return
+      // On esbuild error, leave js undefined so the iframe surfaces the error via Babel.
+      setCompiled({ src: raw, js: r.code })
+    }).catch(() => { if (alive) setCompiled({ src: raw }) })
+    return () => { alive = false }
+  }, [raw, kind])
+
+  const compiledJs = kind === 'jsx' && compiled?.src === raw ? compiled.js : undefined
+  // Hold render until the jsx compile settles, so we don't paint twice.
+  const jsxPending = kind === 'jsx' && raw != null && compiled?.src !== raw
+
+  const srcDoc = useMemo(
+    () => (raw == null || jsxPending ? null : buildSrcDoc({ kind, raw, filePath, css: sharedCss, compiledJs })),
+    [raw, kind, filePath, sharedCss, compiledJs, jsxPending],
+  )
 
   // Push tweak vars on first load and whenever they change.
   useEffect(() => {
@@ -96,14 +123,33 @@ function ScaledScreen({ filePath, kind, meta, intrinsicW, intrinsicH, scale, rel
     iframeRef.current?.contentWindow?.postMessage({ type: 'apply_tweaks', vars: liveVars }, '*')
   }, [loaded, liveVars, reloadKey])
 
+  // Arm/disarm the in-iframe element inspector to match global inspect mode.
   useEffect(() => {
-    if (!onNatural) return
+    if (!loaded) return
+    iframeRef.current?.contentWindow?.postMessage({ type: 'set_inspect', on: inspectMode }, '*')
+  }, [loaded, inspectMode, reloadKey])
+
+  // Fire an accessibility scan when this screen is the requested target.
+  useEffect(() => {
+    if (!loaded || !a11yRequest || a11yRequest.filePath !== filePath) return
+    iframeRef.current?.contentWindow?.postMessage({ type: 'run_a11y' }, '*')
+  }, [loaded, a11yRequest, filePath, reloadKey])
+
+  // Single message listener: resize + inspector picks + a11y reports.
+  useEffect(() => {
     const onMsg = (e: MessageEvent) => {
-      if (e.data?.type === 'screen_resize' && e.data?.filePath === filePath) onNatural(e.data.width, e.data.height)
+      const d = e.data
+      if (!d || d.filePath !== filePath) return
+      if (d.type === 'screen_resize') { onNatural?.(d.width, d.height) }
+      else if (d.type === 'element_pick') {
+        setInspectorPick({ filePath, selector: d.selector, tag: d.tag, text: d.text, w: d.w, h: d.h })
+      } else if (d.type === 'a11y_report') {
+        setA11yResult(filePath, Array.isArray(d.issues) ? d.issues : [])
+      }
     }
     window.addEventListener('message', onMsg)
     return () => window.removeEventListener('message', onMsg)
-  }, [filePath, onNatural])
+  }, [filePath, onNatural, setInspectorPick, setA11yResult])
 
   if (raw == null) return <div className="w-full h-full flex items-center justify-center text-xs" style={{ color: 'var(--d-ink-faint)' }}>Loading…</div>
 
@@ -121,7 +167,9 @@ function ScaledScreen({ filePath, kind, meta, intrinsicW, intrinsicH, scale, rel
         height: intrinsicH,
         transform: `scale(${scale})`,
         transformOrigin: '0 0',
-        pointerEvents: interactive ? 'auto' : 'none',
+        // Inspect mode needs pointer events even on non-interactive cards so the
+        // user can click an element to target it.
+        pointerEvents: interactive || inspectMode ? 'auto' : 'none',
         background: '#fff',
       }}
     />

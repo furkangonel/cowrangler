@@ -37,6 +37,12 @@ function createWindow(): void {
     // process.env'e yükle. Bu olmadan CLI'de çalışan modeller desktop'ta
     // MISSING_KEY hatası verir.
     loadEnvironmentVariables()
+    // Abonelik OAuth token'larını env'e enjekte et (Claude Pro, ChatGPT,
+    // Copilot, Gemini, Antigravity) — CLI'de `cowrangler login` ile bağlanınca
+    // desktop de aynı kasadan API key olmadan çalışır.
+    void import('../core/oauth_subscriptions.js')
+      .then((m) => m.applyOAuthEnv())
+      .catch(() => { /* sessizce geç */ })
   } catch {
     // İlk açılışta credentials olmayabilir — devam et
   }
