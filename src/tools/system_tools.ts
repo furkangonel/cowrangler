@@ -360,6 +360,9 @@ Never skip the user approval step after writing a plan.`,
 
     const planContent = lines.filter((l) => l !== undefined).join("\n");
 
+    const { getActiveSessionId } = await import("../core/project_context.js");
+    const sessionId = getActiveSessionId();
+
     // Persist to disk
     try {
       const planFile = getProjectPlanFile();
@@ -369,30 +372,78 @@ Never skip the user approval step after writing a plan.`,
       // Non-fatal — plan still returned in-memory
     }
 
+    // Sağ paneldeki Plan bölümüne canlı yayınla — model artık planı ayrıca
+    // "anlatmak" zorunda değil; kullanıcı planı doğrudan panelde görür.
+    const { emitPlan } = await import("./plan_events.js");
+    emitPlan({
+      title,
+      summary,
+      steps: steps.map((s) => ({
+        step: s.step,
+        description: s.description,
+        files: s.files,
+        risk: s.risk ?? "low",
+      })),
+      estimated_duration,
+      notes,
+      markdown: planContent,
+      status: "pending",
+      sessionId,
+      createdAt: new Date().toISOString(),
+    });
+
+    // Onay diyaloğunda planın TAM adımlarını göster (yalnız başlık değil).
+    const stepDigest = steps
+      .map((s) => {
+        const r = s.risk ?? "low";
+        const badge = r === "high" ? "🔴" : r === "medium" ? "🟡" : "🟢";
+        const f = s.files && s.files.length ? ` — ${s.files.join(", ")}` : "";
+        return `${s.step}. ${badge} ${s.description}${f}`;
+      })
+      .join("\n");
+    const approvalQuestion =
+      `Plan: ${title}\n${summary}\n\n${stepDigest}\n\n` +
+      (notes ? `Notes: ${notes}\n\n` : "") +
+      `Approve this plan?`;
+
     // Interactively ask for user approval inside the tool execution
     try {
       const { executeAskUser } = await import("./ask_user.js");
-      const { getActiveSessionId } = await import("../core/project_context.js");
       const approval = await executeAskUser({
         questions: [
           {
-            question: `Do you approve the plan: "${title}"?`,
+            question: approvalQuestion,
             options: ["Go ahead", "Modify plan", "Cancel"],
           }
         ]
-      }, { sessionId: getActiveSessionId() });
+      }, { sessionId });
 
       if (isOptionSelected(approval, "Go ahead")) {
+        emitPlan({
+          title, summary, steps, estimated_duration, notes,
+          markdown: planContent, status: "approved", sessionId,
+          createdAt: new Date().toISOString(),
+        });
         return `Plan approved by user. Proceed with implementation directly.\n\n${planContent}`;
       } else if (isOptionSelected(approval, "Modify plan")) {
+        emitPlan({
+          title, summary, steps, estimated_duration, notes,
+          markdown: planContent, status: "modify", sessionId,
+          createdAt: new Date().toISOString(),
+        });
         return `PLAN MODIFICATION REQUESTED BY USER. Do NOT start implementation. Prompt the user for details on what needs to be changed in the plan.`;
       } else {
+        emitPlan({
+          title, summary, steps, estimated_duration, notes,
+          markdown: planContent, status: "rejected", sessionId,
+          createdAt: new Date().toISOString(),
+        });
         return `PLAN CANCELLED/REJECTED BY USER. Stop execution and do NOT implement.`;
       }
     } catch {
       // Fallback if ask_user fails
       return (
-        `PLAN WRITTEN — present this to the user via send_message and WAIT for approval:\n\n` +
+        `PLAN WRITTEN — it is shown in the user's Plan panel. Present a one-line note in your reply and WAIT for approval:\n\n` +
         planContent +
         `\n\nDo NOT proceed with implementation until the user explicitly approves.`
       );

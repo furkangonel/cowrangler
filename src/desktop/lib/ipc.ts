@@ -279,6 +279,25 @@ export interface DesignCheckpoint {
   auto: boolean
 }
 
+export interface PlanStep {
+  step: number
+  description: string
+  files?: string[]
+  risk?: 'low' | 'medium' | 'high' | string
+}
+
+export interface PlanPayload {
+  title: string
+  summary: string
+  steps: PlanStep[]
+  estimated_duration?: string
+  notes?: string
+  markdown: string
+  status: 'pending' | 'approved' | 'rejected' | 'modify'
+  sessionId?: string | null
+  createdAt: string
+}
+
 interface ElectronAPI {
   agent: {
     chat: (projectId: string, sessionId: string | null, message: string, model?: string) => Promise<void>
@@ -287,10 +306,12 @@ interface ElectronAPI {
     newSession: (projectId: string) => Promise<{ ok: boolean }>
     getTodo: (projectId: string, sessionId?: string) => Promise<TaskProgress[]>
     setActiveSession: (sessionId: string | null) => Promise<void>
+    getPlan: (projectId: string, sessionId?: string) => Promise<PlanPayload | null>
     onToolCall: (cb: (data: ToolCallEvent) => void) => () => void
     onStepText: (cb: (text: string) => void) => () => void
     onReasoningText: (cb: (text: string) => void) => () => void
     onQaPrompt: (cb: (payload: any) => void) => () => void
+    onPlan: (cb: (payload: PlanPayload) => void) => () => void
     answerQuestion: (answer: string) => Promise<{ ok: boolean }>
     onProgress: (cb: (tasks: TaskProgress[]) => void) => () => void
     onDone: (cb: (result: AgentDoneResult) => void) => () => void
@@ -325,12 +346,12 @@ interface ElectronAPI {
     get: () => Promise<Record<string, any>>
     set: (key: string, value: any) => Promise<{ ok: boolean }>
     getApiKeys: () => Promise<ApiKeyInfo[]>
-    setApiKey: (provider: string, key: string) => Promise<{ ok: boolean }>
+    setApiKey: (provider: string, key: string) => Promise<{ ok: boolean; error?: string; models?: string[] }>
     removeApiKey: (provider: string) => Promise<{ ok: boolean }>
     getModels: (opts?: { refresh?: boolean }) => Promise<ModelInfo[]>
     savedModels: {
       list: () => Promise<string[]>
-      add: (modelId: string) => Promise<{ ok: boolean }>
+      add: (modelId: string, contextWindow?: number) => Promise<{ ok: boolean }>
       remove: (modelId: string) => Promise<{ ok: boolean }>
     }
     oauth: {
@@ -363,14 +384,15 @@ interface ElectronAPI {
   }
   exporter: {
     saveCopy: (payload: { srcPath: string }) => Promise<{ ok: boolean; path?: string; error?: string }>
-    toPdf: (payload: { srcPath?: string; html?: string; name?: string; landscape?: boolean }) => Promise<{ ok: boolean; path?: string; count?: number; error?: string }>
+    toPdf: (payload: { srcPath?: string; html?: string; name?: string; landscape?: boolean; document?: boolean }) => Promise<{ ok: boolean; path?: string; count?: number; error?: string }>
     toImage: (payload: { srcPath?: string; html?: string; name?: string; width?: number; height?: number }) => Promise<{ ok: boolean; path?: string; error?: string }>
     fileToPptx: (payload: { srcPath: string; name?: string; width?: number; height?: number }) => Promise<{ ok: boolean; path?: string; count?: number; error?: string }>
-    deckToPdf: (payload: { files: string[]; name?: string; slideW?: number; slideH?: number }) => Promise<{ ok: boolean; path?: string; count?: number; error?: string }>
+    deckToPdf: (payload: { files: string[]; name?: string; slideW?: number; slideH?: number; document?: boolean }) => Promise<{ ok: boolean; path?: string; count?: number; error?: string }>
     deckToPptx: (payload: { files: string[]; name?: string; slideW?: number; slideH?: number }) => Promise<{ ok: boolean; path?: string; count?: number; error?: string }>
   }
   skills: {
     list: () => Promise<SkillDef[]>
+    context: (projectId: string, sessionId?: string) => Promise<string[]>
     getContent: (skillId: string) => Promise<string | null>
     toggle: (skillId: string, active: boolean) => Promise<{ ok: boolean }>
     create: (data: { name: string; description: string; content?: string }) => Promise<{ ok: boolean; id?: string; error?: string }>
@@ -406,6 +428,7 @@ interface ElectronAPI {
   fs: {
     pickFolder: () => Promise<string | null>
     pickFile: () => Promise<string | null>
+    addFiles: (payload: { projectId: string; paths: string[] }) => Promise<{ ok: boolean; error?: string; files: { name: string; relPath: string }[] }>
     fileTree: (dirPath: string, depth?: number) => Promise<FileNode[]>
     readFile: (filePath: string) => Promise<{ content?: string; error?: string }>
     writeFile: (filePath: string, content: string) => Promise<{ ok: boolean; error?: string }>

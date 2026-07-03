@@ -82,6 +82,19 @@ export interface AgentChatResult {
 export class Agent {
   public llm: LLM;
   public maxIterations: number;
+  /**
+   * Bağlam bazlı thinking tercihi (ör. design turu). Kullanıcı config/env ile
+   * thinking'i açıkça KAPATMADIYSA, bunu true yapmak thinking'i (model destekliyorsa)
+   * etkinleştirir — muhakeme görünür yanıt yerine reasoning kanalına akar.
+   */
+  public preferThinking = false;
+
+  /**
+   * send_message aracının bu instance'a enjekte edilip edilmeyeceği.
+   * Desktop bağlamları (chat/session/design) tek-kanal düz metin kullanır →
+   * host bunu false yapar. CLI/gateway varsayılan olarak açık bırakır.
+   */
+  public sendMessageEnabled = true;
 
   /** CLI görünüm modu — /mode komutu veya Ctrl+O ile değiştirilir */
   public viewMode: "brief" | "default" | "transcript" = "default";
@@ -206,7 +219,9 @@ export class Agent {
       }
     }
 
-    const skills = this.skillManager.getAvailableSkills();
+    // Yalnız ETKİN skill'ler listelenir — devre dışı bırakılanlar prompt'a
+    // hiç girmez (önceden tüm skill'ler enjekte ediliyordu, disabled dahil).
+    const skills = this.skillManager.getEnabledSkills();
 
     // setup-cowork ONBOARDING: yalnızca açıkça etkinleştirilmişse zorunlu direktif
     // olarak enjekte edilir (config.onboarding.force veya COWRANGLER_ONBOARDING=1).
@@ -283,9 +298,15 @@ export class Agent {
     // Chat modunda (allowlist var ve send_message içermiyorsa) EKLEME: model düz
     // metin yanıt verir, bu da UI'da doğrudan görünür. Böylece "cevap tool
     // accordion'ında saklı kalıyor" karışıklığı ve gereksiz tur ortadan kalkar.
-    const sendMessageAllowed = !this.allowedTools || this.allowedTools.includes("*") || this.allowedTools.includes("send_message");
+    const sendMessageAllowed =
+      this.sendMessageEnabled &&
+      (!this.allowedTools || this.allowedTools.includes("*") || this.allowedTools.includes("send_message"));
     if (sendMessageAllowed) {
       base["send_message"] = createSendMessageTool(this.briefBuffer);
+    } else {
+      // Tek-kanal düz metin modu: send_message kaydını explicit olarak sök ki
+      // global TOOL_SCHEMAS'tan miras kalmasın.
+      delete base["send_message"];
     }
 
     // Her aracın execute'ını sarmalayarak GERÇEK ZAMANLI, BAĞIMSIZ start/done/error
@@ -481,6 +502,20 @@ export class Agent {
       );
     }
 
+    // Otomatik skill eşleştirme: kullanıcı mesajı ETKİN bir skill'le güçlü
+    // eşleşiyorsa, model unutsa bile onu CONTEXT'e kopyala. Böylece hem bu tur
+    // enjekte edilir hem de sağ paneldeki "Aktif Skiller"de görünür. Sadece
+    // yeni eşleşmede kopyalar (idempotent, zaten aktifse dokunmaz).
+    try {
+      const match = this.skillManager.matchSkill(userMessage);
+      if (match) {
+        const already = this.skillManager
+          .getContextSkills()
+          .some((s) => s.id === match.id);
+        if (!already) this.skillManager.copySkillToContext(match.id);
+      }
+    } catch { /* auto-skill best-effort */ }
+
     // Aktif CONTEXT skill'lerini kullanıcı mesajından hemen önce enjekte et.
     // Bu sayede baseSystemPrompt sabit kalır ve Anthropic/Gemini prompt caching korunur.
     const contextSkills = this.skillManager.getContextSkills();
@@ -560,8 +595,8 @@ export class Agent {
             envThinking === "1"
               ? true
               : envThinking === "0"
-                ? false
-                : Boolean(cfg.thinking?.enabled);
+                ? false // kullanıcı açıkça kapattı → bağlam tercihi ezmez
+                : Boolean(cfg.thinking?.enabled) || this.preferThinking;
           const thinkingEnabled =
             thinkingConfigured && _supportsThinking(this.llm.model);
           const thinkingBudget = parseInt(

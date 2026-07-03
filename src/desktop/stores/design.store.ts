@@ -20,6 +20,8 @@ export interface DesignChatMessage {
   streaming?: boolean
   /** Live, stacked tool activity for this assistant turn. */
   activity?: DesignActivity[]
+  /** Model'in bu tur için "thinking" (reasoning) çıktısı — accordion'da gösterilir. */
+  reasoning?: string
 }
 
 /** A saved snapshot of the project's screens, taken before an agent edit. */
@@ -76,6 +78,33 @@ export function summarizeTool(name: string, args: Record<string, any> = {}): str
       return v ? String(v).split('/').pop()! : ''
     }
   }
+}
+
+/**
+ * DB satırlarını ekran mesajlarına çevirir. `reasoning` rolündeki satırlar
+ * (agent bunları ilgili assistant metninden ÖNCE yazar) bir sonraki assistant
+ * mesajına iliştirilir; böylece geçmiş açıldığında "Thought Process" accordion'u
+ * geri gelir.
+ */
+function restoreDesignMessages(msgs: any[]): DesignChatMessage[] {
+  const out: DesignChatMessage[] = []
+  let pendingReasoning = ''
+  for (const m of msgs) {
+    if (m.role === 'reasoning') {
+      pendingReasoning += (pendingReasoning ? '\n' : '') + (m.content ?? '')
+      continue
+    }
+    if (m.role === 'user' || m.role === 'assistant') {
+      out.push({
+        id: m.id,
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+        ...(m.role === 'assistant' && pendingReasoning ? { reasoning: pendingReasoning } : {}),
+      })
+      if (m.role === 'assistant') pendingReasoning = ''
+    }
+  }
+  return out
 }
 
 interface DesignState {
@@ -466,6 +495,7 @@ export const useDesignStore = create<DesignState>((set, get) => ({
     // Poll for new HTML files while agent works
     let pollInterval: ReturnType<typeof setInterval> | null = null
     let streamBuffer = ''
+    let reasoningBuffer = ''
     let assistantMsgId = `amsg_${Date.now()}`
 
     // Pre-add streaming assistant message
@@ -539,6 +569,16 @@ export const useDesignStore = create<DesignState>((set, get) => ({
       }))
     })
 
+    // Reasoning delta olarak gelir → biriktirip mesaja yaz (accordion canlı akar).
+    const removeReasoning = ipc.agent.onReasoningText((delta) => {
+      reasoningBuffer += delta
+      set(s => ({
+        messages: s.messages.map(m =>
+          m.id === assistantMsgId ? { ...m, reasoning: reasoningBuffer } : m
+        ),
+      }))
+    })
+
     // Stack each tool call as a live activity row (append, never overwrite).
     const removeTool = ipc.agent.onToolCall((ev) => {
       const key = ev.id ?? `${ev.name}_${ev.timestamp}`
@@ -572,6 +612,7 @@ export const useDesignStore = create<DesignState>((set, get) => ({
       removeError()
       removeInterrupted()
       removeStepText()
+      removeReasoning()
       removeTool()
       removeQa()
       if (pollInterval) { clearInterval(pollInterval); pollInterval = null }
@@ -629,9 +670,7 @@ export const useDesignStore = create<DesignState>((set, get) => ({
       if (!latest) { set({ messages: [], sessionId: null }); return }
       const msgs = await ipc.sessions.messages(latest.id)
       if (get().activeProject?.id !== projectId || get().chatLoading || get().pendingMessage) return
-      const restored: DesignChatMessage[] = msgs
-        .filter(m => m.role === 'user' || m.role === 'assistant')
-        .map(m => ({ id: m.id, role: m.role as 'user' | 'assistant', content: m.content }))
+      const restored = restoreDesignMessages(msgs)
       set({ messages: restored, sessionId: latest.id })
     } catch (e) {
       console.error('[design] loadHistory failed', e)
@@ -642,9 +681,7 @@ export const useDesignStore = create<DesignState>((set, get) => ({
     if (get().chatLoading) return
     try {
       const msgs = await ipc.sessions.messages(sessionId)
-      const restored: DesignChatMessage[] = msgs
-        .filter(m => m.role === 'user' || m.role === 'assistant')
-        .map(m => ({ id: m.id, role: m.role as 'user' | 'assistant', content: m.content }))
+      const restored = restoreDesignMessages(msgs)
       set({ messages: restored, sessionId })
     } catch (e) {
       console.error('[design] switchSession failed', e)

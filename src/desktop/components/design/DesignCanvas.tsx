@@ -447,7 +447,8 @@ function StageCanvas({ kind, viewMode }: { kind: 'slides' | 'animation'; viewMod
 
 function DocumentCanvas({ viewMode }: { viewMode?: 'preview' | 'code' }) {
   const { frames, canvasScale, canvasOffsetX, canvasOffsetY, setCanvasView } = useDesignStore()
-  const pageW = 816, pageH = 1056
+  // A4 @96dpi (210×297mm) — sayfa render alanı.
+  const pageW = 794, pageH = 1123
 
   const zoom = (dir: 1 | -1) => setCanvasView(Math.max(0.2, Math.min(3, canvasScale + dir * 0.15)), canvasOffsetX, canvasOffsetY)
 

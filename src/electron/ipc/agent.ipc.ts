@@ -98,7 +98,7 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       'list_files', 'glob_files', 'search_in_files', 'file_info',
       'web_search', 'fetch_webpage', 'http_request',
       'generate_image', 'analyze_image',
-      'ask_user', 'send_message',
+      'ask_user',
     ]
     const allowedTools =
       contextType === 'desktop_chat' ? CHAT_TOOLS
@@ -123,6 +123,14 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       const maxIterations = contextType === 'desktop_design' ? 60 : undefined
       // getOrCreate: mevcut agent'ı döndürür (varsa) + workdir map'ini günceller.
       agent = agentManager.getOrCreate(projectId, { model, systemPrompt, allowedTools, maxIterations }, workdir)
+      // Design turunda thinking'i tercih et: reasoning destekli modelde muhakeme
+      // görünür yanıt metnine sızmak yerine "Thought Process" accordion'una gider.
+      // (Kullanıcı COWRANGLER_THINKING=0 ile açıkça kapattıysa yine kapalı kalır.)
+      agent.preferThinking = contextType === 'desktop_design'
+      // Desktop tek-kanal düz metin sözleşmesi: send_message YOK. Model asıl
+      // yanıtını görünür metin olarak yazar; ikili kanal (anlatı + send_message)
+      // karmaşası ve "cevap gizli kaldı / hiç mesaj çıkmadı" sorunları biter.
+      agent.sendMessageEnabled = false
     } catch (err: any) {
       console.error('[agent:chat] Initialization Error:', err)
       sender.send('agent:error', friendlyError(err.message || String(err)))
@@ -157,6 +165,9 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
     // Design guard: turda hiç dosya yazıldı mı? (bkz. no-output nudge aşağıda)
     const WRITE_TOOLS = new Set(['write_file', 'edit_file', 'apply_patch', 'append_to_file'])
     let writeCount = 0
+    // ask_user / write_plan bu turda kullanıcıya bir diyalog açtı mı? Açtıysa
+    // "boş yanıt" fallback'i tetiklenmez — soru/onay diyaloğu zaten görünür çıktıdır.
+    let askedUser = false
 
     const onToolEvent = (e: {
       id: string
@@ -168,6 +179,7 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       error?: string
     }) => {
       if (e.phase === 'done' && WRITE_TOOLS.has(e.name)) writeCount++
+      if (e.name === 'ask_user' || e.name === 'write_plan') askedUser = true
       sender.send('agent:toolCall', {
         id: e.id,
         name: e.name,
@@ -205,6 +217,19 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       ) {
         result = await agent.chat(
           '[SYSTEM] You ended the turn without producing any design file. The user expects real screens, not a description. Start NOW: write the first screens/ file (plus its .meta.json sidecar), then keep writing until the request is fully built. Do not reply with plans or promises.',
+          undefined, onStepText, undefined, onToolEvent, onReasoningText,
+        )
+      }
+
+      // ── Empty-reply guard (tüm desktop bağlamları) ─────────────────────────
+      // Tek-kanal düz metin modunda tur, kullanıcıya HİÇ görünür metin
+      // üretmeden bitebilir (model sadece araç çağırıp durdu). Bu, "agent bir
+      // anda hiçbir şey yazmıyor" şikâyetinin ta kendisi. Kullanıcıya bir soru/
+      // onay diyaloğu açılmadıysa (askedUser) ve nihai metin boşsa, BİR kez
+      // özet iste. Yalnızca bir kez — döngü yok.
+      if (!askedUser && (!result.text || !result.text.trim())) {
+        result = await agent.chat(
+          '[SYSTEM] You ended the turn without any visible reply to the user. Write a brief plain-text message now: if you completed work, summarize what changed and the outcome; if you were blocked, say what you need. Do not call tools — just reply in text.',
           undefined, onStepText, undefined, onToolEvent, onReasoningText,
         )
       }
@@ -292,6 +317,32 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
   setAskUserListener((payload: any) => {
     for (const w of BrowserWindow.getAllWindows()) {
       try { w.webContents.send('agent:qaPrompt', payload) } catch { /* window gone */ }
+    }
+  })
+
+  // ── Plan Listener Setup ────────────────────────────────────────────────────
+  // write_plan planı üretince sağ paneldeki Plan bölümüne canlı yayınla.
+  import('../../tools/plan_events.js').then(({ setPlanListener }) => {
+    setPlanListener((payload: any) => {
+      for (const w of BrowserWindow.getAllWindows()) {
+        try { w.webContents.send('agent:plan', payload) } catch { /* window gone */ }
+      }
+    })
+  }).catch(() => { /* plan köprüsü opsiyonel */ })
+
+  // ── agent:getPlan ──────────────────────────────────────────────────────────
+  // Oturum açılışında diskteki plan.md'yi geri yükle (canlı event kaçırılmışsa).
+  ipcMain.handle('agent:getPlan', async (_, projectId: string, sessionId?: string) => {
+    try {
+      if (!sessionId) return null
+      const project = getProjectDB().get(projectId)
+      const workdir = project?.workdir ?? (projectId === GLOBAL_PROJECT_ID ? getGlobalWorkdir() : undefined)
+      if (!workdir) return null
+      const planFile = path.join(workdir, '.cowrangler', 'plans', `${sessionId}.md`)
+      if (!fs.existsSync(planFile)) return null
+      return { markdown: fs.readFileSync(planFile, 'utf-8'), sessionId }
+    } catch {
+      return null
     }
   })
 }

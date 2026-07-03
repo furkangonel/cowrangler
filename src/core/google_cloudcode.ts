@@ -18,6 +18,7 @@
  */
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { LanguageModelV1 } from "ai";
+import { readFileSync } from "node:fs";
 
 export type CloudCodeVariant = "gemini" | "antigravity";
 
@@ -28,7 +29,61 @@ const ANTIGRAVITY_ENDPOINTS = [
   PROD_ENDPOINT,
 ];
 
-const DEFAULT_ANTIGRAVITY_VERSION = "1.18.4";
+// Antigravity sunucusu, eski istemci sürümlerini "This version of Antigravity is
+// no longer supported. Please upgrade..." ile reddediyor. Bu yüzden User-Agent
+// sürümünü kurulu Antigravity uygulamasından okuyoruz (CLIProxyAPI'nin yaptığı
+// gibi) ve okuyamazsak güncel bilinen bir sürüme düşüyoruz. Sürüm sürükledikçe
+// tek yapılması gereken uygulamayı güncellemek — ya da env ile override etmek.
+const DEFAULT_ANTIGRAVITY_VERSION = "2.2.1";
+
+/** Kurulu Antigravity uygulamasının sürümünü platforma göre keşfet. Bulunamazsa null. */
+function detectInstalledAntigravityVersion(): string | null {
+  const readPlist = (p: string): string | null => {
+    try {
+      const xml = readFileSync(p, "utf8");
+      const m = xml.match(
+        /<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)<\/string>/,
+      );
+      return m?.[1]?.trim() || null;
+    } catch {
+      return null;
+    }
+  };
+  const readJsonVersion = (p: string): string | null => {
+    try {
+      const v = JSON.parse(readFileSync(p, "utf8"))?.version;
+      return typeof v === "string" ? v.trim() : null;
+    } catch {
+      return null;
+    }
+  };
+
+  if (process.platform === "darwin") {
+    return (
+      readPlist("/Applications/Antigravity.app/Contents/Info.plist") ||
+      readPlist(
+        `${process.env.HOME}/Applications/Antigravity.app/Contents/Info.plist`,
+      )
+    );
+  }
+  if (process.platform === "win32") {
+    const base = process.env.LOCALAPPDATA;
+    return base ? readJsonVersion(`${base}\\Programs\\Antigravity\\resources\\app\\package.json`) : null;
+  }
+  // linux
+  return readJsonVersion("/opt/Antigravity/resources/app/package.json");
+}
+
+let _antigravityVersion: string | null = null;
+function antigravityVersion(): string {
+  if (_antigravityVersion) return _antigravityVersion;
+  _antigravityVersion =
+    process.env.PI_AI_ANTIGRAVITY_VERSION ||
+    process.env.COWRANGLER_ANTIGRAVITY_VERSION ||
+    detectInstalledAntigravityVersion() ||
+    DEFAULT_ANTIGRAVITY_VERSION;
+  return _antigravityVersion;
+}
 
 const GEMINI_CLI_HEADERS: Record<string, string> = {
   "User-Agent": "google-cloud-sdk vscode_cloudshelleditor/0.1",
@@ -41,8 +96,9 @@ const GEMINI_CLI_HEADERS: Record<string, string> = {
 };
 
 function antigravityHeaders(): Record<string, string> {
-  const version = process.env.PI_AI_ANTIGRAVITY_VERSION || DEFAULT_ANTIGRAVITY_VERSION;
-  return { "User-Agent": `antigravity/${version} darwin/arm64` };
+  const arch = process.arch === "x64" ? "x64" : "arm64";
+  const os = process.platform === "win32" ? "win32" : process.platform === "linux" ? "linux" : "darwin";
+  return { "User-Agent": `antigravity/${antigravityVersion()} ${os}/${arch}` };
 }
 
 // Antigravity requires a signature system instruction (compact form, matches

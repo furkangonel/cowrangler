@@ -65,6 +65,39 @@ export function registerSkillsIPC(ipcMain: IpcMain): void {
       }));
   });
 
+  // Bir project + session için CONTEXT'e kopyalanmış (aktif) skill id'leri.
+  // Otomatik yüklenen veya utilize_skill ile yüklenen skill'ler burada görünür.
+  ipcMain.handle(
+    "skills:context",
+    async (_, projectId: string, sessionId?: string) => {
+      try {
+        if (!sessionId) return [];
+        const { getProjectDB } = await import("../project_db.js");
+        const project = getProjectDB().get(projectId);
+        const workdir =
+          project?.workdir ??
+          (projectId === "__global__"
+            ? path.join(os.homedir(), ".cowrangler", "global-workspace")
+            : undefined);
+        if (!workdir) return [];
+        const dir = path.join(
+          workdir,
+          ".cowrangler",
+          "context",
+          "skills",
+          sessionId,
+        );
+        if (!fs.existsSync(dir)) return [];
+        return fs
+          .readdirSync(dir, { withFileTypes: true })
+          .filter((d) => d.isDirectory())
+          .map((d) => d.name);
+      } catch {
+        return [];
+      }
+    },
+  );
+
   ipcMain.handle("skills:content", async (_, skillId: string) => {
     const found = skillManager
       .getAvailableSkills()

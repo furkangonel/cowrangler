@@ -309,6 +309,24 @@ textarea:focus, input:focus { outline: none; }
   animation: shimmer 1.8s linear infinite;
 }
 
+/* Canlı "Thinking…" başlığı için akan renk (reasoning bloğu) */
+.shimmer-text {
+  background: linear-gradient(90deg,
+    rgb(var(--text-muted))  0%,
+    rgb(var(--accent))     45%,
+    rgb(var(--text-muted)) 90%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  font-weight: 600;
+  animation: shimmer 2s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-text { animation: none; }
+}
+
 /* ── Brand wordmark ──────────────────────────────────────────────────────── */
 .brand-serif {
   font-family: 'SF Pro Rounded', Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif;

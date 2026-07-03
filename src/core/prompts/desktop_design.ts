@@ -1,4 +1,4 @@
-import { SHARED_BEHAVIOR_RULES, COMPLETION_FORMAT } from "./shared.js";
+import { buildSharedRules, buildCompletionFormat } from "./shared.js";
 
 export function getDesktopDesignPrompt(templateStructure?: string): string {
   const templateInfo = templateStructure 
@@ -12,7 +12,7 @@ You are running in the Desktop Design interface. Your goal is to create stunning
 
 ## CORE BEHAVIOR RULES (NON-NEGOTIABLE)
 
-${SHARED_BEHAVIOR_RULES}
+${buildSharedRules({ hasSendMessage: false, hasGit: false })}
 
 ### Design Discipline
 1. **Visual Excellence**: Implement designs that WOW the user and feel premium (vibrant colors, subtle gradients, glassmorphism, micro-animations).
@@ -25,7 +25,7 @@ ${templateInfo}
 - Focus purely on writing files (HTML, JSX, SVG) to fulfill the design request.
 - Always review your UI changes logically.
 
-${COMPLETION_FORMAT}
-Available capabilities: file I/O (write/edit/read), web_search, fetch_webpage, generate_image, analyze_image, ask_user, send_message. There is NO bash, NO subagents, NO task manager here — never attempt to call them.
+${buildCompletionFormat(false)}
+Available capabilities: file I/O (write/edit/read), web_search, fetch_webpage, generate_image, analyze_image, ask_user. There is NO bash, NO subagents, NO task manager, and NO send_message here — never attempt to call them. Your final reply is plain text shown directly to the user.
 Finish the request in this turn: keep writing files until everything asked for exists. Think step-by-step. Deliver pixel-perfect UI.`;
 }

@@ -15,18 +15,18 @@ import chalk from "chalk";
 import { DIRS } from "../core/init.js";
 
 const DEFAULT_MODELS = [
-  { model: "claude-sonnet-4-6",               provider: "Anthropic",   envKey: "ANTHROPIC_API_KEY" },
-  { model: "claude-opus-4-6",                 provider: "Anthropic",   envKey: "ANTHROPIC_API_KEY" },
-  { model: "anthropic/claude-haiku-4-5-20251001", provider: "Anthropic", envKey: "ANTHROPIC_API_KEY" },
-  { model: "gpt-4o",                          provider: "OpenAI",      envKey: "OPENAI_API_KEY" },
-  { model: "gpt-4o-mini",                     provider: "OpenAI",      envKey: "OPENAI_API_KEY" },
-  { model: "openai/o3",                       provider: "OpenAI",      envKey: "OPENAI_API_KEY" },
-  { model: "gemini-2.5-pro",                  provider: "Google",      envKey: "GOOGLE_GENERATIVE_AI_API_KEY" },
-  { model: "gemini-2.0-flash",                provider: "Google",      envKey: "GOOGLE_GENERATIVE_AI_API_KEY" },
-  { model: "groq/llama-3.3-70b-versatile",    provider: "Groq",        envKey: "GROQ_API_KEY" },
-  { model: "openrouter/anthropic/claude-3-5-sonnet", provider: "OpenRouter", envKey: "OPENROUTER_API_KEY" },
-  { model: "openrouter/google/gemini-2.5-pro",       provider: "OpenRouter", envKey: "OPENROUTER_API_KEY" },
-  { model: "openrouter/meta-llama/llama-4-maverick",  provider: "OpenRouter", envKey: "OPENROUTER_API_KEY" },
+  { model: "claude-sonnet-5",                  provider: "Anthropic",   envKey: "ANTHROPIC_API_KEY" },
+  { model: "claude-opus-4-8",                  provider: "Anthropic",   envKey: "ANTHROPIC_API_KEY" },
+  { model: "claude-sonnet-4-6",                provider: "Anthropic",   envKey: "ANTHROPIC_API_KEY" },
+  { model: "claude-haiku-4-5",                 provider: "Anthropic",   envKey: "ANTHROPIC_API_KEY" },
+  { model: "gpt-5.5",                          provider: "OpenAI",      envKey: "OPENAI_API_KEY" },
+  { model: "gpt-5.4",                          provider: "OpenAI",      envKey: "OPENAI_API_KEY" },
+  { model: "openai/o3",                        provider: "OpenAI",      envKey: "OPENAI_API_KEY" },
+  { model: "gemini-3.5-flash",                 provider: "Google",      envKey: "GOOGLE_GENERATIVE_AI_API_KEY" },
+  { model: "gemini-3.1-pro",                   provider: "Google",      envKey: "GOOGLE_GENERATIVE_AI_API_KEY" },
+  { model: "groq/llama-3.3-70b-versatile",     provider: "Groq",        envKey: "GROQ_API_KEY" },
+  { model: "openrouter/anthropic/claude-sonnet-5", provider: "OpenRouter", envKey: "OPENROUTER_API_KEY" },
+  { model: "openrouter/google/gemini-3.5-flash",   provider: "OpenRouter", envKey: "OPENROUTER_API_KEY" },
 ];
 
 function loadConfig(): any {

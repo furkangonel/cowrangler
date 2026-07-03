@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { ipc, TaskProgress, ToolCallEvent, ContextSnapshot, AgentDoneResult } from '../lib/ipc'
+import { ipc, TaskProgress, ToolCallEvent, ContextSnapshot, AgentDoneResult, PlanPayload } from '../lib/ipc'
 
 export interface ActiveToolCall {
   id: string
@@ -38,8 +38,11 @@ interface AgentState {
   lastError: string | null
   isListening: boolean
   qaPrompt: any | null
+  /** write_plan ile üretilen aktif plan — sağ paneldeki Plan bölümü okur. */
+  currentPlan: PlanPayload | null
 
   setStatus: (s: AgentState['status']) => void
+  setCurrentPlan: (plan: PlanPayload | null) => void
   appendStreamText: (text: string) => void
   clearStream: () => void
   addToolCall: (event: ToolCallEvent) => void
@@ -83,8 +86,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   lastError: null,
   isListening: false,
   qaPrompt: null,
+  currentPlan: null,
 
   setStatus: (status) => set({ status }),
+  setCurrentPlan: (plan) => set({ currentPlan: plan }),
   appendStreamText: (text) => set(s => ({ streamingText: s.streamingText + text })),
   clearStream: () => set({ streamingText: '', streamingMessageId: null }),
   setStreamingMessageId: (id) => set({ streamingMessageId: id }),
@@ -392,6 +397,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       set({ progress: tasks })
     })
     cleanups.push(unsubProgress)
+
+    const unsubPlan = ipc.agent.onPlan((plan: PlanPayload) => {
+      set({ currentPlan: plan })
+    })
+    cleanups.push(unsubPlan)
 
     const unsubQa = ipc.agent.onQaPrompt(async (payload: any) => {
       // Filtering: if payload.meta has sessionId, ensure it matches current desktop context

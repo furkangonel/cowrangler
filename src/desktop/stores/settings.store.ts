@@ -11,13 +11,13 @@ interface SettingsState {
 
   loadAll: () => Promise<void>
   setConfig: (key: string, value: any) => Promise<void>
-  setApiKey: (provider: string, key: string) => Promise<void>
+  setApiKey: (provider: string, key: string) => Promise<{ ok: boolean; error?: string; models?: string[] }>
   removeApiKey: (provider: string) => Promise<void>
   getModel: () => string
   setModel: (modelId: string) => Promise<void>
   refreshModels: () => Promise<void>
   loadSavedModels: () => Promise<void>
-  addSavedModel: (modelId: string) => Promise<void>
+  addSavedModel: (modelId: string, contextWindow?: number) => Promise<void>
   removeSavedModel: (modelId: string) => Promise<void>
 
   getTheme: () => ThemePref
@@ -52,8 +52,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     set({ savedModels })
   },
 
-  addSavedModel: async (modelId) => {
-    await ipc.settings.savedModels.add(modelId)
+  addSavedModel: async (modelId, contextWindow) => {
+    await ipc.settings.savedModels.add(modelId, contextWindow)
     set(s => ({ savedModels: [...new Set([...s.savedModels, modelId.trim()])] }))
   },
 
@@ -68,10 +68,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 
   setApiKey: async (provider, key) => {
-    await ipc.settings.setApiKey(provider, key)
+    const res = await ipc.settings.setApiKey(provider, key)
     const apiKeys = await ipc.settings.getApiKeys()
     const models = await ipc.settings.getModels()
     set({ apiKeys, models })
+    return res
   },
 
   removeApiKey: async (provider) => {
