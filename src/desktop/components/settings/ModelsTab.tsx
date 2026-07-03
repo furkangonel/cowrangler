@@ -130,24 +130,39 @@ export function ModelsTab() {
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({})
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState<Record<string, boolean>>({})
+  const [keyMsg, setKeyMsg] = useState<Record<string, { ok: boolean; text: string }>>({})
   const [newModelId, setNewModelId] = useState('')
+  const [newModelCtx, setNewModelCtx] = useState('')
   const [addingModel, setAddingModel] = useState(false)
 
   async function saveKey(provider: string) {
     const key = keyInputs[provider]?.trim()
     if (!key) return
     setSaving(s => ({ ...s, [provider]: true }))
-    await setApiKey(provider, key)
-    setKeyInputs(k => ({ ...k, [provider]: '' }))
+    setKeyMsg(m => ({ ...m, [provider]: undefined as any }))
+    const res = await setApiKey(provider, key)
     setSaving(s => ({ ...s, [provider]: false }))
+    if (res && res.ok === false) {
+      // Geçersiz key kaydedilmedi — hatayı göster, input'u koru.
+      setKeyMsg(m => ({ ...m, [provider]: { ok: false, text: res.error || 'Key doğrulanamadı.' } }))
+      return
+    }
+    setKeyInputs(k => ({ ...k, [provider]: '' }))
+    const n = res?.models?.length
+    setKeyMsg(m => ({
+      ...m,
+      [provider]: { ok: true, text: n ? `Doğrulandı — ${n} model erişilebilir.` : 'Kaydedildi.' },
+    }))
   }
 
   async function handleAddModel() {
     const id = newModelId.trim()
     if (!id) return
     setAddingModel(true)
-    await addSavedModel(id)
+    const ctxNum = parseInt(newModelCtx, 10)
+    await addSavedModel(id, ctxNum > 0 ? ctxNum : undefined)
     setNewModelId('')
+    setNewModelCtx('')
     setAddingModel(false)
   }
 
@@ -182,6 +197,14 @@ export function ModelsTab() {
             onKeyDown={e => e.key === 'Enter' && handleAddModel()}
             placeholder="provider/model-id"
             className="flex-1 px-3 py-2 bg-bg-tertiary border border-border rounded-xl text-sm text-text-primary placeholder-text-muted font-mono focus:border-accent/60 outline-none transition-colors"
+          />
+          <input
+            value={newModelCtx}
+            onChange={e => setNewModelCtx(e.target.value.replace(/[^0-9]/g, ''))}
+            onKeyDown={e => e.key === 'Enter' && handleAddModel()}
+            placeholder="Context (opt)"
+            title="Optional context window size (e.g. 1000000)"
+            className="w-28 px-2.5 py-2 bg-bg-tertiary border border-border rounded-xl text-sm text-text-primary placeholder-text-muted font-mono focus:border-accent/60 outline-none transition-colors text-center"
           />
           <button
             onClick={handleAddModel}
@@ -276,6 +299,13 @@ export function ModelsTab() {
                   {saving[key.id] ? '…' : 'Save'}
                 </button>
               </div>
+
+              {keyMsg[key.id] && (
+                <p className={`mt-1.5 text-2xs flex items-center gap-1 ${keyMsg[key.id].ok ? 'text-success' : 'text-error'}`}>
+                  {keyMsg[key.id].ok ? <Check size={10} /> : <AlertCircle size={10} />}
+                  {keyMsg[key.id].text}
+                </p>
+              )}
             </div>
           ))}
         </div>

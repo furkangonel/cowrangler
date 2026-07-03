@@ -3,7 +3,9 @@ import {
   Square, ArrowUp, ArrowRight, Layers, Database, Code2, PenTool, X, Check, Pencil, Trash2,
   ChevronDown, Eye, PanelLeft, MessageSquare, Palette, Monitor, Smartphone, Tablet, FolderOpen, Download, HelpCircle,
   SlidersHorizontal, RotateCcw, MousePointerClick, ShieldCheck, History, AlertTriangle, Clock,
+  Brain, ChevronRight, Paperclip, FileText,
 } from 'lucide-react'
+import { useFileDrop } from '../../lib/useFileDrop'
 import { useDesignStore, DesignSystemRecord, DesignFrame, DesignTweak, DesignDevice, DesignActivity } from '../../stores/design.store'
 import { useSettingsStore } from '../../stores/settings.store'
 import { DesignCanvas, isDeviceTemplate } from './DesignCanvas'
@@ -39,6 +41,7 @@ export function DesignEditor({ onBack }: Props) {
   const { savedModels, getModel } = useSettingsStore()
 
   const [input, setInput] = useState('')
+  const drop = useFileDrop(activeProject?.id)
   const [selectedModel, setSelectedModel] = useState<string | null>(null)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(true)
@@ -92,8 +95,8 @@ export function DesignEditor({ onBack }: Props) {
       if (!el) return
       el.focus()
       el.style.height = 'auto'
-      el.style.height = Math.min(el.scrollHeight, 168) + 'px'
-      el.style.overflowY = el.scrollHeight > 168 ? 'auto' : 'hidden'
+      el.style.height = Math.min(el.scrollHeight, COMPOSER_MAX_H) + 'px'
+      el.style.overflowY = el.scrollHeight > COMPOSER_MAX_H ? 'auto' : 'hidden'
     })
   }, [inspectorPick])
 
@@ -162,10 +165,10 @@ export function DesignEditor({ onBack }: Props) {
     setAttachedSystem(id)
   }
   // Natural page size per template — keeps the native dialog and the rendered
-  // output in the right format (16:9 slides, US-Letter docs, desktop screens).
+  // output in the right format (16:9 slides, A4 docs, desktop screens).
   function dimsFor(type?: string): { w: number; h: number; landscape: boolean } {
     if (type === 'slides' || type === 'animation') return { w: 1280, h: 720, landscape: true }
-    if (type === 'document') return { w: 816, h: 1056, landscape: false }
+    if (type === 'document') return { w: 794, h: 1123, landscape: false }
     return { w: 1280, h: 800, landscape: false }
   }
   function showToast(t: { ok: boolean; msg: string; path?: string; busy?: boolean }, hold = 5000) {
@@ -186,9 +189,10 @@ export function DesignEditor({ onBack }: Props) {
   }
   function downloadScreen(filePath: string, name: string, fmt: 'pdf' | 'png' | 'pptx' | 'html') {
     const { w, h, landscape } = dimsFor(activeProject?.designType)
+    const isDocument = activeProject?.designType === 'document'
     const base = name.replace(/\.[^.]+$/, '')
     setDlMenu(null)
-    if (fmt === 'pdf') runExport('PDF', ipc.exporter.toPdf({ srcPath: filePath, name: base, landscape }))
+    if (fmt === 'pdf') runExport('PDF', ipc.exporter.toPdf({ srcPath: filePath, name: base, landscape, document: isDocument }))
     else if (fmt === 'png') runExport('PNG', ipc.exporter.toImage({ srcPath: filePath, name: base, width: w, height: h }))
     else if (fmt === 'pptx') runExport('PowerPoint', ipc.exporter.fileToPptx({ srcPath: filePath, name: base, width: w, height: h }))
     else runExport('HTML', ipc.exporter.saveCopy({ srcPath: filePath }))
@@ -197,8 +201,9 @@ export function DesignEditor({ onBack }: Props) {
     if (!activeProject || frames.length === 0) return
     const files = frames.map(f => f.filePath)
     const { w, h } = dimsFor(activeProject.designType)
+    const isDocument = activeProject.designType === 'document'
     setDeckMenu(false)
-    if (fmt === 'pdf') runExport(`PDF (${files.length} screens)`, ipc.exporter.deckToPdf({ files, name: activeProject.name, slideW: w, slideH: h }))
+    if (fmt === 'pdf') runExport(`PDF (${files.length} screens)`, ipc.exporter.deckToPdf({ files, name: activeProject.name, slideW: w, slideH: h, document: isDocument }))
     else runExport(`PowerPoint (${files.length} slides)`, ipc.exporter.deckToPptx({ files, name: activeProject.name, slideW: w, slideH: h }))
   }
   async function exportAllHtml() {
@@ -216,7 +221,10 @@ export function DesignEditor({ onBack }: Props) {
 
   // Grow the composer up to ~7 lines, then scroll. Line height (1.625) × 14px
   // text-sm × 7 rows + vertical padding ≈ 168px.
-  const COMPOSER_MAX_H = 168
+  // Composer: 7 satıra kadar büyür, sonrası scroll.
+  // satır yüksekliği 22px × 7 + dikey iç boşluk (üst 4 + alt 4) = 162px.
+  const COMPOSER_LINE_H = 22
+  const COMPOSER_MAX_H = COMPOSER_LINE_H * 7 + 8 // 162
   const handleTextareaChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const el = e.target
     setInput(el.value)
@@ -226,12 +234,15 @@ export function DesignEditor({ onBack }: Props) {
   }, [])
 
   const handleSend = useCallback(async () => {
-    const msg = input.trim()
-    if (!msg || chatLoading) return
+    const text = input.trim()
+    const attach = drop.refText()
+    if ((!text && !attach) || chatLoading) return
+    const msg = [text, attach].filter(Boolean).join('\n\n')
     setInput('')
+    drop.clear()
     if (textareaRef.current) { textareaRef.current.style.height = 'auto'; textareaRef.current.style.overflowY = 'hidden' }
     await sendMessage(msg, effectiveModel)
-  }, [input, chatLoading, effectiveModel, sendMessage])
+  }, [input, chatLoading, effectiveModel, sendMessage, drop])
 
   function onKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
@@ -355,6 +366,12 @@ export function DesignEditor({ onBack }: Props) {
                   } else {
                     return (
                       <div key={m.id} className="flex flex-col items-start gap-2 w-full group">
+                        {m.reasoning && (
+                          <DesignReasoningBlock
+                            text={m.reasoning}
+                            isLive={!!m.streaming && chatLoading && !m.content?.trim()}
+                          />
+                        )}
                         {m.activity && m.activity.length > 0 && <ActivityFeed items={m.activity} live={!!m.streaming && chatLoading} />}
                         {(m.content || !m.streaming) && (
                           <div className="w-full prose prose-sm max-w-none [&_p]:my-1 [&_pre]:text-xs text-left" style={{ color: 'var(--d-ink)' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content || '…') }} />
@@ -384,7 +401,29 @@ export function DesignEditor({ onBack }: Props) {
 
             {/* Composer */}
             <div className="p-3">
-              <div className="rounded-2xl p-2.5" style={{ background: 'var(--d-surface)', border: '1px solid var(--d-line)' }}>
+              <div
+                {...drop.dropBind}
+                className="relative rounded-2xl p-2.5"
+                style={{ background: 'var(--d-surface)', border: `1px ${drop.isDragging ? 'dashed var(--d-clay)' : 'solid var(--d-line)'}` }}
+              >
+                {drop.isDragging && (
+                  <div className="absolute inset-0 z-20 flex items-center justify-center rounded-2xl pointer-events-none" style={{ background: 'color-mix(in srgb, var(--d-clay) 8%, transparent)' }}>
+                    <div className="flex items-center gap-2 text-sm font-medium" style={{ color: 'var(--d-clay)' }}>
+                      <Paperclip size={14} /> Drop files to attach
+                    </div>
+                  </div>
+                )}
+                {drop.files.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 pb-2">
+                    {drop.files.map(f => (
+                      <div key={f.relPath} className="flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium max-w-[200px]" style={{ background: 'var(--d-cream-2)', border: '1px solid var(--d-line)', color: 'var(--d-ink-soft)' }}>
+                        <FileText size={10} className="flex-shrink-0" style={{ color: 'var(--d-ink-muted)' }} />
+                        <span className="truncate">{f.name}</span>
+                        <button onClick={() => drop.remove(f.relPath)} className="ml-0.5" title="Remove" style={{ color: 'var(--d-ink-muted)' }}><X size={10} /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <textarea
                   ref={textareaRef}
                   value={input}
@@ -393,8 +432,8 @@ export function DesignEditor({ onBack }: Props) {
                   placeholder="Describe what you want to create…"
                   rows={1}
                   disabled={chatLoading}
-                  className="w-full resize-none bg-transparent outline-none text-sm leading-relaxed px-1.5 pt-1"
-                  style={{ color: 'var(--d-ink)', maxHeight: 168, minHeight: 28, overflowY: 'hidden' }}
+                  className="w-full resize-none bg-transparent outline-none text-sm px-1.5 pt-1"
+                  style={{ color: 'var(--d-ink)', lineHeight: `${COMPOSER_LINE_H}px`, maxHeight: COMPOSER_MAX_H, minHeight: 30, overflowY: 'hidden' }}
                 />
                 <div className="flex items-center justify-end pt-1.5">
                   <div className="flex items-center gap-2">
@@ -416,7 +455,7 @@ export function DesignEditor({ onBack }: Props) {
                     {chatLoading ? (
                       <button onClick={interruptChat} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white" style={{ background: '#c0392b' }}><Square size={11} className="fill-current" /> Stop</button>
                     ) : (
-                      <button onClick={handleSend} disabled={!input.trim()} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold text-white transition-all disabled:opacity-50" style={{ background: input.trim() ? 'var(--d-clay)' : 'var(--d-clay-soft)' }}>
+                      <button onClick={handleSend} disabled={!input.trim() && drop.files.length === 0} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold text-white transition-all disabled:opacity-50" style={{ background: (input.trim() || drop.files.length > 0) ? 'var(--d-clay)' : 'var(--d-clay-soft)' }}>
                         <ArrowUp size={13} /> Send
                       </button>
                     )}
@@ -898,6 +937,85 @@ function ThinkingPulse() {
   return (
     <div className="flex items-center pb-1">
       <RobotLoader size={30} active color="var(--d-clay)" />
+    </div>
+  )
+}
+
+function fmtThinkDuration(ms: number): string {
+  if (ms < 1000) return '<1s'
+  const s = Math.round(ms / 1000)
+  if (s < 60) return `${s}s`
+  return `${Math.floor(s / 60)}m ${s % 60}s`
+}
+
+/**
+ * Design chat için model "thinking" (reasoning) bloğu — cream/serif temaya uygun.
+ * Canlıyken otomatik açık + süre sayacı + akan metin; bitince "Thought for Xs"
+ * olarak katlanır, kullanıcı açıp inceleyebilir.
+ */
+function DesignReasoningBlock({ text, isLive = false }: { text: string; isLive?: boolean }) {
+  const userToggled = useRef(false)
+  const [isOpen, setIsOpen] = useState(isLive)
+  const startedAt = useRef<number | null>(null)
+  const [elapsed, setElapsed] = useState(0)
+  const [finalMs, setFinalMs] = useState<number | null>(null)
+  const bodyRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (isLive) {
+      if (startedAt.current == null) startedAt.current = Date.now()
+      const t = setInterval(() => setElapsed(Date.now() - (startedAt.current ?? Date.now())), 100)
+      return () => clearInterval(t)
+    }
+    if (startedAt.current != null && finalMs == null) setFinalMs(Date.now() - startedAt.current)
+    if (!userToggled.current) setIsOpen(false)
+  }, [isLive]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (isLive && isOpen && bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight
+  }, [text, isLive, isOpen])
+
+  const toggle = () => { userToggled.current = true; setIsOpen(v => !v) }
+  const durationLabel = finalMs != null ? `Thought for ${fmtThinkDuration(finalMs)}` : null
+
+  return (
+    <div
+      className="w-full rounded-xl overflow-hidden transition-all"
+      style={{
+        border: `1px solid ${isLive ? 'var(--d-clay)' : 'var(--d-line)'}`,
+        background: isLive ? 'var(--d-cream-2)' : 'var(--d-surface)',
+      }}
+    >
+      <button
+        onClick={toggle}
+        className="flex items-center justify-between w-full px-3 py-2 text-xs font-medium select-none"
+        style={{ color: 'var(--d-ink-soft)' }}
+      >
+        <span className="flex items-center gap-2">
+          <Brain size={14} style={{ color: isLive ? 'var(--d-clay)' : 'var(--d-ink-muted)' }}
+            className={isLive ? 'animate-pulse' : ''} />
+          {isLive ? (
+            <span className="flex items-center gap-2">
+              <span className="italic" style={{ color: 'var(--d-clay)' }}>Thinking</span>
+              <span className="tabular-nums" style={{ color: 'var(--d-ink-muted)' }}>{fmtThinkDuration(elapsed)}</span>
+            </span>
+          ) : (
+            <span>{durationLabel ?? 'Thought Process'}</span>
+          )}
+        </span>
+        {isOpen ? <ChevronDown size={14} style={{ color: 'var(--d-ink-muted)' }} />
+                : <ChevronRight size={14} style={{ color: 'var(--d-ink-muted)' }} />}
+      </button>
+      {isOpen && (
+        <div
+          ref={bodyRef}
+          className="px-3 py-2.5 text-[12px] whitespace-pre-wrap font-mono leading-relaxed max-h-80 overflow-y-auto select-text"
+          style={{ color: 'var(--d-ink-muted)', borderTop: '1px solid var(--d-line)', background: 'var(--d-cream)' }}
+        >
+          {text}
+          {isLive && <span className="inline-block w-1 h-3 ml-0.5 align-middle animate-pulse" style={{ background: 'var(--d-clay)' }} />}
+        </div>
+      )}
     </div>
   )
 }

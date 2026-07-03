@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('agent:setActiveSession', sessionId),
     answerQuestion: (answer: string) =>
       ipcRenderer.invoke('agent:answerQuestion', answer),
+    getPlan: (projectId: string, sessionId?: string) =>
+      ipcRenderer.invoke('agent:getPlan', projectId, sessionId),
 
     // Streaming events (main → renderer)
     onToolCall: (cb: (data: any) => void) => {
@@ -45,6 +47,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('agent:progress', listener)
       return () => ipcRenderer.removeListener('agent:progress', listener)
     },
+    onPlan: (cb: (payload: any) => void) => {
+      const listener = (_: IpcRendererEvent, payload: any) => cb(payload)
+      ipcRenderer.on('agent:plan', listener)
+      return () => ipcRenderer.removeListener('agent:plan', listener)
+    },
     onDone: (cb: (result: any) => void) => {
       const listener = (_: IpcRendererEvent, result: any) => cb(result)
       ipcRenderer.on('agent:done', listener)
@@ -66,7 +73,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => ipcRenderer.removeListener('agent:approvalRequest', listener)
     },
     removeAllListeners: () => {
-      ;['agent:toolCall', 'agent:stepText', 'agent:qaPrompt', 'agent:progress', 'agent:done', 'agent:error', 'agent:interrupted', 'agent:approvalRequest', 'agent:reasoningText']
+      ;['agent:toolCall', 'agent:stepText', 'agent:qaPrompt', 'agent:progress', 'agent:plan', 'agent:done', 'agent:error', 'agent:interrupted', 'agent:approvalRequest', 'agent:reasoningText']
         .forEach(ch => ipcRenderer.removeAllListeners(ch))
     },
   },
@@ -94,6 +101,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     search: (query: string, projectId?: string) => ipcRenderer.invoke('sessions:search', query, projectId),
     delete: (projectId: string, sessionId: string) => ipcRenderer.invoke('sessions:delete', projectId, sessionId),
     rename: (sessionId: string, title: string) => ipcRenderer.invoke('sessions:rename', sessionId, title),
+    pin: (sessionId: string, pinned: boolean) => ipcRenderer.invoke('sessions:pin', sessionId, pinned),
   },
 
   // ── Settings ───────────────────────────────────────────────────────────────
@@ -106,7 +114,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getModels: (opts?: { refresh?: boolean }) => ipcRenderer.invoke('settings:models', opts),
     savedModels: {
       list: () => ipcRenderer.invoke('settings:savedModels:list'),
-      add: (modelId: string) => ipcRenderer.invoke('settings:savedModels:add', modelId),
+      add: (modelId: string, contextWindow?: number) => ipcRenderer.invoke('settings:savedModels:add', modelId, contextWindow),
       remove: (modelId: string) => ipcRenderer.invoke('settings:savedModels:remove', modelId),
     },
     oauth: {
@@ -166,6 +174,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── Skills ─────────────────────────────────────────────────────────────────
   skills: {
     list: () => ipcRenderer.invoke('skills:list'),
+    context: (projectId: string, sessionId?: string) => ipcRenderer.invoke('skills:context', projectId, sessionId),
     getContent: (skillId: string) => ipcRenderer.invoke('skills:content', skillId),
     toggle: (skillId: string, active: boolean) => ipcRenderer.invoke('skills:toggle', skillId, active),
     create: (data: { name: string; description: string; content?: string }) =>
@@ -224,6 +233,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   fs: {
     pickFolder: () => ipcRenderer.invoke('fs:pickFolder'),
     pickFile: () => ipcRenderer.invoke('fs:pickFile'),
+    addFiles: (payload: { projectId: string; paths: string[] }) => ipcRenderer.invoke('fs:addFiles', payload),
     fileTree: (dirPath: string, depth?: number) => ipcRenderer.invoke('fs:fileTree', dirPath, depth),
     readFile: (filePath: string) => ipcRenderer.invoke('fs:readFile', filePath),
     writeFile: (filePath: string, content: string) => ipcRenderer.invoke('fs:writeFile', filePath, content),

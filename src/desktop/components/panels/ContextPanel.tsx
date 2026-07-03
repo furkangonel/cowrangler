@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import { Brain, BookOpen, RefreshCw, Edit2, Save, X, ChevronDown, ChevronRight, Folder, FolderOpen, ExternalLink, Plus } from 'lucide-react'
-import { ipc, FileNode } from '../../lib/ipc'
+import { Brain, BookOpen, RefreshCw, Edit2, Save, X, ChevronDown, ChevronRight, Folder, FolderOpen, ExternalLink, Plus, ListChecks } from 'lucide-react'
+import { ipc, FileNode, PlanPayload } from '../../lib/ipc'
 import { useSessionsStore } from '../../stores/sessions.store'
 import { useAgentStore } from '../../stores/agent.store'
 import { useProjectsStore } from '../../stores/projects.store'
@@ -18,7 +18,10 @@ export function ContextPanel({ projectId, isSession = false }: Props) {
     <div className="py-3 px-4 flex flex-col gap-4">
       <MemorySection projectId={projectId} />
       {isSession ? (
-        <SkillsSection />
+        <>
+          <PlanSection projectId={projectId} />
+          <SkillsSection projectId={projectId} />
+        </>
       ) : (
         <WorkingFoldersManager projectId={projectId} />
       )}
@@ -135,14 +138,144 @@ function MemorySection({ projectId }: { projectId: string | null }) {
   )
 }
 
+// ─── Plan ────────────────────────────────────────────────────────────────────
+
+function riskBadge(risk?: string): string {
+  return risk === 'high' ? '🔴' : risk === 'medium' ? '🟡' : '🟢'
+}
+
+const PLAN_STATUS_STYLE: Record<string, string> = {
+  pending: 'bg-amber-500/15 text-amber-500 border-amber-500/25',
+  approved: 'bg-emerald-500/15 text-emerald-500 border-emerald-500/25',
+  rejected: 'bg-red-500/15 text-red-500 border-red-500/25',
+  modify: 'bg-blue-500/15 text-blue-500 border-blue-500/25',
+}
+
+function PlanSection({ projectId }: { projectId: string | null }) {
+  const { currentPlan, setCurrentPlan } = useAgentStore()
+  const activeSessionId = useSessionsStore(s => s.activeSessionId)
+  const [open, setOpen] = useState(true)
+
+  // Oturum açılışında canlı event kaçırılmışsa diskteki plan.md'yi geri yükle.
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      if (currentPlan || !projectId || !activeSessionId) return
+      try {
+        const persisted = await ipc.agent.getPlan(projectId, activeSessionId)
+        if (!cancelled && persisted) {
+          // Diskten gelen plan yalnız markdown taşır; panelde metin olarak gösterilir.
+          setCurrentPlan({
+            title: '', summary: '', steps: [], markdown: persisted.markdown,
+            status: 'pending', sessionId: activeSessionId, createdAt: new Date().toISOString(),
+          })
+        }
+      } catch { /* plan yoksa sorun değil */ }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [projectId, activeSessionId])
+
+  const plan = currentPlan
+  if (!plan) {
+    return (
+      <div className="pt-4 border-t border-border-subtle">
+        <div className="flex items-center gap-1.5 mb-2">
+          <ListChecks size={12} className="text-text-muted flex-shrink-0" />
+          <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide">Plan</span>
+        </div>
+        <p className="text-2xs text-text-muted opacity-50 italic">
+          Appears here when the agent calls <code className="font-mono text-accent/80">write_plan</code>.
+        </p>
+      </div>
+    )
+  }
+
+  const hasStructuredSteps = plan.steps && plan.steps.length > 0
+
+  return (
+    <div className="pt-4 border-t border-border-subtle">
+      <div className="flex items-center gap-2 mb-2">
+        <button onClick={() => setOpen(o => !o)} className="flex items-center gap-1.5 flex-1 min-w-0">
+          {open ? <ChevronDown size={11} className="text-text-muted flex-shrink-0" /> : <ChevronRight size={11} className="text-text-muted flex-shrink-0" />}
+          <ListChecks size={12} className="text-text-muted flex-shrink-0" />
+          <span className="text-2xs font-semibold text-text-muted uppercase tracking-wide">Plan</span>
+        </button>
+        <span className={`px-1.5 py-0.5 rounded text-2xs font-medium border ${PLAN_STATUS_STYLE[plan.status] ?? PLAN_STATUS_STYLE.pending}`}>
+          {plan.status}
+        </span>
+      </div>
+
+      {open && (
+        <div className="bg-bg-tertiary/50 rounded-lg p-2.5">
+          {plan.title ? <p className="text-xs font-semibold text-text-primary mb-0.5">{plan.title}</p> : null}
+          {plan.summary ? <p className="text-2xs text-text-secondary mb-2 leading-relaxed">{plan.summary}</p> : null}
+          {plan.estimated_duration ? (
+            <p className="text-2xs text-text-muted mb-2">⏱ {plan.estimated_duration}</p>
+          ) : null}
+
+          {hasStructuredSteps ? (
+            <ol className="flex flex-col gap-1.5">
+              {plan.steps.map(s => (
+                <li key={s.step} className="text-2xs text-text-secondary leading-relaxed">
+                  <span className="text-text-muted">{s.step}.</span> {riskBadge(s.risk)} {s.description}
+                  {s.files && s.files.length > 0 && (
+                    <span className="block ml-4 mt-0.5 text-text-muted font-mono truncate">{s.files.join(', ')}</span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <pre className="text-2xs text-text-secondary whitespace-pre-wrap leading-relaxed font-mono max-h-64 overflow-y-auto selectable">{plan.markdown}</pre>
+          )}
+
+          {plan.notes ? (
+            <p className="text-2xs text-text-muted mt-2 pt-2 border-t border-border-subtle">📝 {plan.notes}</p>
+          ) : null}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Skills ──────────────────────────────────────────────────────────────────
 
-function SkillsSection() {
+function SkillsSection({ projectId }: { projectId: string | null }) {
   const { messages } = useSessionsStore()
+  const activeSessionId = useSessionsStore(s => s.activeSessionId)
   const { toolCalls, timelines } = useAgentStore()
-  
+
+  // Kullanıcının eklediği (bundled olmayan) ETKİN skill'ler + bu oturumda aktif
+  // olan (auto-load veya utilize_skill ile CONTEXT'e giren) skill'ler.
+  const [projectSkills, setProjectSkills] = useState<string[]>([])
+  const [contextSkills, setContextSkills] = useState<string[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const all = await ipc.skills.list()
+        if (!cancelled) {
+          setProjectSkills(
+            all.filter(s => s.source !== 'bundled' && s.active !== false).map(s => s.id).sort()
+          )
+        }
+      } catch { /* skills yoksa sorun değil */ }
+      try {
+        if (projectId && activeSessionId) {
+          const ctx = await ipc.skills.context(projectId, activeSessionId)
+          if (!cancelled) setContextSkills(ctx)
+        }
+      } catch { /* context yoksa sorun değil */ }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [projectId, activeSessionId, messages.length, toolCalls.length])
+
   const usedTools = new Set<string>()
   const usedSkills = new Set<string>()
+  // Auto-load / utilize ile CONTEXT'e giren skill'ler de "aktif" sayılır.
+  contextSkills.forEach(s => usedSkills.add(s))
   
   // Extract tools and skills from DB messages (role is 'tool_call', not 'tool')
   messages.forEach(m => {
@@ -190,10 +323,13 @@ function SkillsSection() {
 
   const toolList = Array.from(usedTools).sort()
   const skillList = Array.from(usedSkills).sort()
-  const hasSkills = toolList.includes('utilize_skill')
+  // Aktif skill var mı: utilize_skill çağrıldıysa VEYA CONTEXT'e skill girdiyse.
+  const hasSkills = toolList.includes('utilize_skill') || skillList.length > 0
   const displayTools = toolList.filter(t => t !== 'utilize_skill' && t !== 'send_message')
+  // Henüz aktif olmayan, kullanıcının eklediği skill'ler (öneri olarak gösterilir).
+  const inactiveProjectSkills = projectSkills.filter(s => !skillList.includes(s))
 
-  if (!hasSkills && displayTools.length === 0) {
+  if (!hasSkills && displayTools.length === 0 && projectSkills.length === 0) {
     return (
       <div className="flex flex-col items-start gap-3 py-2 opacity-60 pt-4 border-t border-border-subtle">
         <div className="flex gap-1 mb-1">
@@ -224,7 +360,7 @@ function SkillsSection() {
     <div className="space-y-4 pt-4 border-t border-border-subtle">
       {hasSkills && (
         <div>
-          <p className="text-xs font-medium text-text-secondary mb-2">Used Skills</p>
+          <p className="text-xs font-medium text-text-secondary mb-2">Active Skills</p>
           <div className="flex flex-wrap gap-2">
             {skillList.length > 0 ? (
               skillList.map(skill => (
@@ -242,7 +378,21 @@ function SkillsSection() {
           </div>
         </div>
       )}
-      
+
+      {inactiveProjectSkills.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-text-secondary mb-2">Project Skills</p>
+          <div className="flex flex-wrap gap-2">
+            {inactiveProjectSkills.map(skill => (
+              <span key={skill} className="px-2 py-1 rounded bg-bg-tertiary text-text-muted text-xs border border-border-subtle flex items-center gap-1.5" title="Loaded automatically when a request matches it">
+                <BookOpen size={12} />
+                {skill}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {displayTools.length > 0 && (
         <div>
           <p className="text-xs font-medium text-text-secondary mb-2">Tools & MCPs Invoked</p>

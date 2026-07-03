@@ -73,19 +73,21 @@ export function AppShell() {
           )}
         </span>
 
-        {/* Right controls */}
+        {/* Right controls — chat modunda sağ panel yok, toggle da gizli */}
         <div className="ml-auto flex items-center gap-0.5 no-drag">
-          <button
-            onClick={toggleRightPanel}
-            title="Toggle side panel"
-            className={`p-1.5 rounded-md transition-colors ${
-              rightPanelOpen
-                ? "text-accent bg-accent/10"
-                : "text-text-muted hover:text-text-secondary hover:bg-bg-hover"
-            }`}
-          >
-            <PanelRight size={15} />
-          </button>
+          {!showGlobalChat && (
+            <button
+              onClick={toggleRightPanel}
+              title="Toggle side panel"
+              className={`p-1.5 rounded-md transition-colors ${
+                rightPanelOpen
+                  ? "text-accent bg-accent/10"
+                  : "text-text-muted hover:text-text-secondary hover:bg-bg-hover"
+              }`}
+            >
+              <PanelRight size={15} />
+            </button>
+          )}
         </div>
       </div>
 

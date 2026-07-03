@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import yaml from "js-yaml";
-import { DIRS } from "./init.js";
+import { DIRS, getConfig } from "./init.js";
 import { getProjectLocalSkillsDir, getProjectContextSkillsDir } from "./project_context.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -136,6 +136,55 @@ export class SkillManager {
     localSkills.forEach((val, key) => merged.set(key, val));
 
     return Array.from(merged.values()).sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  /** config.yaml'daki disabled_skills listesi. */
+  private getDisabledSkillIds(): string[] {
+    try {
+      const cfg = getConfig() as any;
+      return Array.isArray(cfg?.disabled_skills) ? cfg.disabled_skills : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Kullanıcının ETKİN bıraktığı skill'ler (disabled_skills hariç).
+   * Agent hem system prompt listesini hem de otomatik eşleştirmeyi bunun
+   * üzerinden yapar — devre dışı bırakılmış skill asla enjekte edilmez.
+   */
+  public getEnabledSkills(): SkillDef[] {
+    const disabled = new Set(this.getDisabledSkillIds());
+    return this.getAvailableSkills().filter((s) => !disabled.has(s.id));
+  }
+
+  /**
+   * Bir kullanıcı mesajına en güçlü eşleşen ETKİN skill'i döndürür (yoksa null).
+   * Deterministik anahtar-kelime skoru: skill id'sinin tümü geçerse (5p) veya
+   * id kelimelerinden ikisi tam-kelime olarak geçerse (2p+2p) eşik (4) aşılır.
+   * Tek yaygın kelimeyle (2p) tetiklenmez → yanlış-pozitif düşük.
+   */
+  public matchSkill(message: string): SkillDef | null {
+    const msg = (message || "").toLowerCase();
+    if (!msg.trim()) return null;
+    let best: SkillDef | null = null;
+    let bestScore = 0;
+    for (const s of this.getEnabledSkills()) {
+      const idLower = s.id.toLowerCase();
+      const idSpaced = idLower.replace(/[-_]+/g, " ");
+      let score = 0;
+      if (msg.includes(idLower) || msg.includes(idSpaced)) score += 5;
+      const idWords = idLower.split(/[-_\s]+/).filter((w) => w.length >= 4);
+      for (const w of idWords) {
+        const esc = w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        if (new RegExp(`\\b${esc}\\b`).test(msg)) score += 2;
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        best = s;
+      }
+    }
+    return bestScore >= 4 ? best : null;
   }
 
   public readSkill(skillId: string): string {

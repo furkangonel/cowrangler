@@ -1,6 +1,7 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react'
-import { ArrowUp, Square, Paperclip, BookOpen, CornerDownLeft, X, Plus, Box, Plug, ChevronRight } from 'lucide-react'
+import { ArrowUp, Square, Paperclip, BookOpen, CornerDownLeft, X, Plus, Box, Plug, ChevronRight, FileText } from 'lucide-react'
 import { ipc, SkillDef } from '../../lib/ipc'
+import { useFileDrop } from '../../lib/useFileDrop'
 
 interface Props {
   onSend: (message: string) => void
@@ -25,6 +26,7 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId }: Props) {
   const [hoverMenu, setHoverMenu] = useState<string | null>(null)
   const [mcpServers, setMcpServers] = useState<any[]>([])
   const plusMenuRef = useRef<HTMLDivElement>(null)
+  const drop = useFileDrop(projectId)
 
   // Clicking outside to close plus menu
   useEffect(() => {
@@ -126,7 +128,7 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId }: Props) {
     )
   }
 
-  const hasContent = value.trim().length > 0 || confirmedSkills.length > 0 || confirmedConnectors.length > 0 || confirmedPlugins.length > 0
+  const hasContent = value.trim().length > 0 || confirmedSkills.length > 0 || confirmedConnectors.length > 0 || confirmedPlugins.length > 0 || drop.files.length > 0
 
   const handleSend = useCallback(() => {
     if (!hasContent || disabled) return
@@ -136,14 +138,16 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId }: Props) {
     const plugPart = confirmedPlugins.map(p => `/${p.id}`).join(' ')
     const parts = [skillPart, connPart, plugPart].filter(Boolean).join(' ')
     const textPart = value.trim()
-    const msg = [parts, textPart].filter(Boolean).join(parts && textPart ? '\n\n' : '')
+    const attachPart = drop.refText()
+    const msg = [parts, textPart, attachPart].filter(Boolean).join('\n\n')
     onSend(msg)
     setValue('')
     setConfirmedSkills([])
     setConfirmedConnectors([])
     setConfirmedPlugins([])
+    drop.clear()
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
-  }, [value, confirmedSkills, confirmedConnectors, confirmedPlugins, disabled, onSend, hasContent])
+  }, [value, confirmedSkills, confirmedConnectors, confirmedPlugins, disabled, onSend, hasContent, drop])
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (slashOpen && filtered.length > 0) {
@@ -213,7 +217,30 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId }: Props) {
         )}
 
         {/* ── Composer ── */}
-        <div className="flex flex-col bg-bg-elevated border border-border rounded-2xl composer-shadow focus-within:border-accent/45 focus-within:composer-shadow-focus transition-all">
+        <div
+          {...drop.dropBind}
+          className={`relative flex flex-col bg-bg-elevated border rounded-2xl composer-shadow focus-within:border-accent/45 focus-within:composer-shadow-focus transition-all ${drop.isDragging ? 'border-accent border-dashed' : 'border-border'}`}
+        >
+          {/* Sürükle-bırak kaplaması */}
+          {drop.isDragging && (
+            <div className="absolute inset-0 z-20 flex items-center justify-center rounded-2xl bg-accent/8 backdrop-blur-[1px] pointer-events-none">
+              <div className="flex items-center gap-2 text-accent text-sm font-medium">
+                <Paperclip size={15} /> Drop files to attach
+              </div>
+            </div>
+          )}
+          {/* Eklenen dosya chip'leri */}
+          {drop.files.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 px-3 pt-2.5 pb-1">
+              {drop.files.map(f => (
+                <div key={f.relPath} className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-bg-hover border border-border text-text-secondary text-xs font-medium max-w-[220px]">
+                  <FileText size={10} className="flex-shrink-0 text-text-muted" />
+                  <span className="truncate">{f.name}</span>
+                  <button onClick={() => drop.remove(f.relPath)} className="ml-0.5 hover:text-text-primary transition-colors" title="Remove"><X size={10} /></button>
+                </div>
+              ))}
+            </div>
+          )}
           {/* Skill, Connector, Plugin chip'leri */}
           {(confirmedSkills.length > 0 || confirmedConnectors.length > 0 || confirmedPlugins.length > 0) && (
             <div className="flex flex-wrap gap-1.5 px-3 pt-2.5 pb-1">

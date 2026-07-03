@@ -20,6 +20,8 @@
 import http from "http";
 import crypto from "crypto";
 import { getSecret, setSecret, getSecretMode } from "./credential_vault.js";
+import { buildCallbackHtml, serveOAuthAsset } from "./oauth_callback_page.js";
+
 
 // ── Ortak tipler ─────────────────────────────────────────────────────────────
 
@@ -68,12 +70,6 @@ function randomState(): string {
 
 // ── Loopback callback sunucusu ───────────────────────────────────────────────
 
-const CALLBACK_HTML = `<!doctype html><html><head><meta charset="utf-8"><title>Cowrangler</title>
-<style>body{font-family:-apple-system,system-ui,sans-serif;background:#1F1E1D;color:#F5F4EE;display:flex;
-align-items:center;justify-content:center;height:100vh;margin:0}.c{text-align:center}.d{width:44px;height:44px;
-border-radius:50%;background:#F26A38;display:inline-flex;align-items:center;justify-content:center;margin-bottom:14px}
-h1{font-size:17px;margin:0 0 6px}p{color:#B0ADA5;font-size:13px;margin:0}</style></head>
-<body><div class="c"><div class="d">✓</div><h1>Signed in</h1><p>You can close this window and return to Cowrangler.</p></div></body></html>`;
 
 interface Loopback {
   waitForCode: (timeoutMs?: number) => Promise<{ code: string; state?: string }>;
@@ -88,6 +84,9 @@ function startLoopback(port: number, pathName: string): Promise<Loopback> {
     const server = http.createServer((req, res) => {
       try {
         const url = new URL(req.url || "", `http://localhost:${port}`);
+
+        if (serveOAuthAsset(url.pathname, res)) return;
+
         if (!url.pathname.startsWith(pathName)) {
           res.writeHead(404).end();
           return;
@@ -95,7 +94,7 @@ function startLoopback(port: number, pathName: string): Promise<Loopback> {
         const code = url.searchParams.get("code");
         const state = url.searchParams.get("state") ?? undefined;
         const error = url.searchParams.get("error");
-        res.writeHead(200, { "Content-Type": "text/html" }).end(CALLBACK_HTML);
+        res.writeHead(200, { "Content-Type": "text/html" }).end(buildCallbackHtml("Signed in"));
         if (error) onErr?.(new Error(`OAuth error: ${error}`));
         else if (code) onCode?.({ code, state });
       } catch (e: any) {
@@ -528,7 +527,9 @@ const PROVIDERS: Record<string, ProviderDef> = {
   anthropic: anthropicProvider,
   openai: openaiProvider,
   copilot: copilotProvider,
-  gemini: makeGoogleProvider("gemini", "Gemini (Google)", GEMINI),
+  // Gemini OAuth (Cloud Code / Method B) sign-in kaldırıldı: Google için
+  // API-key yolu (Method A) kullanılıyor, ayrıca Google bu OAuth kanalını
+  // 18 Haziran 2026'da deprecate etti. Antigravity ayrı kanal, kalıyor.
   antigravity: makeGoogleProvider("antigravity", "Antigravity (Google)", ANTIGRAVITY),
 };
 

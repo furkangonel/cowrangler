@@ -133,11 +133,41 @@ const OAUTH_MODEL_PREFIX: Record<string, string> = {
 /** Curated fallback models (routing-correct) when live discovery isn't available.
  *  Antigravity/Gemini-CLI go through Cloud Code Assist — ids match caveman-code. */
 const OAUTH_CURATED_MODELS: Record<string, string[]> = {
-  anthropic: ['anthropic/claude-opus-4-1', 'anthropic/claude-sonnet-4-5', 'anthropic/claude-3-5-haiku-latest'],
-  openai: ['openai/gpt-4o', 'openai/gpt-4o-mini', 'openai/o4-mini'],
-  copilot: ['copilot/gpt-4o', 'copilot/claude-3.5-sonnet'],
-  gemini: ['google/gemini-2.5-pro', 'google/gemini-2.5-flash'],
-  antigravity: ['antigravity/gemini-3-flash', 'antigravity/gemini-3.1-pro-high', 'antigravity/claude-sonnet-4-6', 'antigravity/claude-opus-4-6-thinking'],
+  anthropic: [
+    'anthropic/claude-sonnet-5',
+    'anthropic/claude-opus-4-8',
+    'anthropic/claude-fable-5',
+    'anthropic/claude-opus-4-7',
+    'anthropic/claude-sonnet-4-6',
+    'anthropic/claude-haiku-4-5',
+  ],
+  openai: [
+    'openai/gpt-5.5',
+    'openai/gpt-5.4',
+    'openai/o3',
+  ],
+  copilot: [
+    'copilot/gpt-5.5',
+    'copilot/claude-sonnet-5',
+    'copilot/claude-opus-4-8',
+    'copilot/gemini-3.5-flash',
+  ],
+  gemini: [
+    // Public generativelanguage API (Method A) — bu ID'ler AI Studio API'de
+    // birebir geçerli olmalı. Pro'nun public adı "-preview" ekli; düz
+    // "gemini-3.1-pro" sadece Antigravity kanalında geçerli, public'te 404 verir.
+    'google/gemini-3.5-flash',
+    'google/gemini-3.1-pro-preview',
+    'google/gemini-3.1-flash-lite',
+    'google/gemini-flash-latest',
+  ],
+  antigravity: [
+    'antigravity/gemini-3.5-flash',
+    'antigravity/gemini-3.1-pro',
+    'antigravity/claude-sonnet-4-6',
+    'antigravity/claude-opus-4-6',
+    'antigravity/gpt-oss-120b',
+  ],
 }
 
 /** Try to list a connected OAuth provider's models using its access token. */
@@ -293,6 +323,37 @@ export function registerSettingsIPC(ipcMain: IpcMain): void {
   ipcMain.handle('settings:setApiKey', async (_, provider: string, key: string) => {
     const p = PROVIDERS.find(p => p.id === provider)
     if (!p) return { ok: false, error: 'Unknown provider' }
+
+    // Google (Method A): kaydetmeden önce key'i doğrula. Geçersiz/yetkisiz key
+    // sessizce kaydedilince, hata ancak generate anında kriptik 404 "Requested
+    // entity was not found" olarak dönüyordu. ListModels ile önden yakala ve
+    // key'in gerçekten servis ettiği modelleri geri döndür.
+    const trimmed = (key ?? '').trim()
+    if (provider === 'google' && trimmed) {
+      try {
+        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${trimmed}`)
+        if (!r.ok) {
+          const body = await r.text().catch(() => '')
+          return {
+            ok: false,
+            error:
+              r.status === 400 || r.status === 403
+                ? 'Geçersiz veya yetkisiz Google API anahtarı (AI Studio → API keys).'
+                : `Google key doğrulanamadı (HTTP ${r.status}). ${body.slice(0, 160)}`,
+          }
+        }
+        const j: any = await r.json().catch(() => ({}))
+        const models = (j.models ?? [])
+          .filter((m: any) => (m.supportedGenerationMethods ?? []).some((s: string) => /generateContent/i.test(s)))
+          .map((m: any) => String(m.name ?? '').replace(/^models\//, ''))
+          .filter(Boolean)
+        writeCredential(p.envKey, trimmed)
+        return { ok: true, models }
+      } catch (e: any) {
+        return { ok: false, error: `Google key doğrulanamadı: ${e?.message ?? String(e)}` }
+      }
+    }
+
     writeCredential(p.envKey, key)
     return { ok: true }
   })
@@ -354,10 +415,22 @@ export function registerSettingsIPC(ipcMain: IpcMain): void {
   // ─── Saved models (model picker only shows these) ─────────────────────────
   ipcMain.handle('settings:savedModels:list', async () => readSavedModels())
 
-  ipcMain.handle('settings:savedModels:add', async (_, modelId: string) => {
+  ipcMain.handle('settings:savedModels:add', async (_, modelId: string, contextWindow?: number) => {
     if (!modelId?.trim()) return { ok: false }
     const current = readSavedModels()
     if (!current.includes(modelId.trim())) writeSavedModels([...current, modelId.trim()])
+    // Persist optional context window into saved_models_meta
+    if (contextWindow && contextWindow > 0) {
+      let config: any = {}
+      if (fs.existsSync(CONFIG_FILE)) {
+        try { config = yaml.load(fs.readFileSync(CONFIG_FILE, 'utf-8')) as any || {} } catch {}
+      }
+      if (!config['saved_models_meta'] || typeof config['saved_models_meta'] !== 'object') {
+        config['saved_models_meta'] = {}
+      }
+      config['saved_models_meta'][modelId.trim()] = { contextWindow }
+      fs.writeFileSync(CONFIG_FILE, yaml.dump(config), 'utf-8')
+    }
     return { ok: true }
   })
 

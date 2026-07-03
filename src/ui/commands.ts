@@ -545,11 +545,30 @@ export class CommandRouter {
         }
 
         if (action === "add" && args[1]) {
-          if (globalConfig.saved_models.includes(args[1]))
-            return UI.info(`'${args[1]}' already registered.`);
-          globalConfig.saved_models.push(args[1]);
+          // Parse model name and optional --context flag
+          const modelName = args[1];
+          let contextWindow: number | undefined;
+          const ctxIdx = args.indexOf("--context");
+          if (ctxIdx !== -1 && args[ctxIdx + 1]) {
+            const parsed = parseInt(args[ctxIdx + 1], 10);
+            if (parsed > 0) contextWindow = parsed;
+          }
+
+          if (globalConfig.saved_models.includes(modelName) && !contextWindow)
+            return UI.info(`'${modelName}' already registered.`);
+          if (!globalConfig.saved_models.includes(modelName)) {
+            globalConfig.saved_models.push(modelName);
+          }
+          // Persist optional context window into saved_models_meta
+          if (contextWindow) {
+            if (!globalConfig.saved_models_meta || typeof globalConfig.saved_models_meta !== "object") {
+              globalConfig.saved_models_meta = {};
+            }
+            globalConfig.saved_models_meta[modelName] = { contextWindow };
+          }
           fs.writeFileSync(DIRS.global.config, yaml.dump(globalConfig));
-          return UI.success(`Model '${args[1]}' added to registry.`);
+          const ctxStr = contextWindow ? ` (context: ${contextWindow.toLocaleString()})` : "";
+          return UI.success(`Model '${modelName}' added to registry.${ctxStr}`);
         }
 
         if (action === "set" && args[1]) {
@@ -595,7 +614,7 @@ export class CommandRouter {
         }
 
         UI.error(
-          "Usage:\n  /model list\n  /model current\n  /model add <name>\n  /model set <name> [global|local]",
+          "Usage:\n  /model list\n  /model current\n  /model add <name> [--context <N>]\n  /model set <name> [global|local]",
         );
       },
     });

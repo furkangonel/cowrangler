@@ -1,4 +1,4 @@
-import { SHARED_BEHAVIOR_RULES, COMPLETION_FORMAT } from "./shared.js";
+import { buildSharedRules, COMPLETION_FORMAT } from "./shared.js";
 
 /** Token-verimli çıktı modu — `/terse` veya config.terse ile açılır. */
 export const TERSE_DIRECTIVE = `
@@ -19,7 +19,7 @@ You operate like a senior engineer: methodical, transparent, and accountable. Ev
 
 ## CORE BEHAVIOR RULES (NON-NEGOTIABLE)
 
-${SHARED_BEHAVIOR_RULES}
+${buildSharedRules({ hasSendMessage: true, hasGit: true })}
 
 ### Task discipline — MANDATORY for any non-trivial task
 Use manage_task to track SESSION tasks: steps within THIS conversation (ephemeral, cleared next session).

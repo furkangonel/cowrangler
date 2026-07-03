@@ -15,6 +15,7 @@
 
 import http from "http";
 import { AddressInfo } from "net";
+
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
@@ -29,17 +30,12 @@ import {
   getSecret,
   setSecret,
 } from "./credential_vault.js";
+import { buildCallbackHtml, serveOAuthAsset } from "./oauth_callback_page.js";
 
 type Opener = (url: string) => void | Promise<void>;
 
 const VAULT_NS = (id: string) => `oauth:${id}`;
 
-const CALLBACK_HTML = `<!doctype html><html><head><meta charset="utf-8"><title>Cowrangler</title>
-<style>body{font-family:-apple-system,system-ui,sans-serif;background:#1F1E1D;color:#F5F4EE;display:flex;
-align-items:center;justify-content:center;height:100vh;margin:0}.c{text-align:center}.d{width:44px;height:44px;
-border-radius:50%;background:#F26A38;display:inline-flex;align-items:center;justify-content:center;margin-bottom:14px}
-h1{font-size:17px;margin:0 0 6px}p{color:#B0ADA5;font-size:13px;margin:0}</style></head>
-<body><div class="c"><div class="d">✓</div><h1>Connected</h1><p>You can close this window and return to Cowrangler.</p></div></body></html>`;
 
 export class LoopbackOAuthProvider implements OAuthClientProvider {
   private server: http.Server | null = null;
@@ -75,6 +71,9 @@ export class LoopbackOAuthProvider implements OAuthClientProvider {
       this.server = http.createServer((req, res) => {
         try {
           const u = new URL(req.url ?? "/", this._redirectUrl);
+
+          if (serveOAuthAsset(u.pathname, res)) return;
+
           if (!u.pathname.startsWith("/callback")) {
             res.writeHead(404).end();
             return;
@@ -82,7 +81,7 @@ export class LoopbackOAuthProvider implements OAuthClientProvider {
           const code = u.searchParams.get("code");
           const state = u.searchParams.get("state");
           const err = u.searchParams.get("error");
-          res.writeHead(200, { "Content-Type": "text/html" }).end(CALLBACK_HTML);
+          res.writeHead(200, { "Content-Type": "text/html" }).end(buildCallbackHtml());
           if (err) {
             this.codeReject?.(new Error(`Authorization denied: ${err}`));
           } else if (!code) {

@@ -105,7 +105,7 @@ const TEMPLATE_PROMPTS: Record<string, string> = {
 
   document: `THIS PROJECT IS A DOCUMENT.
 - One .html file per section, named in reading order: cover.html, intro.html, section-1.html, … meta \`device\` = null.
-- Each page is ~816px wide (US Letter at 96dpi). Design for continuous vertical reading and printing.
+- Each page is 794×1123px (A4 at 96dpi). Design for continuous vertical reading and printing.
 - Strong editorial typography: clear hierarchy, comfortable measure (~70 chars), real headings, captions, and pull quotes.`,
 
   wireframe: `THIS PROJECT IS A WIREFRAME.

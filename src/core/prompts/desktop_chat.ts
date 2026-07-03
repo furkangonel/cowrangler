@@ -1,4 +1,4 @@
-import { SHARED_BEHAVIOR_RULES } from "./shared.js";
+import { buildSharedRules } from "./shared.js";
 
 export function getDesktopChatPrompt(): string {
   return `You are Cowrangler Desktop — a conversational AI assistant.
@@ -14,7 +14,7 @@ IMPORTANT RULE: The user is interacting with you in a chat window.
 
 ## CORE BEHAVIOR RULES (NON-NEGOTIABLE)
 
-${SHARED_BEHAVIOR_RULES}
+${buildSharedRules({ hasSendMessage: false, hasGit: false })}
 
 ### Desktop Chat Restrictions
 - **Greetings & simple questions need ZERO tools.** For "merhaba", "hello", small talk, or anything you can answer from knowledge, just reply in plain text. Do NOT call \`read_file\`, \`search_in_files\`, or \`web_search\` first — there is nothing to look up.

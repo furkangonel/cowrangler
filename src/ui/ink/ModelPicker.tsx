@@ -25,18 +25,18 @@ import { DIRS } from "../../core/init.js";
 
 // Kullanıcıya sunulan varsayılan model önerileri (saved_models boşsa gösterilir)
 const DEFAULT_SUGGESTIONS: Array<{ model: string; label: string }> = [
-  { model: "claude-sonnet-4-6",       label: "Anthropic Claude Sonnet 4.6" },
-  { model: "claude-opus-4-6",         label: "Anthropic Claude Opus 4.6" },
-  { model: "anthropic/claude-haiku-4-5-20251001", label: "Anthropic Claude Haiku 4.5" },
-  { model: "gpt-4o",                  label: "OpenAI GPT-4o" },
-  { model: "gpt-4o-mini",             label: "OpenAI GPT-4o mini" },
-  { model: "openai/o3",               label: "OpenAI o3" },
-  { model: "gemini-2.5-pro",          label: "Google Gemini 2.5 Pro" },
-  { model: "gemini-2.0-flash",        label: "Google Gemini 2.0 Flash" },
+  { model: "claude-sonnet-5",       label: "Anthropic Claude Sonnet 5" },
+  { model: "claude-opus-4-8",       label: "Anthropic Claude Opus 4.8" },
+  { model: "claude-sonnet-4-6",     label: "Anthropic Claude Sonnet 4.6" },
+  { model: "claude-haiku-4-5",      label: "Anthropic Claude Haiku 4.5" },
+  { model: "gpt-5.5",               label: "OpenAI GPT-5.5" },
+  { model: "gpt-5.4",               label: "OpenAI GPT-5.4" },
+  { model: "openai/o3",             label: "OpenAI o3" },
+  { model: "gemini-3.5-flash",      label: "Google Gemini 3.5 Flash" },
+  { model: "gemini-3.1-pro",        label: "Google Gemini 3.1 Pro" },
   { model: "groq/llama-3.3-70b-versatile", label: "Groq Llama 3.3 70B" },
-  { model: "openrouter/anthropic/claude-3-5-sonnet", label: "OpenRouter → Claude 3.5 Sonnet" },
-  { model: "openrouter/google/gemini-2.5-pro", label: "OpenRouter → Gemini 2.5 Pro" },
-  { model: "openrouter/meta-llama/llama-4-maverick", label: "OpenRouter → Llama 4 Maverick" },
+  { model: "openrouter/anthropic/claude-sonnet-5", label: "OpenRouter → Claude Sonnet 5" },
+  { model: "openrouter/google/gemini-3.5-flash", label: "OpenRouter → Gemini 3.5 Flash" },
 ];
 
 export interface ModelPickerProps {

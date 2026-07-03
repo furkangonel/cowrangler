@@ -11,16 +11,24 @@ import { useSessionsStore } from "../../stores/sessions.store";
 import { GLOBAL_PROJECT_ID } from "../session/GlobalChatView";
 
 export function RightPanel() {
-  const { rightPanelOpen, activeGlobalSessionId } = useUIStore();
+  const { rightPanelOpen, activeGlobalSessionId, activeTab } = useUIStore();
   const { activeProjectId } = useProjectsStore();
   const { activeSessionId } = useSessionsStore();
 
   if (!rightPanelOpen) return null;
 
+  // Chat modunda (General Chat) sağ panel hiç gösterilmez.
+  if (activeTab === "chats") return null;
+
   // Global (projesiz) sohbet: proje sessionlarındaki panel deneyimini burada da
   // ver — Progress + Context (aktif skill'ler dahil). Working Folders / Instructions
   // proje kavramına bağlı olduğundan atlanır.
-  const isGlobal = !activeProjectId || activeProjectId === GLOBAL_PROJECT_ID;
+  // NOT: `activeProjectId`'e bakmak yeterli değil — "chats" sekmesine geçince
+  // önceki projenin id'si store'da bayat kalıyor, bu yüzden sekmeyi baz al.
+  const isGlobal =
+    activeTab === "chats" ||
+    !activeProjectId ||
+    activeProjectId === GLOBAL_PROJECT_ID;
 
   if (isGlobal) {
     return (

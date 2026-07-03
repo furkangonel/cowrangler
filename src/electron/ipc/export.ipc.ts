@@ -24,6 +24,7 @@
  */
 import { ipcMain, dialog, BrowserWindow } from 'electron'
 import { createRequire } from 'module'
+import { PDFDocument } from 'pdf-lib'
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
@@ -154,6 +155,79 @@ async function imagesToPdf(pngs: Buffer[], w: number, h: number): Promise<Buffer
 }
 
 /**
+ * Print a self-contained HTML file straight to a VECTOR PDF at a fixed page size
+ * (default A4). Unlike the raster path (capturePage → PNG → PDF), this keeps text
+ * selectable and the layout pixel-exact — no scaling/clipping "drift". Used for
+ * documents so the exported PDF is the file itself, not a screenshot of it.
+ */
+async function fileToPdfVector(
+  filePath: string,
+  opts: { landscape?: boolean; widthPx?: number; heightPx?: number } = {},
+): Promise<Buffer> {
+  // Design pages are authored at 794×1123 CSS px (A4 @96dpi). Print at EXACTLY
+  // that size (converted to inches) so `100vh`, centering and fixed layouts map
+  // 1:1 — a "pageSize:'A4'" string drifts by a hair and shifts vh-based layouts.
+  const wPx = opts.widthPx ?? 794
+  const hPx = opts.heightPx ?? 1123
+  // printToPDF needs a real (offscreen-positioned) window, not OSR.
+  const win = offscreenWindow(wPx, hPx, false)
+  const wc = win.webContents
+  let attached = false
+  try {
+    await win.loadFile(filePath)
+    win.setContentSize(wPx, hPx)
+    await settle(win)
+    // CRITICAL: the canvas preview renders SCREEN styles. printToPDF defaults to
+    // PRINT media, so any `@media print` overrides in the file make the PDF look
+    // different from the canvas. Force screen emulation so export == preview.
+    try {
+      wc.debugger.attach('1.3')
+      attached = true
+      await wc.debugger.sendCommand('Emulation.setEmulatedMedia', { media: 'screen' })
+    } catch { /* debugger unavailable → fall back to print media */ }
+
+    // Keep EACH design page to EXACTLY ONE PDF page. A few px of overflow (body
+    // margins, sub-pixel borders) otherwise spills into a near-blank 2nd page.
+    // The canvas already shows each page inside a fixed ${wPx}×${hPx} frame with
+    // overflow clipped, so we reproduce that exactly: zero margins + clamp the
+    // root box to one page + hide the sliver. No scaling → export == canvas,
+    // and never more than one page per file.
+    await wc.executeJavaScript(`(function(){
+      var s=document.createElement('style');
+      s.textContent='html,body{margin:0!important;padding:0!important;'+
+        'width:${wPx}px!important;height:${hPx}px!important;'+
+        'max-height:${hPx}px!important;overflow:hidden!important;}';
+      document.head.appendChild(s);
+      return true;
+    })()`)
+    await new Promise(r => setTimeout(r, 60))
+
+    return (await wc.printToPDF({
+      printBackground: true,
+      landscape: !!opts.landscape,
+      pageSize: { width: wPx / 96, height: hPx / 96 }, // inches
+      margins: { top: 0, bottom: 0, left: 0, right: 0 },
+      preferCSSPageSize: false,
+    })) as Buffer
+  } finally {
+    if (attached) { try { wc.debugger.detach() } catch {} }
+    win.destroy()
+  }
+}
+
+/** Concatenate several PDF buffers into one, preserving vector content. */
+async function mergePdfs(buffers: Buffer[]): Promise<Buffer> {
+  if (buffers.length === 1) return buffers[0]
+  const out = await PDFDocument.create()
+  for (const buf of buffers) {
+    const src = await PDFDocument.load(buf)
+    const pages = await out.copyPages(src, src.getPageIndices())
+    for (const pg of pages) out.addPage(pg)
+  }
+  return Buffer.from(await out.save())
+}
+
+/**
  * Detect whether a single HTML file is a multi-slide/multi-page deck and, if so,
  * capture each slide to its own image (showing one slide at a time, full-window,
  * so the deck's own layout/transitions don't matter). Returns the slide images
@@ -240,8 +314,8 @@ async function writePptx(filePath: string, pngs: Buffer[], w: number, h: number)
   await pptx.writeFile({ fileName: filePath })
 }
 
-interface Payload { srcPath?: string; html?: string; name?: string; landscape?: boolean; width?: number; height?: number }
-interface DeckPayload { files: string[]; name?: string; slideW?: number; slideH?: number }
+interface Payload { srcPath?: string; html?: string; name?: string; landscape?: boolean; width?: number; height?: number; document?: boolean }
+interface DeckPayload { files: string[]; name?: string; slideW?: number; slideH?: number; document?: boolean }
 
 export function registerExportIPC(): void {
   // Plain "Save a copy" of the source HTML file.
@@ -260,8 +334,15 @@ export function registerExportIPC(): void {
     const filePath = await askSavePath(baseName(p.srcPath, p.name) + '.pdf', 'PDF', ['pdf'])
     if (!filePath) return { ok: false }
     try {
+      // Documents: print the file itself to a VECTOR A4 PDF (selectable text,
+      // pixel-exact). Skip the raster/slide-detection path that caused drift and
+      // wrongly split a page's <section>s into separate rasterized "slides".
+      if (p.document && p.srcPath && fs.existsSync(p.srcPath)) {
+        fs.writeFileSync(filePath, await fileToPdfVector(p.srcPath, { landscape: false, widthPx: 794, heightPx: 1123 }))
+        return { ok: true, path: filePath, count: 1 }
+      }
       if (p.srcPath && fs.existsSync(p.srcPath)) {
-        const det = await detectAndCaptureSlides(p.srcPath, p.landscape ? 1280 : 816, p.landscape ? 720 : 1056)
+        const det = await detectAndCaptureSlides(p.srcPath, p.landscape ? 1280 : 794, p.landscape ? 720 : 1123)
         if (det.multi) {
           fs.writeFileSync(filePath, await imagesToPdf(det.pngs, det.w, det.h))
           return { ok: true, path: filePath, count: det.pngs.length }
@@ -307,6 +388,14 @@ export function registerExportIPC(): void {
     const filePath = await askSavePath(baseName(undefined, p.name) + '.pdf', 'PDF', ['pdf'])
     if (!filePath) return { ok: false }
     try {
+      // Documents: print each page to a VECTOR A4 PDF, then merge into one — the
+      // pages are the files themselves, not screenshots. No raster drift.
+      if (p.document) {
+        const parts: Buffer[] = []
+        for (const f of files) parts.push(await fileToPdfVector(f, { landscape: false, widthPx: 794, heightPx: 1123 }))
+        fs.writeFileSync(filePath, await mergePdfs(parts))
+        return { ok: true, path: filePath, count: files.length }
+      }
       const pngs: Buffer[] = []
       for (const f of files) pngs.push(await fileToPng(f, w, h))
       fs.writeFileSync(filePath, await imagesToPdf(pngs, w, h))
