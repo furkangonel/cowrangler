@@ -1207,29 +1207,33 @@ After writing, reply: "✓ COWRNGLR.md written. Agent context is now active."
     // ── /permissions ──────────────────────────────────────────────────────────
     this.commands.set("/permissions", {
       description:
-        "Set permission mode: /permissions [default|plan|auto|bypass]",
+        "Set permission mode: /permissions [ask|accept|plan|auto|bypass]",
       execute: (args: string[], ctx: CommandContext) => {
+        // "default" eski ad — "ask" ile aynı; geriye-dönük uyumluluk için kabul.
         const validModes: PermissionMode[] = [
-          "default",
+          "ask",
+          "accept",
           "plan",
           "auto",
           "bypass",
+          "default",
         ];
         const requested = args[0]?.toLowerCase() as PermissionMode | undefined;
 
         if (!requested || !validModes.includes(requested)) {
           const cfgPath = DIRS.local.config;
-          let currentMode = "default";
+          let currentMode = "ask";
           if (fs.existsSync(cfgPath)) {
             const raw =
               (yaml.load(fs.readFileSync(cfgPath, "utf-8")) as any) || {};
-            currentMode = raw.permission_mode ?? "default";
+            currentMode = raw.permission_mode ?? "ask";
           }
           const lines = [
             `  ${Theme.dim("Active mode:")} ${Theme.accent.bold(currentMode)}\n`,
-            `  ${Theme.success("•")} ${Theme.accent("default")} ${Theme.dim("→ Logs dangerous operations; blocks critical ones")}`,
-            `  ${Theme.success("•")} ${Theme.accent("plan")}    ${Theme.dim("→ Default + requires approval for every step")}`,
-            `  ${Theme.success("•")} ${Theme.accent("auto")}    ${Theme.dim("→ Only safe/moderate are automatic; dangerous is rejected")}`,
+            `  ${Theme.success("•")} ${Theme.accent("ask")}    ${Theme.dim("→ Ask before every destructive operation; blocks critical ones")}`,
+            `  ${Theme.success("•")} ${Theme.accent("accept")} ${Theme.dim("→ Auto-accept reversible edits; ask for irreversible/external")}`,
+            `  ${Theme.success("•")} ${Theme.accent("plan")}   ${Theme.dim("→ Approve once, then reuse approval for similar steps")}`,
+            `  ${Theme.success("•")} ${Theme.accent("auto")}   ${Theme.dim("→ Reversible ops flow in sandbox; ask only for irreversible/external")}`,
             `  ${Theme.main("•")} ${Theme.accent("bypass")} ${Theme.dim("→ Disables all security checks (trusted environment only)")}`,
           ];
           return UI.box(lines.join("\n"), "Permission Modes");
