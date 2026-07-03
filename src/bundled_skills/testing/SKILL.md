@@ -1,6 +1,8 @@
 ---
 name: testing
-description: Test writing SOP for unit, integration, and e2e tests with TDD approach
+description: Test writing SOP for unit, integration, and e2e tests (TDD) plus exploratory QA for web apps — find bugs, gather evidence, write reports.
+platforms: [linux, macos, windows]
+tags: [testing, tdd, qa, unit-tests, integration, e2e]
 ---
 
 # Testing SOP
@@ -116,15 +118,58 @@ npm test -- --watch
 5. If a test is hard to write, it's a signal the code needs refactoring
 6. Add tests for the specific bug being fixed (regression tests)
 
+---
 
-## Why/Failure Modes
+# Exploratory QA for Web Apps
 
-[TODO: Explain the reasoning behind this skill's approach and common failure modes to avoid.]
+Automated tests above verify known behavior. Exploratory QA finds the *unknown*
+bugs by systematically driving a running app, gathering evidence, and reporting.
 
-## Standalone vs Supercharged
+## When to use
+- "Test / try this app", "check for bugs"
+- Verifying UI or API changes, reviewing a feature before production
 
-[TODO: Describe how this skill works on its own vs when combined with other tools/context.]
+## Workflow (5 phases)
+
+1. **Plan** — scope: which URL/feature, which browser, credentials/test data, what's out of scope.
+2. **Explore** — drive the app systematically:
+   ```
+   browser_navigate(url="https://app.example.com")
+   browser_snapshot()        # capture state (evidence)
+   browser_click(selector="button[type=submit]")
+   browser_type(selector="input[name=email]", text="test@example.com")
+   browser_console()         # JS errors / warnings
+   ```
+   Cover: every nav link/button, form submission (valid + invalid), error
+   messages, load speed, responsive behavior, empty states.
+3. **Collect evidence** — screenshot, exact reproduction steps, console output,
+   environment (browser, URL, user state). No evidence → bug is invalid.
+4. **Categorize** — severity 🔴 Critical / 🟠 High / 🟡 Medium / 🟢 Low; category
+   Functional / UI-UX / Performance / Security / Accessibility.
+5. **Report** — structured markdown:
+   ```markdown
+   # QA Test Report — [App]
+   **Date / Scope / Environment / Total bugs (Critical: N, High: N, ...)**
+
+   ## 🔴 Critical
+   ### BUG-001: [Title]
+   - Steps / Expected / Actual / Evidence
+   ## ✅ Working
+   - [features tested and passing]
+   ```
+
+## Useful exploratory patterns
+- **Forms**: empty submit, 1000+ char input, special chars (`<script>`, `'`, `"`, `&`, `;`), invalid email, negative/zero, future/past dates.
+- **Auth**: invalid credentials, session timeout, direct access to protected pages while logged out, password reset, "remember me".
+- **Speed/reliability**: throttled network, double-click (duplicate submit), back button after submit, refresh mid-operation.
+
+## Rules
+1. Snapshot after every meaningful step — no evidence, no bug.
+2. Reproduction steps must work at least 3 times.
+3. Don't guess — screenshot, observe, document.
+4. Critical bugs first; stay scope-focused.
+5. Also document what works (positive testing).
 
 ## Cross-References
-
-[TODO: Link to other relevant skills or documentation.]
+- `code-review` — reviewing the diff behind a change before/after QA.
+- `debugging` — root-causing a bug once exploratory QA surfaces it.

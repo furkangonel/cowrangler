@@ -38,6 +38,37 @@ type UsageDB = Record<string, SkillUsageStats>;
 const USAGE_FILE = path.join(DIRS.global.skills, ".usage.json");
 const STALE_THRESHOLD_DAYS = 30;
 const STALE_MIN_USE_COUNT = 3;
+/**
+ * Hiç kullanılmayan (etkinlik görmeyen) skill'ler için üst sınır. use_count
+ * ne olursa olsun, bir agent skill'i 90 gün boyunca hiç dokunulmazsa bayat
+ * sayılır ve arşive alınır (silinmez).
+ */
+const UNUSED_THRESHOLD_DAYS = 90;
+
+/**
+ * Bir skill'in kürasyon (arşivleme) adayı olup olmadığını belirleyen SAF karar.
+ * Yan etkisi yoktur — disk okumaz. Değişmezler:
+ *   - pinned  → asla bayat sayılmaz
+ *   - user'ın oluşturduğu → asla dokunulmaz (curator yalnız agent'a bakar)
+ *   - archived → zaten arşivde
+ * Bayat koşulu (ikisinden biri):
+ *   (a) 30 gün boşta VE use_count < 3 (az kullanılıp bırakılmış)
+ *   (b) 90 gün boşta (use_count'tan bağımsız — tamamen kullanılmıyor)
+ */
+export function isSkillStale(
+  stats: SkillUsageStats,
+  now: number = Date.now(),
+): boolean {
+  if (stats.state === "pinned") return false;
+  if (stats.created_by !== "agent") return false;
+  if (stats.state === "archived") return false;
+  const idleMs = now - stats.last_activity_at;
+  const lowUseStale =
+    idleMs >= STALE_THRESHOLD_DAYS * 86_400_000 &&
+    stats.use_count < STALE_MIN_USE_COUNT;
+  const longUnusedStale = idleMs >= UNUSED_THRESHOLD_DAYS * 86_400_000;
+  return lowUseStale || longUnusedStale;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TRACKER
@@ -139,19 +170,8 @@ export class SkillUsageTracker {
   getStaleSkills(): string[] {
     const db = this._load();
     const now = Date.now();
-    const thresholdMs = STALE_THRESHOLD_DAYS * 86_400_000;
-
     return Object.entries(db)
-      .filter(([, stats]) => {
-        if (stats.state === "pinned") return false; // pinned → muaf
-        if (stats.created_by !== "agent") return false; // sadece agent'ın oluşturduklarına dokunur
-        if (stats.state === "archived") return false; // zaten arşivlenmiş
-        const daysSinceActivity = now - stats.last_activity_at;
-        return (
-          daysSinceActivity >= thresholdMs &&
-          stats.use_count < STALE_MIN_USE_COUNT
-        );
-      })
+      .filter(([, stats]) => isSkillStale(stats, now))
       .map(([id]) => id);
   }
 

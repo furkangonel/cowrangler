@@ -1,6 +1,8 @@
 ---
 name: code-review
-description: Systematic code review SOP covering correctness, security, performance, and maintainability
+description: Systematic code review SOP covering correctness, security, performance, and maintainability — plus GitHub PR review workflow (diff, inline comments, approve via gh/REST).
+platforms: [linux, macos, windows]
+tags: [code-review, github, pull-requests, git, quality]
 ---
 
 # Code Review SOP
@@ -82,15 +84,80 @@ APPROVE / REQUEST CHANGES / BLOCK
 ## Tone
 Be constructive and specific. Explain WHY something is an issue, not just what. Suggest concrete fixes.
 
+---
 
-## Why/Failure Modes
+# GitHub / PR Review Workflow
 
-[TODO: Explain the reasoning behind this skill's approach and common failure modes to avoid.]
+Use the checklist above to judge *what* is wrong; use this section for *how* to
+review local changes before pushing, or open pull requests on GitHub.
 
-## Standalone vs Supercharged
+## Setup
 
-[TODO: Describe how this skill works on its own vs when combined with other tools/context.]
+```bash
+if command -v gh &>/dev/null && gh auth status &>/dev/null; then
+  AUTH="gh"
+else
+  AUTH="git"
+  GITHUB_TOKEN=$(grep "^GITHUB_TOKEN=" ~/.cowrangler/credentials.env 2>/dev/null | head -1 | cut -d= -f2)
+fi
+REMOTE_URL=$(git remote get-url origin)
+OWNER_REPO=$(echo "$REMOTE_URL" | sed -E 's|.*github\.com[:/]||; s|\.git$||')
+OWNER=$(echo "$OWNER_REPO" | cut -d/ -f1)
+REPO=$(echo "$OWNER_REPO" | cut -d/ -f2)
+```
+
+## 1. Review local changes (pre-push)
+
+```bash
+git diff main...HEAD --stat                 # big picture
+git log main..HEAD --oneline                # commits in the branch
+git diff main...HEAD -- src/auth.ts         # file by file
+
+# common smells
+git diff main...HEAD | grep -n "console\.log\|TODO\|FIXME\|debugger"
+git diff main...HEAD | grep -in "password\|secret\|api_key\|token.*="
+git diff main...HEAD | grep -n "<<<<<<\|>>>>>>\|======="
+```
+
+## 2. Review a GitHub PR
+
+```bash
+gh pr view 123
+gh pr diff 123
+gh pr checkout 123           # check out locally
+```
+
+curl fallback (no gh):
+```bash
+PR_NUMBER=123
+curl -s -H "Authorization: token $GITHUB_TOKEN" \
+  https://api.github.com/repos/$OWNER/$REPO/pulls/$PR_NUMBER/files \
+  | python3 -c "import sys,json; [print(f\"+{f['additions']} -{f['deletions']} {f['filename']}\") for f in json.load(sys.stdin)]"
+```
+
+## 3. Leave comments & submit a review
+
+```bash
+gh pr comment 123 --body "Overall good, a few suggestions."
+
+# inline comment on a specific line
+HEAD_SHA=$(gh pr view 123 --json headRefOid --jq '.headRefOid')
+gh api repos/$OWNER/$REPO/pulls/123/comments --method POST \
+  -f body="Can be simplified with a list comprehension." \
+  -f path="src/auth/login.ts" -f commit_id="$HEAD_SHA" -f line=45 -f side="RIGHT"
+
+# formal review
+gh pr review 123 --approve --body "LGTM!"
+gh pr review 123 --request-changes --body "See inline comments."
+gh pr review 123 --comment --body "A few non-blocking suggestions."
+```
+
+## 4. Decision
+
+- **Approve** — no critical/warning issues, only minor suggestions.
+- **Request changes** — critical/warning issues that must be fixed before merge.
+- **Comment** — observations and suggestions, non-blocking (draft PRs).
 
 ## Cross-References
-
-[TODO: Link to other relevant skills or documentation.]
+- `github-pr-workflow` — opening and managing PRs (not just reviewing).
+- `testing` — verifying the change is actually covered by tests.

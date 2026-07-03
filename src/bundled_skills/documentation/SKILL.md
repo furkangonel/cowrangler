@@ -139,15 +139,6 @@ MIT
 5. Keep examples in JSDoc comments runnable and correct
 6. Never document the obvious — every comment should earn its place
 
-
-## Why/Failure Modes
-
-[TODO: Explain the reasoning behind this skill's approach and common failure modes to avoid.]
-
-## Standalone vs Supercharged
-
-[TODO: Describe how this skill works on its own vs when combined with other tools/context.]
-
 ## Cross-References
-
-[TODO: Link to other relevant skills or documentation.]
+- `code-review` — the maintainability checklist that documentation supports.
+- `professional-communicator` — tone and clarity for user-facing docs.

@@ -22,7 +22,7 @@ const BUNDLED_PLUGINS: BundledPlugin[] = [
     id: 'dev-toolkit', name: 'Developer Toolkit',
     description: 'Kod yazma, inceleme, hata ayıklama ve git akışı için skill + connector paketi.',
     author: 'cowrangler', signed: true, category: 'dev',
-    skills: ['software-development','code-review','github-pr-workflow','github-code-review','git-workflow','debugging','refactoring','qa-testing','testing'],
+    skills: ['software-development','code-review','github-pr-workflow','git-workflow','debugging','refactoring','testing'],
     connectors: ['github','git','filesystem'], enabledByDefault: true,
   },
   {

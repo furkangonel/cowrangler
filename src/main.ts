@@ -53,8 +53,8 @@ if (args.includes("--help") || args.includes("-h")) {
       "    cowrangler login               Sign in with a subscription (Claude Pro, ChatGPT, Copilot, Gemini, Antigravity)",
       "    cowrangler -p <profile>        Run with a named profile",
       "    cowrangler model               Interactive model picker (arrow keys)",
-      "    cowrangler gateway setup       Configure Telegram/Discord bot (wizard)",
-      "    cowrangler gateway start       Start Telegram/Discord gateway",
+      "    cowrangler gateway setup       Configure Telegram/Discord bot (wizard, needs ENABLE_GATEWAY=1)",
+      "    cowrangler gateway start       Start Telegram/Discord gateway (needs ENABLE_GATEWAY=1)",
       "    cowrangler mcp browse          MCP marketplace — browse & install servers",
       "    cowrangler mcp add             Add an MCP server (interactive wizard)",
       "    cowrangler mcp list            List configured MCP servers",
@@ -208,6 +208,26 @@ if (args[0] === "update") {
     process.exit(1);
   }
   process.exit(0);
+}
+
+// ── Gateway feature-flag koruması ──────────────────────────────────────
+// Gateway (Telegram/Discord) çekirdek dışı, opsiyonel bir yüzeydir. Kod
+// tabanda kalır ancak ENABLE_GATEWAY set edilmedikçe çalışmaz. Böylece
+// varsayılan build daha küçük ve odaklı kalır.
+if (args[0] === "gateway") {
+  const { isGatewayEnabled } = await import("./core/feature_flags.js");
+  if (!isGatewayEnabled()) {
+    console.log(
+      chalk.yellow("\n  Gateway devre dışı (varsayılan kapalı)."),
+    );
+    console.log(
+      chalk.dim(
+        "  Etkinleştirmek için ENABLE_GATEWAY=1 ile çalıştırın:\n" +
+          "    ENABLE_GATEWAY=1 cowrangler gateway start\n",
+      ),
+    );
+    process.exit(0);
+  }
 }
 
 // ── cowrangler gateway setup — Telegram/Discord kurulum sihirbazı ────
