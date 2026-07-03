@@ -15,8 +15,10 @@ case $PROVIDER in
       echo "sandbox-exec is not available on this system. Falling back to direct execution." >&2
       PROVIDER="fallback"
     else
-      # Generate dynamic seatbelt profile
-      PROFILE_FILE=$(mktemp /tmp/cowrangler_sb_XXXXXX.sb)
+      # Generate dynamic seatbelt profile.
+      # NOTE: BSD mktemp (macOS) requires the template to END in X's, so the
+      # ".sb" suffix must not follow XXXXXX. sandbox-exec -f accepts any path.
+      PROFILE_FILE=$(mktemp "${TMPDIR:-/tmp}/cowrangler_sb_XXXXXX")
       cat <<EOF > "$PROFILE_FILE"
 (version 1)
 (deny default)
@@ -98,6 +100,22 @@ EOF
       # Execute
       cd "$CWD" || exit 1
       bwrap "${BWRAP_ARGS[@]}" --chdir "$CWD" /bin/bash -c "$CMD"
+      exit $?
+    fi
+    ;;
+
+  "linux_firejail")
+    if ! command -v firejail >/dev/null 2>&1; then
+      echo "Firejail is not installed. Falling back to direct execution." >&2
+      PROVIDER="fallback"
+    else
+      # Restrict filesystem to the project dir; keep /tmp private.
+      FIREJAIL_ARGS=("--quiet" "--private-tmp" "--whitelist=$CWD")
+      if [ "$NETWORK_RESTRICTED" = "true" ]; then
+        FIREJAIL_ARGS+=("--net=none")
+      fi
+      cd "$CWD" || exit 1
+      firejail "${FIREJAIL_ARGS[@]}" /bin/bash -c "$CMD"
       exit $?
     fi
     ;;
