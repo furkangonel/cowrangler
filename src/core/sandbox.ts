@@ -13,12 +13,13 @@
  * - Asenkron (non-blocking) çalıştırma ile Electron UI donmalarını engeller.
  */
 
-import { exec } from "child_process";
+import { exec, execSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import os from "os";
 import { fileURLToPath } from "url";
 import { analyzeBashRisk, RiskLevel } from "./permissions.js";
+import { getProjectWorkdir } from "./project_context.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -33,17 +34,161 @@ export interface SandboxConfig {
   allowedPaths: string[];   // explicit allowlist (beyond workspaceRoot)
   blockedBinaries: string[]; // always blocked regardless of mode
   provider?: "auto" | "docker" | "mac_seatbelt" | "linux_bwrap" | "fallback";
+  /**
+   * Gerçek izolasyon backend'i bulunamadığında (none) kullanıcı düşük-güven
+   * modunda çalıştırmayı onayladıysa true. Sessiz düşme yerine bilinçli onay.
+   */
+  allowUnsandboxed?: boolean;
 }
 
 export interface SandboxResult {
   output: string;
   exitCode: number;
   sandboxed: boolean;
+  /** Komut gerçekten izole bir backend içinde mi çalıştı (direct exec ise false). */
+  isolated: boolean;
+  /** Seçilen izolasyon backend'i (none = izolasyon yok). */
+  backend: SandboxBackendKind;
   riskLevel: RiskLevel;
   blocked: boolean;
   blockReason?: string;
+  /** İzolasyon yoksa ama çalıştırıldıysa gösterilecek uyarı. */
+  warning?: string;
   durationMs: number;
   auditId?: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Platforma göre izolasyon backend seçimi (SandboxBackend arayüzü + fabrika)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type SandboxBackendKind =
+  | "mac_seatbelt"    // macOS Seatbelt (sandbox-exec)
+  | "linux_bwrap"     // Linux Bubblewrap
+  | "linux_firejail"  // Linux Firejail (fallback)
+  | "docker"          // Docker konteyner (üç platform)
+  | "wsl_bwrap"       // Windows: WSL2 içinde bubblewrap
+  | "win_jobobject"   // Windows: kısıtlı Job Object + geçici dizin (zayıf fallback)
+  | "none";           // Hiçbir izolasyon yok — düşük güven
+
+export interface SandboxBackend {
+  kind: SandboxBackendKind;
+  /** Gerçek dosya sistemi/ağ izolasyonu sağlıyor mu? */
+  isolated: boolean;
+  /** runner.sh / runner.ps1'e geçirilecek provider argümanı. */
+  providerArg: string;
+  /** İnsan-okunur açıklama. */
+  label: string;
+}
+
+type NodePlatform = NodeJS.Platform;
+
+/**
+ * Bir binary'nin PATH'te olup olmadığını kontrol eder (senkron, cache'lenir).
+ */
+const _binaryCache = new Map<string, boolean>();
+export function binaryExists(bin: string): boolean {
+  if (_binaryCache.has(bin)) return _binaryCache.get(bin)!;
+  let exists = false;
+  try {
+    const probe =
+      process.platform === "win32"
+        ? `where ${bin}`
+        : `command -v ${bin}`;
+    execSync(probe, { stdio: "ignore" });
+    exists = true;
+  } catch {
+    exists = false;
+  }
+  _binaryCache.set(bin, exists);
+  return exists;
+}
+
+/** WSL2 + içinde bwrap kullanılabilir mi (Windows). */
+function wslBwrapAvailable(probe: (bin: string) => boolean): boolean {
+  if (!probe("wsl")) return false;
+  try {
+    execSync("wsl -e sh -c \"command -v bwrap\"", { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Docker kuruluysa VE daemon çalışıyorsa true. */
+function dockerRunning(probe: (bin: string) => boolean): boolean {
+  if (!probe("docker")) return false;
+  try {
+    execSync("docker info", { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const BACKEND_META: Record<SandboxBackendKind, Omit<SandboxBackend, "kind">> = {
+  mac_seatbelt:   { isolated: true,  providerArg: "mac_seatbelt",   label: "macOS Seatbelt" },
+  linux_bwrap:    { isolated: true,  providerArg: "linux_bwrap",    label: "Linux Bubblewrap" },
+  linux_firejail: { isolated: true,  providerArg: "linux_firejail", label: "Linux Firejail" },
+  docker:         { isolated: true,  providerArg: "docker",         label: "Docker container" },
+  wsl_bwrap:      { isolated: true,  providerArg: "wsl_bwrap",      label: "WSL2 + Bubblewrap" },
+  win_jobobject:  { isolated: true,  providerArg: "win_jobobject",  label: "Windows Job Object (weak)" },
+  none:           { isolated: false, providerArg: "fallback",       label: "No isolation (low-trust)" },
+};
+
+function makeBackend(kind: SandboxBackendKind): SandboxBackend {
+  return { kind, ...BACKEND_META[kind] };
+}
+
+/**
+ * Platforma ve mevcut araçlara göre en yüksek öncelikli backend'i seçer (fabrika).
+ *
+ * @param platform  process.platform değeri.
+ * @param probe     Bir binary'nin varlığını kontrol eden fonksiyon (test için enjekte edilebilir).
+ * @param forced    Kullanıcı belirli bir provider zorladıysa (config.provider).
+ */
+export function selectBackend(
+  platform: NodePlatform,
+  probe: (bin: string) => boolean = binaryExists,
+  forced?: SandboxConfig["provider"],
+): SandboxBackend {
+  // Kullanıcı docker'ı zorladıysa ve gerçekten hazırsa onu kullan.
+  if (forced === "docker" && dockerRunning(probe)) return makeBackend("docker");
+  if (forced === "fallback") return makeBackend("none");
+
+  if (platform === "darwin") {
+    if (probe("sandbox-exec")) return makeBackend("mac_seatbelt");
+    if (dockerRunning(probe)) return makeBackend("docker");
+    return makeBackend("none");
+  }
+
+  if (platform === "win32") {
+    if (wslBwrapAvailable(probe)) return makeBackend("wsl_bwrap");
+    if (dockerRunning(probe)) return makeBackend("docker");
+    // Son çare: kısıtlı Job Object + geçici dizin — daima mevcut, zayıf izolasyon.
+    return makeBackend("win_jobobject");
+  }
+
+  // Linux (ve diğer POSIX)
+  if (probe("bwrap")) return makeBackend("linux_bwrap");
+  if (probe("firejail")) return makeBackend("linux_firejail");
+  if (dockerRunning(probe)) return makeBackend("docker");
+  return makeBackend("none");
+}
+
+/**
+ * shouldUseSandbox — bir komut için izolasyon zorunlu mu?
+ *
+ * Yıkıcı/riskli komutlar (dangerous/critical) → zorunlu sandbox.
+ * Salt-okunur / güvenli komutlar → doğrudan çalıştırılabilir.
+ */
+const READONLY_COMMAND = /^\s*(ls|cat|pwd|echo|head|tail|grep|find|which|git\s+(status|log|diff|show|branch)|wc|stat|file|env|whoami|date|node\s+-v|npm\s+(ls|list|-v|view|outdated))\b/;
+export function shouldUseSandbox(command: string): boolean {
+  const risk = analyzeBashRisk(command);
+  if (risk === "dangerous" || risk === "critical") return true;
+  // Tek satırlık, borusuz, salt-okunur komutlar doğrudan çalışabilir.
+  if (!/[;&|><`$()]/.test(command) && READONLY_COMMAND.test(command)) return false;
+  return true;
 }
 
 const DEFAULT_BLOCKED_BINARIES = [
@@ -58,7 +203,7 @@ const DEFAULT_BLOCKED_BINARIES = [
 
 const DEFAULT_CONFIG: SandboxConfig = {
   enabled: true,
-  workspaceRoot: process.cwd(),
+  workspaceRoot: getProjectWorkdir(),
   maxOutputBytes: 512 * 1024,  // 512KB
   maxTimeoutMs: 30_000,         // 30s
   networkRestricted: false,
@@ -72,10 +217,27 @@ let _config: SandboxConfig = { ...DEFAULT_CONFIG };
 const GLOBAL_BUNDLE_PATH = path.join(os.homedir(), ".cowrangler", "cowrangler-sandbox.bundle");
 
 /**
+ * Bundle sürümü. Runner script'leri her değiştiğinde ARTIR — böylece eski
+ * kopyalar (stale cache) otomatik olarak yeniden kopyalanır.
+ */
+const SANDBOX_BUNDLE_VERSION = "2";
+const BUNDLE_VERSION_FILE = path.join(GLOBAL_BUNDLE_PATH, ".bundle_version");
+
+/** Global bundle güncel sürümde mi? */
+function globalBundleIsCurrent(): boolean {
+  try {
+    return fs.readFileSync(BUNDLE_VERSION_FILE, "utf-8").trim() === SANDBOX_BUNDLE_VERSION;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Sandboxing paketini dinamik dizinlerde bulur ve gerekirse kullanıcının ana dizinine kopyalar.
+ * Eski sürüm bir kopya varsa (stale), kaynaktan yeniden kopyalar.
  */
 export function ensureBundle(): string {
-  if (fs.existsSync(GLOBAL_BUNDLE_PATH)) {
+  if (fs.existsSync(GLOBAL_BUNDLE_PATH) && globalBundleIsCurrent()) {
     if (process.platform !== "win32") {
       const globalRunner = path.join(GLOBAL_BUNDLE_PATH, "Contents", "Resources", "scripts", "runner.sh");
       try {
@@ -96,9 +258,12 @@ export function ensureBundle(): string {
   for (const localPath of possiblePaths) {
     if (fs.existsSync(localPath)) {
       try {
+        // Eski/stale bir kopya varsa tamamen kaldır, sonra taze kopyala.
+        fs.rmSync(GLOBAL_BUNDLE_PATH, { recursive: true, force: true });
         fs.mkdirSync(path.dirname(GLOBAL_BUNDLE_PATH), { recursive: true });
         fs.cpSync(localPath, GLOBAL_BUNDLE_PATH, { recursive: true });
-        
+        fs.writeFileSync(BUNDLE_VERSION_FILE, SANDBOX_BUNDLE_VERSION, "utf-8");
+
         if (process.platform !== "win32") {
           const globalRunner = path.join(GLOBAL_BUNDLE_PATH, "Contents", "Resources", "scripts", "runner.sh");
           if (fs.existsSync(globalRunner)) {
@@ -235,6 +400,8 @@ export function runInSandbox(
           output: out || (error ? error.message : "Command succeeded with no output."),
           exitCode: error ? (error.status ?? error.code ?? 1) : 0,
           sandboxed: false,
+          isolated: false,
+          backend: "none",
           riskLevel,
           blocked: false,
           durationMs,
@@ -248,7 +415,7 @@ export function runInSandbox(
     const durationMs = Date.now() - start;
     const blockReason = `SANDBOX BLOCKED: Critical destructive pattern detected in command. This operation is permanently blocked.`;
     writeAuditLog({ id: auditId, command, cwd, riskLevel, blocked: true, blockReason, durationMs, outputBytes: 0 });
-    return Promise.resolve({ output: blockReason, exitCode: 1, sandboxed: true, riskLevel, blocked: true, blockReason, durationMs, auditId });
+    return Promise.resolve({ output: blockReason, exitCode: 1, sandboxed: true, isolated: false, backend: "none", riskLevel, blocked: true, blockReason, durationMs, auditId });
   }
 
   // ── 3. Blocked binary check ────────────────────────────────────────────────
@@ -257,7 +424,7 @@ export function runInSandbox(
     const durationMs = Date.now() - start;
     const blockReason = `SANDBOX BLOCKED: Binary '${blockedBin}' is not allowed in sandbox mode.`;
     writeAuditLog({ id: auditId, command, cwd, riskLevel, blocked: true, blockReason, durationMs, outputBytes: 0 });
-    return Promise.resolve({ output: blockReason, exitCode: 1, sandboxed: true, riskLevel, blocked: true, blockReason, durationMs, auditId });
+    return Promise.resolve({ output: blockReason, exitCode: 1, sandboxed: true, isolated: false, backend: "none", riskLevel, blocked: true, blockReason, durationMs, auditId });
   }
 
   // ── 4. Network restriction ─────────────────────────────────────────────────
@@ -265,7 +432,7 @@ export function runInSandbox(
     const durationMs = Date.now() - start;
     const blockReason = `SANDBOX BLOCKED: Network commands are restricted in this sandbox configuration.`;
     writeAuditLog({ id: auditId, command, cwd, riskLevel, blocked: true, blockReason, durationMs, outputBytes: 0 });
-    return Promise.resolve({ output: blockReason, exitCode: 1, sandboxed: true, riskLevel, blocked: true, blockReason, durationMs, auditId });
+    return Promise.resolve({ output: blockReason, exitCode: 1, sandboxed: true, isolated: false, backend: "none", riskLevel, blocked: true, blockReason, durationMs, auditId });
   }
 
   // ── 5. Path check ──────────────────────────────────────────────────────────
@@ -273,23 +440,62 @@ export function runInSandbox(
     const durationMs = Date.now() - start;
     const blockReason = `SANDBOX BLOCKED: Working directory '${cwd}' is outside the allowed sandbox paths.`;
     writeAuditLog({ id: auditId, command, cwd, riskLevel, blocked: true, blockReason, durationMs, outputBytes: 0 });
-    return Promise.resolve({ output: blockReason, exitCode: 1, sandboxed: true, riskLevel, blocked: true, blockReason, durationMs, auditId });
+    return Promise.resolve({ output: blockReason, exitCode: 1, sandboxed: true, isolated: false, backend: "none", riskLevel, blocked: true, blockReason, durationMs, auditId });
   }
 
-  // ── 6. Execute via Bundle Runner (Asenkron & Non-blocking) ─────────────────
+  // ── 6. Backend seçimi (platforma göre) ─────────────────────────────────────
+  const backend = selectBackend(process.platform, binaryExists, _config.provider);
+
+  // ── 6a. İzolasyon yoksa: sessiz düşme YOK ─────────────────────────────────
+  // Gerçek izolasyon backend'i bulunamadıysa, kullanıcı açıkça onaylamadıkça
+  // (allowUnsandboxed) komutu çalıştırma — düşük güven modunu bildir.
+  if (!backend.isolated) {
+    const warning =
+      `SANDBOX WARNING: No isolation backend available on this platform ` +
+      `(checked Seatbelt/Bubblewrap/Firejail/Docker/WSL). Command is NOT isolated.`;
+    if (!_config.allowUnsandboxed) {
+      const durationMs = Date.now() - start;
+      const blockReason =
+        `${warning} Refusing to run without isolation. ` +
+        `Confirm low-trust execution (set allowUnsandboxed) to proceed.`;
+      writeAuditLog({ id: auditId, command, cwd, riskLevel, blocked: true, blockReason, durationMs, outputBytes: 0 });
+      return Promise.resolve({
+        output: blockReason, exitCode: 1, sandboxed: false, isolated: false,
+        backend: backend.kind, riskLevel, blocked: true, blockReason, warning,
+        durationMs, auditId,
+      });
+    }
+    // Kullanıcı düşük-güven modunu onayladı → doğrudan çalıştır, ama işaretle.
+    return new Promise<SandboxResult>((resolve) => {
+      exec(command, {
+        cwd, timeout: effectiveTimeout, maxBuffer: _config.maxOutputBytes, encoding: "utf-8",
+      }, (error: any, stdout, stderr) => {
+        const durationMs = Date.now() - start;
+        const out = [stdout?.toString().trim(), stderr?.toString().trim()]
+          .filter(Boolean).join("\n");
+        const exitCode = error ? (error.status ?? error.code ?? 1) : 0;
+        writeAuditLog({ id: auditId, command, cwd, riskLevel, blocked: false, durationMs, outputBytes: out.length });
+        resolve({
+          output: out || (error ? error.message : "Command succeeded with no output."),
+          exitCode: typeof exitCode === "number" ? exitCode : 1,
+          sandboxed: false, isolated: false, backend: backend.kind, riskLevel,
+          blocked: false, warning, durationMs, auditId,
+        });
+      });
+    });
+  }
+
+  // ── 6b. Execute via Bundle Runner (Asenkron & Non-blocking) ────────────────
   const bundlePath = ensureBundle();
-  const provider = _config.provider ?? "auto";
   const networkRestrictedStr = _config.networkRestricted ? "true" : "false";
 
   let runCmd = "";
   if (process.platform === "win32") {
     const runnerPath = path.join(bundlePath, "Contents", "Resources", "scripts", "runner.ps1");
-    const providerArg = provider === "docker" ? "docker" : "fallback";
-    runCmd = `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${runnerPath}" -Provider "${providerArg}" -Cwd "${cwd}" -NetworkRestricted "${networkRestrictedStr}" -Command ${JSON.stringify(command)}`;
+    runCmd = `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${runnerPath}" -Provider "${backend.providerArg}" -Cwd "${cwd}" -NetworkRestricted "${networkRestrictedStr}" -Command ${JSON.stringify(command)}`;
   } else {
     const runnerPath = path.join(bundlePath, "Contents", "Resources", "scripts", "runner.sh");
-    const providerArg = provider === "docker" ? "docker" : (process.platform === "darwin" ? "mac_seatbelt" : "linux_bwrap");
-    runCmd = `bash "${runnerPath}" "${providerArg}" "${cwd}" "${networkRestrictedStr}" ${JSON.stringify(command)}`;
+    runCmd = `bash "${runnerPath}" "${backend.providerArg}" "${cwd}" "${networkRestrictedStr}" ${JSON.stringify(command)}`;
   }
 
   return new Promise<SandboxResult>((resolve) => {
@@ -307,7 +513,7 @@ export function runInSandbox(
       if (error && error.code === "ETIMEDOUT") {
         const blockReason = `SANDBOX TIMEOUT: Command exceeded ${effectiveTimeout}ms limit.`;
         writeAuditLog({ id: auditId, command, cwd, riskLevel, blocked: true, blockReason, durationMs, outputBytes: 0 });
-        resolve({ output: blockReason, exitCode: 124, sandboxed: true, riskLevel, blocked: true, blockReason, durationMs, auditId });
+        resolve({ output: blockReason, exitCode: 124, sandboxed: true, isolated: backend.isolated, backend: backend.kind, riskLevel, blocked: true, blockReason, durationMs, auditId });
         return;
       }
 
@@ -318,6 +524,8 @@ export function runInSandbox(
         output: out || "Command succeeded with no output.",
         exitCode: typeof exitCode === "number" ? exitCode : 1,
         sandboxed: true,
+        isolated: backend.isolated,
+        backend: backend.kind,
         riskLevel,
         blocked: false,
         durationMs,
