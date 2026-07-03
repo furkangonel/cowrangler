@@ -1,6 +1,9 @@
 import React from 'react'
 import { Terminal, PenLine, FileText, Globe, Search, Loader2, Code2 } from 'lucide-react'
 import { ActiveToolCall } from '../../stores/agent.store'
+import { useUIStore } from '../../stores/ui.store'
+import { isEditTool, extractEdit } from '../../lib/codeEdit'
+import { DiffCard } from '../code/DiffCard'
 
 function getToolIcon(name: string) {
   const n = name.toLowerCase()
@@ -32,11 +35,15 @@ function getToolLabel(name: string, args: any) {
 
 export function ToolTrace({ toolCall }: { toolCall: ActiveToolCall }) {
   const { name, args, status } = toolCall
+  const codeMode = useUIStore(s => s.codeMode)
   const Icon = getToolIcon(name)
   const label = getToolLabel(name, args)
-  
+
   const isEdit = name.toLowerCase().includes('edit') || name.toLowerCase().includes('write') || name.toLowerCase().includes('replace') || name.toLowerCase().includes('multi_replace')
   const editFilename = isEdit ? (args?.path || args?.file_path || args?.TargetFile || '').split('/').pop() : ''
+
+  // WP-3: Code modunda düzenlemeler inline diff kartı olarak, Accept/Reject ile gösterilir.
+  const showDiffCard = codeMode && isEditTool(name) && !!extractEdit(name, args)
 
   const isCommand = name.toLowerCase().includes('run') || name.toLowerCase().includes('execute') || name.toLowerCase().includes('bash')
   const cmdString = args?.command || args?.CommandLine || args?.Command || ''
@@ -55,7 +62,9 @@ export function ToolTrace({ toolCall }: { toolCall: ActiveToolCall }) {
       <div className="flex flex-col gap-2">
         <span className="text-text-secondary">{label}</span>
         
-        {isEdit && editFilename && (
+        {isEdit && showDiffCard && <DiffCard toolCall={toolCall} />}
+
+        {isEdit && !showDiffCard && editFilename && (
           <div className="self-start px-2 py-0.5 bg-bg-tertiary rounded-md text-text-muted text-[11px] font-mono">
             {editFilename}
           </div>
