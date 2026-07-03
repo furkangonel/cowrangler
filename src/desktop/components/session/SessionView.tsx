@@ -1,11 +1,13 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
-import { ArrowLeft, Square, Plus } from 'lucide-react'
+import { ArrowLeft, Square, Plus, Code2 } from 'lucide-react'
 import { MessageBubble } from './MessageBubble'
 import { AskUserPrompt } from './AskUserPrompt'
 import { InputArea } from './InputArea'
+import { CodeControlBar } from '../code/CodeControlBar'
 import { useSessionsStore } from '../../stores/sessions.store'
 import { useAgentStore } from '../../stores/agent.store'
 import { useProjectsStore } from '../../stores/projects.store'
+import { useUIStore } from '../../stores/ui.store'
 import { ipc } from '../../lib/ipc'
 
 interface Props {
@@ -22,6 +24,7 @@ export function SessionView({ projectId, sessionId }: Props) {
 
   const agentStore = useAgentStore()
   const { getActiveProject } = useProjectsStore()
+  const { codeMode, toggleCodeMode } = useUIStore()
   const scrollRef = useRef<HTMLDivElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const isNew = sessionId === '__new__'
@@ -111,6 +114,18 @@ export function SessionView({ projectId, sessionId }: Props) {
           {isNew ? 'New chat' : (uiMessages[0]?.content?.slice(0, 60) || 'Chat')}
         </span>
         <div className="flex items-center gap-1.5">
+          {/* WP-3: Chat ↔ Code yüzey anahtarı */}
+          <button
+            onClick={toggleCodeMode}
+            title={codeMode ? 'Switch to Chat view' : 'Switch to Code view'}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg border transition-colors ${
+              codeMode
+                ? 'text-accent border-accent/40 bg-accent/10'
+                : 'text-text-secondary border-border hover:text-text-primary hover:border-accent/40'
+            }`}
+          >
+            <Code2 size={12} /> Code
+          </button>
           {agentStore.status === 'thinking' && (
             <button
               onClick={handleInterrupt}
@@ -165,6 +180,9 @@ export function SessionView({ projectId, sessionId }: Props) {
           onSubmit={(ans) => agentStore.answerQaPrompt(ans)}
         />
       )}
+
+      {/* WP-3: Code modunda alt kontrol çubuğu (mod · model · effort · token/cache) */}
+      {codeMode && <CodeControlBar />}
 
       <InputArea
         onSend={handleSend}
