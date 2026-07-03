@@ -5,6 +5,7 @@ import { createVertex } from "@ai-sdk/google-vertex";
 import { LanguageModelV1 } from "ai";
 import { getConfig } from "./init.js";
 import { makeCloudCodeModel, resolveCloudCodeCreds } from "./google_cloudcode.js";
+import { getModelCapabilities, ModelCapabilities } from "./model_metadata.js";
 
 /** config.custom_providers — koda dokunmadan OpenAI-uyumlu sağlayıcı ekleme. */
 interface CustomProviderCfg { base_url: string; api_key_env?: string; headers?: Record<string, string>; }
@@ -398,5 +399,21 @@ export class LLM {
 
   getModel(): LanguageModelV1 {
     return this.resolveProvider(this.model);
+  }
+
+  // ── WP-6: model yetenekleri (tek kaynak: model_metadata) ─────────────────
+  /** Aktif modelin yetenek özeti. */
+  public capabilities(): ModelCapabilities {
+    return getModelCapabilities(this.model);
+  }
+
+  /** Model native (provider-seviyesi) tool-calling destekliyor mu? */
+  public supportsNativeToolCalling(): boolean {
+    return this.capabilities().nativeToolCalling;
+  }
+
+  /** Model prompt caching destekliyor mu? */
+  public supportsPromptCache(): boolean {
+    return this.capabilities().supportsPromptCache;
   }
 }

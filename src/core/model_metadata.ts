@@ -21,8 +21,29 @@ export interface ModelMeta {
   supportsThinking: boolean;   // extended thinking desteği
   supportsVision: boolean;     // görsel input desteği
   supportsCaching: boolean;    // prompt caching desteği
+  /**
+   * Native (provider-seviyesi) tool-calling desteği. Belirtilmezse
+   * getModelCapabilities() sağlayıcıya göre türetir. `false` olan modeller
+   * için ajan JSON tool-call fallback protokolüne düşer (tool_fallback.ts).
+   */
+  nativeToolCalling?: boolean;
   provider: string;
   displayName: string;
+}
+
+/**
+ * Modelin tek-kaynak yetenek özeti. WP-6: hangi model bağlanırsa bağlansın
+ * (Claude/GPT/Gemini/yerel) ajan davranışını bu bayraklara göre uyarlar.
+ */
+export interface ModelCapabilities {
+  provider: string;
+  displayName: string;
+  contextWindow: number;
+  supportsVision: boolean;
+  supportsPromptCache: boolean;
+  nativeToolCalling: boolean;
+  supportsThinking: boolean;
+  reasoningEffort: boolean; // effort/budget ayarlanabiliyor mu (thinking ile eş)
 }
 
 const MODEL_REGISTRY: Record<string, ModelMeta> = {
@@ -176,6 +197,7 @@ const MODEL_REGISTRY: Record<string, ModelMeta> = {
     contextWindow: 128_000, maxOutputTokens: 16_384,
     inputPricePerMToken: 0, outputPricePerMToken: 0,
     supportsThinking: false, supportsVision: false, supportsCaching: false,
+    nativeToolCalling: false,
     provider: "antigravity", displayName: "GPT-OSS 120B",
   },
 
@@ -210,6 +232,9 @@ export function getModelMeta(model: string): ModelMeta | null {
       supportsThinking: model.includes("thinking") || model.includes("reasoning") || model.includes("r1") || model.includes("deepseek"),
       supportsVision: model.includes("vision") || model.includes("llava") || model.includes("pixtral"),
       supportsCaching: false,
+      // Yerel modeller (Ollama/LM Studio) native tool-calling'i güvenilir
+      // desteklemez → ajan JSON fallback protokolünü kullanır.
+      nativeToolCalling: false,
       provider: "local",
       displayName: model.split("/").slice(1).join("/") || model,
     };
@@ -303,6 +328,53 @@ export function modelSupportsCaching(model: string): boolean {
   return getModelMeta(model)?.supportsCaching ?? false;
 }
 
+/**
+ * Native tool-calling desteğini türetir. Meta'da açık bayrak varsa onu,
+ * yoksa sağlayıcıya göre makul varsayılanı döndürür.
+ * - Yerel modeller (ollama/lmstudio/local) → false (JSON fallback)
+ * - antigravity / gpt-oss → false
+ * - Bilinen bulut sağlayıcılar (anthropic/openai/google/groq/vertex/copilot/
+ *   openrouter…) → true
+ */
+export function deriveNativeToolCalling(model: string, meta: ModelMeta | null): boolean {
+  if (meta && typeof meta.nativeToolCalling === "boolean") return meta.nativeToolCalling;
+  const m = model.toLowerCase();
+  if (
+    m.startsWith("ollama/") ||
+    m.startsWith("lmstudio/") ||
+    m.startsWith("local/") ||
+    meta?.provider === "local"
+  ) {
+    return false;
+  }
+  if (meta?.provider === "antigravity" || m.includes("gpt-oss")) return false;
+  return true;
+}
+
+/** Model native tool-calling destekliyor mu? (tek kaynak) */
+export function modelSupportsNativeToolCalling(model: string): boolean {
+  return deriveNativeToolCalling(model, getModelMeta(model));
+}
+
+/**
+ * WP-6 tek-kaynak yetenek özeti. Ajan/llm/context_engine bu fonksiyondan
+ * beslenir; model bilgisi tek yerde tutulur.
+ */
+export function getModelCapabilities(model: string): ModelCapabilities {
+  const meta = getModelMeta(model);
+  const thinking = modelSupportsThinking(model);
+  return {
+    provider: meta?.provider ?? "unknown",
+    displayName: meta?.displayName ?? model,
+    contextWindow: getContextWindow(model),
+    supportsVision: meta?.supportsVision ?? false,
+    supportsPromptCache: meta?.supportsCaching ?? false,
+    nativeToolCalling: deriveNativeToolCalling(model, meta),
+    supportsThinking: thinking,
+    reasoningEffort: thinking,
+  };
+}
+
 // ── OpenRouter metadata fetcher ───────────────────────────────────────────────
 
 const CACHE_PATH = path.join(os.homedir(), ".cowrangler", "cache", "model_meta.json");
@@ -383,6 +455,12 @@ export async function prefetchModelMeta(modelName: string): Promise<void> {
     const modality: string = found.architecture?.modality ?? "";
     const supportsVision = modality.includes("image") || modality.startsWith("multimodal");
 
+    // OpenRouter, tool desteğini supported_parameters listesinde bildirir.
+    const supportedParams: string[] = Array.isArray(found.supported_parameters)
+      ? found.supported_parameters
+      : [];
+    const nativeToolCalling = supportedParams.includes("tools");
+
     const entry: ModelMeta = {
       contextWindow:        found.context_length                       ?? 128_000,
       maxOutputTokens:      found.top_provider?.max_completion_tokens  ?? 4_096,
@@ -391,6 +469,7 @@ export async function prefetchModelMeta(modelName: string): Promise<void> {
       supportsThinking:     false,
       supportsVision,
       supportsCaching:      false,
+      nativeToolCalling,
       provider:             "openrouter",
       displayName:          found.name ?? cleanId,
     };

@@ -42,6 +42,7 @@ export interface ContextSnapshot {
   // Anthropic prompt caching istatistikleri
   cacheReadTokens: number; // önbellekten okunan token sayısı
   cacheWriteTokens: number; // önbelleğe yazılan token sayısı
+  cacheHitRate: number; // cacheRead / (cacheRead + cacheWrite), 0..1
 }
 
 export type ContextStyle = "normal" | "warning" | "critical";
@@ -70,6 +71,30 @@ const COMPRESS_THRESHOLD = 0.85; // %85 context dolduysa sıkıştır
 const COMPRESS_KEEP_RECENT = 8; // son 8 mesajı koru
 const TOOL_RESULT_MAX_CHARS = 2000; // tool result kırpma limiti
 const SUMMARY_MAX_TOKENS = 800; // özet için max token
+
+/**
+ * Sıkıştırma sonrası yanıt + sonraki tur için ayrılan mutlak token payı.
+ * Küçük context pencereli modeller (ör. 8k yerel model) bu paya göre daha
+ * erken sıkıştırır; büyük pencereli modeller yapılandırılmış eşiği kullanır.
+ */
+const RESERVE_HEADROOM_TOKENS = 24_000;
+
+/**
+ * WP-6: context penceresine göre otomatik uyarlanan sıkıştırma eşiği.
+ * Her zaman en az `RESERVE_HEADROOM_TOKENS` kadar boşluk bırakacak şekilde
+ * yapılandırılmış eşiği aşağı çeker; asla base'in üstüne çıkmaz.
+ *   - 8k pencere   → ~%50 (taban)
+ *   - 128k pencere → ~%81
+ *   - ≥200k pencere → base (ör. %85)
+ */
+export function computeCompressThreshold(
+  base: number,
+  contextWindow: number,
+): number {
+  if (!Number.isFinite(contextWindow) || contextWindow <= 0) return base;
+  const headroomRatio = 1 - RESERVE_HEADROOM_TOKENS / contextWindow;
+  return Math.max(0.5, Math.min(base, headroomRatio));
+}
 
 export class DefaultContextEngine extends ContextEngine {
   private model: string;
@@ -126,8 +151,12 @@ export class DefaultContextEngine extends ContextEngine {
   shouldCompress(estimatedContextTokens: number): boolean {
     const customCWs = getConfig().custom_context_windows || {};
     const windowSize = customCWs[this.model] ?? getContextWindow(this.model);
+    const effectiveThreshold = computeCompressThreshold(
+      this.thresholdRatio,
+      windowSize,
+    );
     const ratio = estimatedContextTokens / windowSize;
-    return ratio >= this.thresholdRatio;
+    return ratio >= effectiveThreshold;
   }
 
   async compress(
@@ -279,7 +308,15 @@ export class DefaultContextEngine extends ContextEngine {
       sessionDurationMs: Date.now() - this.sessionStartMs,
       cacheReadTokens: this.sessionCacheReadTokens,
       cacheWriteTokens: this.sessionCacheWriteTokens,
+      cacheHitRate: this._cacheHitRate(),
     };
+  }
+
+  /** cacheRead / (cacheRead + cacheWrite) — 0..1, veri yoksa 0. */
+  private _cacheHitRate(): number {
+    const total = this.sessionCacheReadTokens + this.sessionCacheWriteTokens;
+    if (total <= 0) return 0;
+    return this.sessionCacheReadTokens / total;
   }
 
   getContextStyle(): ContextStyle {
