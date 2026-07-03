@@ -1,22 +1,37 @@
 /**
- * Permission sistemi — GENERAL_CONV.md'de tanımlanan çok katmanlı izin mimarisi.
+ * Permission sistemi — WP-7'de tanımlanan çok katmanlı izin mimarisi.
  *
- * Modlar:
- *   default  → Her tehlikeli işlemde kullanıcıya sor (etkileşimli dialog)
- *   plan     → İlk çalıştırmada onayla, sonraki benzer işlemlere izin ver
- *   auto     → Sadece güvenli işlemlere otomatik izin ver; tehlikelileri reddet
- *   bypass   → Tüm izin kontrollerini atla (dikkat! sadece güvenilen ortamlarda)
+ * Modlar (WP-7 dört mod):
+ *   ask     → Her yıkıcı işlemde kullanıcıya sor (etkileşimli dialog). ("default" alias)
+ *   accept  → Geri-alınabilir düzenlemeleri otomatik kabul et (diff göster);
+ *             yalnızca geri-alınamaz / dış-etkili işlemlerde sor.
+ *   plan    → İlk çalıştırmada onayla, sonraki benzer işlemlere izin ver.
+ *   auto    → Üç katman: (1) risk sınıflandırıcı, (2) zorunlu sandbox,
+ *             (3) otomatik checkpoint. Onay yalnızca geri-alınamaz veya
+ *             dış-etkili işlemlerde; gerisi otomatik + geri-alınabilir akar.
+ *   bypass  → Tüm izin kontrollerini atla (dikkat! sadece güvenilen ortamlarda).
  *
  * Tool risk seviyeleri:
  *   safe       → Sadece okuma, bilgi alma
  *   moderate   → Dosya yazma, ağ istekleri
  *   dangerous  → Bash çalıştırma, dosya silme, git push
  *   critical   → rm -rf, format, sistem değişikliği
+ *
+ * Eylem sınıfı (WP-7 katman 1 — geri-alınabilirlik ekseni):
+ *   readonly       → durumu değiştirmez (checkpoint gerekmez)
+ *   reversible     → checkpoint + sandbox ile geri alınabilir (workspace içi)
+ *   irreversible   → geri-alınamaz veya dış-etkili → onay gerekir
  */
 
-export type PermissionMode = "default" | "plan" | "auto" | "bypass";
+import path from "path";
+import { getProjectWorkdir } from "./project_context.js";
+
+export type PermissionMode = "ask" | "accept" | "plan" | "auto" | "bypass" | "default";
 
 export type RiskLevel = "safe" | "moderate" | "dangerous" | "critical";
+
+/** WP-7 katman 1 — geri-alınabilirlik ekseninde eylem sınıfı. */
+export type ActionClass = "readonly" | "reversible" | "irreversible";
 
 export interface PermissionResult {
   allowed: boolean;
@@ -24,6 +39,12 @@ export interface PermissionResult {
   mode: PermissionMode;
   riskLevel: RiskLevel;
   requiresApproval?: boolean;
+  /** WP-7 katman 1 — eylemin geri-alınabilirlik sınıfı. */
+  actionClass?: ActionClass;
+  /** Dış-etkili mi? (git push, dış API, ödeme, workspace-dışı yazma) */
+  externalEffect?: boolean;
+  /** WP-7 katman 2 — bu eylem izole/sandbox'ta çalıştırılmalı mı? */
+  useSandbox?: boolean;
 }
 
 // Tehlikeli bash pattern'leri — otomatik olarak reddedilir veya kullanıcıya sorulur
@@ -113,6 +134,123 @@ export function analyzeBashRisk(command: string): RiskLevel {
   return "moderate";
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// WP-7 — Eylem sınıflandırma (katman 1) + dış-etki tespiti
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Dış-etkili tool'lar: onay her modda (bypass hariç) zorunlu. */
+const EXTERNAL_EFFECT_TOOLS = new Set<string>([
+  "git_push",     // uzak repo'ya yazar — geri-alınamaz, dış
+]);
+
+// Bash içinde dış-etkili (uzak/ağ/yayın) desenleri.
+const EXTERNAL_BASH_PATTERNS = [
+  /git\s+push\b/,                 // uzak repo
+  /\bnpm\s+publish\b/,            // paket yayını
+  /\byarn\s+publish\b/,
+  /\bpnpm\s+publish\b/,
+  /\bcurl\b.*\|\s*(ba)?sh/,       // curl | bash
+  /\bwget\b.*\|\s*(ba)?sh/,       // wget | sh
+  /\bssh\b/,                      // uzak makine
+  /\bscp\b|\brsync\b.*::?/,       // uzak kopyalama
+  /\bgh\s+(pr|release)\b/,        // GitHub CLI: PR/release
+  /\bdocker\s+push\b/,            // registry push
+];
+
+/** Bir yolun aktif workspace kökü içinde olup olmadığını döndürür. */
+export function isInsideWorkspace(p: string | undefined): boolean {
+  if (!p) return true; // yol yoksa varsayılan güvenli taraf (workspace içi kabul)
+  const root = path.resolve(getProjectWorkdir());
+  const abs = path.resolve(root, p);
+  const rel = path.relative(root, abs);
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+/**
+ * isExternalEffect — eylem workspace dışına / dış dünyaya etki ediyor mu?
+ * git push, paket yayını, uzak makine, ağ üzerinden kod çalıştırma vb.
+ */
+export function isExternalEffect(toolName: string, extraInfo?: string): boolean {
+  if (EXTERNAL_EFFECT_TOOLS.has(toolName)) return true;
+  if (toolName === "execute_bash" && extraInfo) {
+    return EXTERNAL_BASH_PATTERNS.some((re) => re.test(extraInfo));
+  }
+  return false;
+}
+
+// Salt-okunur tool'lar — durumu değiştirmez.
+const READONLY_TOOLS = new Set<string>([
+  "list_files", "read_file", "file_info", "glob_files", "search_in_files",
+  "get_current_time", "get_system_info", "which_command",
+  "git_status", "git_log", "git_diff",
+  "fetch_webpage", "web_search", "utilize_skill", "sleep", "send_message",
+]);
+
+// Checkpoint ile geri-alınabilen workspace-içi mutasyon tool'ları.
+const REVERSIBLE_TOOLS = new Set<string>([
+  "write_file", "append_to_file", "edit_file", "apply_patch",
+  "copy_file", "move_item", "create_folder", "create_pdf",
+  "git_add", "git_commit", "manage_todo", "spawn_subagent",
+]);
+
+// Geri-alınamayan tool'lar (git geçmişini/çalışma kopyasını kalıcı bozar).
+const IRREVERSIBLE_TOOLS = new Set<string>([
+  "git_push",       // uzak — geri alınamaz
+  "git_checkout",   // takip edilmeyen değişiklikleri kaybettirebilir
+]);
+
+/**
+ * classifyAction — WP-7 katman 1. Bir eylemi geri-alınabilirlik ekseninde
+ * sınıflar. Sandbox (katman 2) ve checkpoint (katman 3) kararları buna dayanır.
+ */
+export function classifyAction(toolName: string, extraInfo?: string): ActionClass {
+  // Dış-etki her zaman geri-alınamaz sayılır.
+  if (isExternalEffect(toolName, extraInfo)) return "irreversible";
+
+  if (IRREVERSIBLE_TOOLS.has(toolName)) return "irreversible";
+  if (READONLY_TOOLS.has(toolName)) return "readonly";
+
+  // Silme: workspace içi → checkpoint geri alır (reversible);
+  //        workspace dışı → geri-alınamaz.
+  if (toolName === "delete_file" || toolName === "delete_folder") {
+    return isInsideWorkspace(extraInfo) ? "reversible" : "irreversible";
+  }
+
+  if (REVERSIBLE_TOOLS.has(toolName)) {
+    // Yol verilmişse ve workspace dışına yazıyorsa geri-alınamaz.
+    return isInsideWorkspace(extraInfo) ? "reversible" : "irreversible";
+  }
+
+  // Bash: risk seviyesine göre. moderate → reversible (sandbox'ta çalışır),
+  //       dangerous/critical → irreversible (onay ister).
+  if (toolName === "execute_bash") {
+    const risk = extraInfo ? analyzeBashRisk(extraInfo) : "moderate";
+    return risk === "moderate" ? "reversible" : "irreversible";
+  }
+
+  // Bilinmeyen tool: temkinli — reversible varsay (sandbox'a düşer).
+  return "reversible";
+}
+
+/**
+ * normalizePermissionMode — geriye-dönük uyumluluk. Eski "default" adı "ask"a
+ * eşlenir; bilinmeyen değerler güvenli varsayılan "ask"a düşer.
+ */
+export function normalizePermissionMode(mode: string | undefined): PermissionMode {
+  switch (mode) {
+    case "ask":
+    case "default":
+      return "ask";
+    case "accept":
+    case "plan":
+    case "auto":
+    case "bypass":
+      return mode;
+    default:
+      return "ask";
+  }
+}
+
 /**
  * checkPermission — Tool çalıştırılmadan önce izin kontrolü yapar.
  *
@@ -122,9 +260,11 @@ export function analyzeBashRisk(command: string): RiskLevel {
  */
 export function checkPermission(
   toolName: string,
-  mode: PermissionMode,
+  rawMode: PermissionMode,
   extraInfo?: string,
 ): PermissionResult {
+  const mode = normalizePermissionMode(rawMode);
+
   // Bypass: hiçbir şeyi kontrol etme
   if (mode === "bypass") {
     return {
@@ -147,41 +287,84 @@ export function checkPermission(
     }
   }
 
-  // Kritik komutlar: tüm modlarda auto reddedilir (bypass hariç)
+  const actionClass = classifyAction(toolName, extraInfo);
+  const externalEffect = isExternalEffect(toolName, extraInfo);
+  // Katman 2: readonly dışı her şey izole çalışır.
+  const useSandbox = actionClass !== "readonly";
+
+  // Kritik komutlar: tüm modlarda reddedilir (bypass hariç). Desen bazlı
+  // yıkıcı komutlar (rm -rf /, mkfs, fork bomb) sandbox olsa bile engellenir.
   if (riskLevel === "critical") {
     return {
       allowed: false,
       reason: `CRITICAL risk command blocked. Pattern matches a destructive operation. Use bypass mode only in fully trusted environments.`,
       mode,
       riskLevel,
+      actionClass,
+      externalEffect,
     };
   }
 
-  // Auto mod: sadece safe ve moderate'e izin ver
+  // ── WP-7 Auto mode — üç katman ──────────────────────────────────────────
+  // Katman 1 (sınıflandırma) + katman 2 (sandbox) + katman 3 (checkpoint,
+  // file_tools/beforeMutation ile). Onay YALNIZCA geri-alınamaz veya
+  // dış-etkili işlemlerde; readonly/reversible otomatik + geri-alınabilir akar.
   if (mode === "auto") {
-    if (riskLevel === "dangerous") {
+    if (actionClass === "irreversible" || externalEffect) {
       return {
         allowed: false,
-        reason: `Auto mode: dangerous operations require explicit user approval. Switch to default mode or use /permissions bypass.`,
+        requiresApproval: true,
+        reason: externalEffect
+          ? `Auto mode: external-effect operation (${toolName}) requires approval — cannot be rolled back.`
+          : `Auto mode: irreversible operation (${toolName}) requires approval.`,
         mode,
         riskLevel,
+        actionClass,
+        externalEffect,
+        useSandbox,
       };
     }
-    return { allowed: true, mode, riskLevel };
+    // readonly / reversible → otomatik izin (reversible sandbox'ta koşar).
+    return { allowed: true, mode, riskLevel, actionClass, externalEffect, useSandbox };
   }
 
-  // Default ve plan modlarda: safe otomatik izinli
+  // ── WP-7 Accept mode — düzenlemeleri otomatik kabul, diff göster ─────────
+  // Geri-alınabilir düzenlemeler onaysız akar; geri-alınamaz/dış işlemler sorar.
+  if (mode === "accept") {
+    if (actionClass === "readonly") {
+      return { allowed: true, mode, riskLevel, actionClass, externalEffect, useSandbox };
+    }
+    if (actionClass === "reversible" && !externalEffect) {
+      return { allowed: true, mode, riskLevel, actionClass, externalEffect, useSandbox };
+    }
+    return {
+      allowed: false,
+      requiresApproval: true,
+      reason: `[${riskLevel.toUpperCase()}] ${toolName} is irreversible/external — requires approval in accept mode.`,
+      mode,
+      riskLevel,
+      actionClass,
+      externalEffect,
+      useSandbox,
+    };
+  }
+
+  // ── Ask ve Plan modları ─────────────────────────────────────────────────
+  // safe/readonly otomatik izinli.
   if (riskLevel === "safe") {
-    return { allowed: true, mode, riskLevel };
+    return { allowed: true, mode, riskLevel, actionClass, externalEffect, useSandbox };
   }
 
-  // Moderate ve Dangerous + default/plan: ask for user approval
+  // Moderate ve Dangerous + ask/plan: kullanıcı onayı iste.
   return {
     allowed: false,
     requiresApproval: true,
     reason: `[${riskLevel.toUpperCase()}] ${toolName} requires explicit user approval.`,
     mode,
     riskLevel,
+    actionClass,
+    externalEffect,
+    useSandbox,
   };
 }
 
