@@ -1,24 +1,10 @@
 import { z } from "zod";
-import { execSync } from "child_process";
 import { registerTool } from "./registry.js";
 import { getProjectWorkdir } from "../core/project_context.js";
-
-function runGit(command: string): string {
-  try {
-    return execSync(command, {
-      // Aktif proje dizininde çalış. Desktop'ta process.cwd() Electron'un
-      // başlatıldığı dizindir (proje değil) — bu yüzden git komutları yanlış
-      // depoda çalışırdı. getProjectWorkdir() CLI'da process.cwd()'ye eşittir.
-      cwd: getProjectWorkdir(),
-      encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
-    }).trim();
-  } catch (e: any) {
-    const stderr = e.stderr?.toString().trim() || "";
-    const stdout = e.stdout?.toString().trim() || "";
-    return `Git error: ${stderr || stdout || e.message}`;
-  }
-}
+// Tek çekirdek git çalıştırıcı (WP-4) — desktop IPC ile paylaşılır, kod tekrarı yok.
+// runGit aktif proje dizininde (getProjectWorkdir) çalışır; desktop'ta
+// process.cwd() Electron başlatma dizini olduğu için bu kritik.
+import { runGit } from "../core/git.js";
 
 // ── STATUS ────────────────────────────────────────────────────────────────────
 registerTool(

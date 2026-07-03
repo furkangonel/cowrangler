@@ -1,13 +1,19 @@
 import React from 'react'
-import { X, Cpu, Palette, Boxes, ShieldCheck } from 'lucide-react'
+import { X, Cpu, Palette, ShieldCheck, Box, GitBranch, SlidersHorizontal } from 'lucide-react'
 import { ModelsTab } from './ModelsTab'
 import { AppearanceTab } from './AppearanceTab'
 import { PermissionsTab } from './PermissionsTab'
+import { SandboxTab } from './SandboxTab'
+import { GitTab } from './GitTab'
+import { AdvancedTab } from './AdvancedTab'
 import { useUIStore } from '../../stores/ui.store'
 
 const TABS = [
   { id: 'models', label: 'Models & API', icon: Cpu },
   { id: 'permissions', label: 'Permissions', icon: ShieldCheck },
+  { id: 'sandbox', label: 'Sandbox', icon: Box },
+  { id: 'git', label: 'Git', icon: GitBranch },
+  { id: 'advanced', label: 'Advanced', icon: SlidersHorizontal },
   { id: 'appearance', label: 'Appearance', icon: Palette },
 ] as const
 
@@ -69,6 +75,9 @@ export function SettingsPage() {
             <div className="h-full overflow-y-auto">
               {mainTab === 'models' && <ModelsTab />}
               {mainTab === 'permissions' && <PermissionsTab />}
+              {mainTab === 'sandbox' && <SandboxTab />}
+              {mainTab === 'git' && <GitTab />}
+              {mainTab === 'advanced' && <AdvancedTab />}
               {mainTab === 'appearance' && <AppearanceTab />}
             </div>
           </div>

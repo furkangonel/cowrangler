@@ -5,13 +5,14 @@ import { ContextPanel } from "../panels/ContextPanel";
 import { WorkingFoldersPanel } from "../panels/WorkingFoldersPanel";
 import { InstructionsPanel } from "../panels/InstructionsPanel";
 import { ScheduledPanel } from "../panels/ScheduledPanel";
+import { GitPanel } from "../code/GitPanel";
 import { useUIStore } from "../../stores/ui.store";
 import { useProjectsStore } from "../../stores/projects.store";
 import { useSessionsStore } from "../../stores/sessions.store";
 import { GLOBAL_PROJECT_ID } from "../session/GlobalChatView";
 
 export function RightPanel() {
-  const { rightPanelOpen, activeGlobalSessionId, activeTab } = useUIStore();
+  const { rightPanelOpen, activeGlobalSessionId, activeTab, codeMode } = useUIStore();
   const { activeProjectId } = useProjectsStore();
   const { activeSessionId } = useSessionsStore();
 
@@ -66,6 +67,13 @@ export function RightPanel() {
         {isSession ? (
           // ─── Session view ─────────────────────────────────────────────────
           <div className="flex flex-col gap-3">
+            {/* WP-4: Code modunda git paneli sağda en üstte. */}
+            {codeMode && (
+              <CollapsibleBox title="Git" defaultOpen>
+                <GitPanel />
+              </CollapsibleBox>
+            )}
+
             <CollapsibleBox title="Progress" defaultOpen>
               <ProgressPanel
                 projectId={activeProjectId}
