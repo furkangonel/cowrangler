@@ -440,6 +440,34 @@ export function registerSettingsIPC(ipcMain: IpcMain): void {
     return { ok: true }
   })
 
+  // ─── Sandbox canlı sağlık (WP-5 SandboxTab) ───────────────────────────────
+  // Aktif platformda hangi izolasyon backend'inin seçileceğini canlı raporlar
+  // (Seatbelt / Bubblewrap / Docker / … algılandı mı).
+  ipcMain.handle('settings:sandboxHealth', async () => {
+    try {
+      const { selectBackend } = await import('../../core/sandbox.js')
+      const backend = selectBackend(process.platform)
+      return {
+        platform: process.platform,
+        kind: backend.kind,
+        label: backend.label,
+        isolated: backend.isolated,
+      }
+    } catch (e: any) {
+      return { platform: process.platform, kind: 'none', label: 'No isolation (low-trust)', isolated: false, error: e?.message ?? String(e) }
+    }
+  })
+
+  // ─── Model yetenekleri (WP-5 ModelsTab göstergesi; tek kaynak: model_metadata) ─
+  ipcMain.handle('settings:modelCapabilities', async (_, model: string) => {
+    try {
+      const { getModelCapabilities } = await import('../../core/model_metadata.js')
+      return getModelCapabilities(model)
+    } catch {
+      return null
+    }
+  })
+
   ipcMain.handle('settings:models', async (_, opts?: { refresh?: boolean }) => {
     const creds = readCredentials()
     const cached = readModelsCache()

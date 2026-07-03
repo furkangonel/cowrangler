@@ -145,6 +145,66 @@ export interface OAuthLoginEvent {
   seeded?: string[]
 }
 
+// ── Git (WP-4) ────────────────────────────────────────────────────────────────
+export interface GitRun {
+  ok: boolean
+  stdout: string
+  stderr: string
+}
+
+export interface GitFileEntry {
+  path: string
+  index: string
+  worktree: string
+  staged: boolean
+  unstaged: boolean
+  untracked: boolean
+}
+
+export interface GitStatus {
+  repo: boolean
+  branch: string
+  ahead: number
+  behind: number
+  upstream: string | null
+  files: GitFileEntry[]
+  clean: boolean
+}
+
+export interface GitBranchInfo {
+  current: string
+  local: string[]
+  remote: string[]
+}
+
+export interface GitLogEntry {
+  hash: string
+  author: string
+  relative: string
+  subject: string
+}
+
+/** WP-5 SandboxTab — canlı backend sağlık raporu. */
+export interface SandboxHealth {
+  platform: string
+  kind: string
+  label: string
+  isolated: boolean
+  error?: string
+}
+
+/** WP-5 ModelsTab yetenek göstergesi (tek kaynak: core/model_metadata). */
+export interface ModelCapabilities {
+  provider: string
+  displayName: string
+  contextWindow: number
+  supportsVision: boolean
+  supportsPromptCache: boolean
+  nativeToolCalling: boolean
+  supportsThinking: boolean
+  reasoningEffort: boolean
+}
+
 export interface SkillDef {
   id: string
   name: string
@@ -349,6 +409,8 @@ interface ElectronAPI {
     setApiKey: (provider: string, key: string) => Promise<{ ok: boolean; error?: string; models?: string[] }>
     removeApiKey: (provider: string) => Promise<{ ok: boolean }>
     getModels: (opts?: { refresh?: boolean }) => Promise<ModelInfo[]>
+    sandboxHealth: () => Promise<SandboxHealth>
+    modelCapabilities: (model: string) => Promise<ModelCapabilities | null>
     savedModels: {
       list: () => Promise<string[]>
       add: (modelId: string, contextWindow?: number) => Promise<{ ok: boolean }>
@@ -360,6 +422,21 @@ interface ElectronAPI {
       logout: (id: string) => Promise<{ ok: boolean; error?: string }>
       onEvent: (cb: (e: OAuthLoginEvent) => void) => () => void
     }
+  }
+  git: {
+    isRepo: (workdir?: string) => Promise<boolean>
+    status: (workdir?: string) => Promise<GitStatus>
+    diff: (opts?: { staged?: boolean; file?: string }, workdir?: string) => Promise<string>
+    stage: (files: string[], workdir?: string) => Promise<GitRun>
+    unstage: (files: string[], workdir?: string) => Promise<GitRun>
+    commit: (message: string, opts?: { all?: boolean }, workdir?: string) => Promise<GitRun>
+    branchList: (workdir?: string) => Promise<GitBranchInfo>
+    branchCreate: (name: string, workdir?: string) => Promise<GitRun>
+    checkout: (name: string, workdir?: string) => Promise<GitRun>
+    push: (opts?: { force?: boolean; setUpstream?: boolean }, workdir?: string) => Promise<GitRun>
+    log: (opts?: { limit?: number }, workdir?: string) => Promise<GitLogEntry[]>
+    prUrl: (workdir?: string) => Promise<string | null>
+    suggestCommitMessage: (model: string, workdir?: string) => Promise<{ ok: boolean; message?: string; error?: string }>
   }
   design: {
     openWindow: () => Promise<{ ok: boolean }>

@@ -112,6 +112,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setApiKey: (provider: string, key: string) => ipcRenderer.invoke('settings:setApiKey', provider, key),
     removeApiKey: (provider: string) => ipcRenderer.invoke('settings:removeApiKey', provider),
     getModels: (opts?: { refresh?: boolean }) => ipcRenderer.invoke('settings:models', opts),
+    sandboxHealth: () => ipcRenderer.invoke('settings:sandboxHealth'),
+    modelCapabilities: (model: string) => ipcRenderer.invoke('settings:modelCapabilities', model),
     savedModels: {
       list: () => ipcRenderer.invoke('settings:savedModels:list'),
       add: (modelId: string, contextWindow?: number) => ipcRenderer.invoke('settings:savedModels:add', modelId, contextWindow),
@@ -127,6 +129,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
         return () => ipcRenderer.removeListener('settings:oauthEvent', handler)
       },
     },
+  },
+
+  // ── Git (WP-4 Desktop git yönetimi) ──────────────────────────────────────
+  git: {
+    isRepo: (workdir?: string) => ipcRenderer.invoke('git:isRepo', workdir),
+    status: (workdir?: string) => ipcRenderer.invoke('git:status', workdir),
+    diff: (opts?: { staged?: boolean; file?: string }, workdir?: string) =>
+      ipcRenderer.invoke('git:diff', opts ?? {}, workdir),
+    stage: (files: string[], workdir?: string) => ipcRenderer.invoke('git:stage', files, workdir),
+    unstage: (files: string[], workdir?: string) => ipcRenderer.invoke('git:unstage', files, workdir),
+    commit: (message: string, opts?: { all?: boolean }, workdir?: string) =>
+      ipcRenderer.invoke('git:commit', message, opts ?? {}, workdir),
+    branchList: (workdir?: string) => ipcRenderer.invoke('git:branchList', workdir),
+    branchCreate: (name: string, workdir?: string) => ipcRenderer.invoke('git:branchCreate', name, workdir),
+    checkout: (name: string, workdir?: string) => ipcRenderer.invoke('git:checkout', name, workdir),
+    push: (opts?: { force?: boolean; setUpstream?: boolean }, workdir?: string) =>
+      ipcRenderer.invoke('git:push', opts ?? {}, workdir),
+    log: (opts?: { limit?: number }, workdir?: string) => ipcRenderer.invoke('git:log', opts ?? {}, workdir),
+    prUrl: (workdir?: string) => ipcRenderer.invoke('git:prUrl', workdir),
+    suggestCommitMessage: (model: string, workdir?: string) =>
+      ipcRenderer.invoke('git:suggestCommitMessage', model, workdir),
   },
 
   // ── Design ────────────────────────────────────────────────────────────────

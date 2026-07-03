@@ -1,7 +1,41 @@
 import React, { useState, useEffect } from 'react'
-import { Eye, EyeOff, Check, Plus, Trash2, AlertCircle, LogIn, LogOut, Copy, ExternalLink, Loader2 } from 'lucide-react'
+import { Eye, EyeOff, Check, Plus, Trash2, AlertCircle, LogIn, LogOut, Copy, ExternalLink, Loader2, Database, Wrench, Image, Brain } from 'lucide-react'
 import { useSettingsStore } from '../../stores/settings.store'
-import { ipc, OAuthLoginEvent } from '../../lib/ipc'
+import { ipc, OAuthLoginEvent, ModelCapabilities } from '../../lib/ipc'
+
+/**
+ * ModelCapabilityBadges — WP-5/WP-6 yetenek göstergesi.
+ * Modelin yeteneklerini (prompt cache / native tool-calling / vision / thinking)
+ * tek kaynaktan (core/model_metadata) IPC ile çekip küçük rozetler gösterir.
+ */
+function ModelCapabilityBadges({ modelId }: { modelId: string }) {
+  const [caps, setCaps] = useState<ModelCapabilities | null>(null)
+  useEffect(() => {
+    let alive = true
+    ipc.settings.modelCapabilities(modelId).then(c => { if (alive) setCaps(c) }).catch(() => {})
+    return () => { alive = false }
+  }, [modelId])
+  if (!caps) return null
+  const items: { on: boolean; icon: React.ReactNode; label: string }[] = [
+    { on: caps.supportsPromptCache, icon: <Database size={10} />, label: 'prompt cache' },
+    { on: caps.nativeToolCalling, icon: <Wrench size={10} />, label: 'native tool-calling' },
+    { on: caps.supportsVision, icon: <Image size={10} />, label: 'vision' },
+    { on: caps.supportsThinking, icon: <Brain size={10} />, label: 'reasoning/effort' },
+  ]
+  return (
+    <div className="flex items-center gap-1 flex-shrink-0">
+      {items.filter(i => i.on).map((i, idx) => (
+        <span
+          key={idx}
+          title={`${i.label} ✓`}
+          className="flex items-center gap-0.5 px-1 py-0.5 rounded bg-accent-subtle text-accent text-2xs"
+        >
+          {i.icon}
+        </span>
+      ))}
+    </div>
+  )
+}
 
 type OAuthProvider = { id: string; name: string; connected: boolean }
 /** Live login state for the provider currently being authorized. */
@@ -231,13 +265,16 @@ export function ModelsTab() {
                 className="group flex items-center justify-between px-3.5 py-2.5 bg-bg-secondary border border-border rounded-xl"
               >
                 <span className="text-xs font-mono text-text-primary truncate">{modelId}</span>
-                <button
-                  onClick={() => removeSavedModel(modelId)}
-                  className="opacity-0 group-hover:opacity-100 p-1 text-text-muted hover:text-error transition-all flex-shrink-0"
-                  title="Remove"
-                >
-                  <Trash2 size={13} />
-                </button>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <ModelCapabilityBadges modelId={modelId} />
+                  <button
+                    onClick={() => removeSavedModel(modelId)}
+                    className="opacity-0 group-hover:opacity-100 p-1 text-text-muted hover:text-error transition-all"
+                    title="Remove"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>

@@ -11,6 +11,7 @@ import { registerAgentIPC } from './ipc/agent.ipc.js'
 import { registerProjectsIPC } from './ipc/projects.ipc.js'
 import { registerSessionsIPC } from './ipc/sessions.ipc.js'
 import { registerSettingsIPC } from './ipc/settings.ipc.js'
+import { registerGitIPC } from './ipc/git.ipc.js'
 import { registerSkillsIPC } from './ipc/skills.ipc.js'
 import { registerMCPIPC } from './ipc/mcp.ipc.js'
 import { registerMemoryIPC } from './ipc/memory.ipc.js'
@@ -71,6 +72,7 @@ function createWindow(): void {
     registerProjectsIPC(ipcMain)
     registerSessionsIPC(ipcMain)
     registerSettingsIPC(ipcMain)
+    registerGitIPC(ipcMain)
     registerSkillsIPC(ipcMain)
     registerMCPIPC(ipcMain)
     registerMemoryIPC(ipcMain)
