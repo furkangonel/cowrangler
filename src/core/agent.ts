@@ -19,7 +19,8 @@ import { TOOL_SCHEMAS } from "../tools/registry.js";
 import { BriefBuffer, createSendMessageTool } from "../tools/brief_tool.js";
 import { DIRS, COWRNGLR_MD, getConfig } from "./init.js";
 import { scanContext } from "./context_security.js";
-import { setActiveSessionId } from "./project_context.js";
+import { setActiveSessionId, getProjectWorkdir } from "./project_context.js";
+import { buildToolFallbackInstructions } from "./tool_fallback.js";
 import { DefaultContextEngine, ContextSnapshot } from "./context_engine.js";
 import { getSessionDB } from "./session_db.js";
 import { getPluginManager } from "./plugins.js";
@@ -171,7 +172,7 @@ export class Agent {
       this.sessionId = db.createSession({
         source,
         model: this.llm.model,
-        workdir: process.cwd(),
+        workdir: getProjectWorkdir(),
       });
       setActiveSessionId(this.sessionId);
     } catch {
@@ -254,7 +255,26 @@ export class Agent {
         `projenin CONTEXT alanına kopyalar ve aktif hale getirir:\n${skillsText}`;
     }
 
+    // WP-6: native tool-calling desteklemeyen modeller (yerel Ollama vb.) için
+    // JSON tool-call fallback protokolünü sistem promptuna göm. Böylece araçlar
+    // her modelde çalışır. Native destekli modellerde eklenmez (cache/temizlik).
+    if (!this.llm.supportsNativeToolCalling()) {
+      finalPrompt += `\n\n${buildToolFallbackInstructions(this._toolSetForPrompt())}`;
+    }
+
     return finalPrompt;
+  }
+
+  /** Fallback protokol listesinde gösterilecek araç kümesi (allowedTools'a saygılı). */
+  private _toolSetForPrompt(): Record<string, { description?: string; parameters?: unknown }> {
+    if (!this.allowedTools || this.allowedTools.includes("*")) {
+      return TOOL_SCHEMAS;
+    }
+    const subset: Record<string, any> = {};
+    for (const [key, value] of Object.entries(TOOL_SCHEMAS)) {
+      if (this.allowedTools.includes(key)) subset[key] = value;
+    }
+    return subset;
   }
 
   /** Re-scope the tools exposed to the model (e.g. a lean set for chat mode). */
