@@ -14,11 +14,3 @@ function envFlag(name: string): boolean {
   const raw = (process.env[name] ?? "").trim().toLowerCase();
   return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
 }
-
-/**
- * Discord/Telegram gateway'i etkin mi?
- * Varsayılan KAPALI — yalnız `ENABLE_GATEWAY` set edilirse açılır.
- */
-export function isGatewayEnabled(): boolean {
-  return envFlag("ENABLE_GATEWAY");
-}
