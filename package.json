@@ -21,7 +21,7 @@
     "bench": "node scripts/microbench/run.mjs",
     "test:coverage": "vitest run --coverage",
     "desktop:dev": "npm run dev -w @cowrangler/desktop",
-    "desktop:build": "npm run build -w @cowrangler/desktop",
+    "desktop:build": "npm run build && npm run build -w @cowrangler/desktop",
     "desktop:preview": "npm run preview -w @cowrangler/desktop",
     "desktop:pack": "npm run desktop:build && electron-builder",
     "desktop:rebuild": "electron-rebuild -f -w better-sqlite3,node-pty && chmod +x node_modules/node-pty/build/Release/spawn-helper 2>/dev/null || true && chmod +x node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true",
