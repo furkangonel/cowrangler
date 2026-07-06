@@ -14,7 +14,7 @@
   },
   "scripts": {
     "build": "tsc -b && npm run copy-assets",
-    "copy-assets": "mkdir -p dist/i18n/messages && cp -f src/i18n/messages/*.json dist/i18n/messages/ && mkdir -p dist/cowrangler-sandbox.bundle && cp -rf src/cowrangler-sandbox.bundle/* dist/cowrangler-sandbox.bundle/ && mkdir -p dist/model && cp -f src/model/providers.json dist/model/providers.json"
+    "copy-assets": "node copy-assets.js"
   },
   "dependencies": {
     "zod": "^3.23.0",
