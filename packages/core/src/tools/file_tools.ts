@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, statSync } from "fs";
 import path from "path";
 import mammoth from "mammoth";
 import pdfParse from "pdf-parse";
-import xlsx from "xlsx";
+import * as xlsx from "xlsx";
 import fg from "fast-glob";
 import { registerTool } from "./registry.js";
 import { beforeMutation, setCheckpointBase } from "../checkpoints.js";

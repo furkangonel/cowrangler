@@ -165,6 +165,17 @@ export function diff(
   return r.ok ? r.stdout : `Git error: ${r.stderr}`;
 }
 
+/** Diff istatistiği (git diff --stat). */
+export function diffStat(
+  opts: { staged?: boolean } = {},
+  cwd: string = getProjectWorkdir(),
+): string {
+  const args = ["diff", "--stat"];
+  if (opts.staged) args.push("--staged");
+  const r = tryGit(args, cwd);
+  return r.ok ? r.stdout : `Git error: ${r.stderr}`;
+}
+
 /** Dosyaları stage'e al. `["."]` → tümü. */
 export function stage(files: string[], cwd: string = getProjectWorkdir()): GitRun {
   if (!files.length) return { ok: false, stdout: "", stderr: "No files given." };

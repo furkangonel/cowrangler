@@ -1,35 +1,29 @@
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
+import fs from 'fs'
+
+const rootPkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf-8'))
+const rootDeps = Object.keys(rootPkg.dependencies || {})
+const workspaceDeps = [
+  '@cowrangler/core',
+  '@cowrangler/adapter-cowork',
+  '@cowrangler/adapter-design',
+  '@cowrangler/adapter-code'
+]
+const externalDeps = rootDeps.filter(dep => !workspaceDeps.includes(dep))
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [
+      externalizeDepsPlugin({
+        include: externalDeps,
+        exclude: workspaceDeps
+      })
+    ],
     build: {
       rollupOptions: {
         input: { index: 'src/electron/main.ts' },
-        external: [
-          'electron',
-          'better-sqlite3',
-          'node-pty',
-          'fs',
-          'path',
-          'os',
-          'crypto',
-          'child_process',
-          'readline',
-          'stream',
-          'util',
-          'events',
-          'net',
-          'http',
-          'https',
-          'url',
-          'querystring',
-          'buffer',
-          'assert',
-          'zlib',
-        ],
       },
     },
     resolve: {
