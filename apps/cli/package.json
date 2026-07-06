@@ -9,8 +9,8 @@
     "cowrangler": "./dist/main.js"
   },
   "scripts": {
-    "build": "tsc -b && npm run copy-assets && chmod +x dist/main.js",
-    "copy-assets": "mkdir -p dist/bundled_skills && cp -rf ../../bundled_skills/* dist/bundled_skills/",
+    "build": "tsc -b && npm run copy-assets",
+    "copy-assets": "node build-assets.js",
     "dev": "NODE_OPTIONS='--loader ts-node/esm --no-warnings' ts-node src/main.ts",
     "start": "node dist/main.js"
   },
