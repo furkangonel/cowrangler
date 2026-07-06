@@ -1,29 +1,30 @@
 {
   "name": "co-wrangler",
-  "version": "2.0.9",
+  "version": "2.1.0",
   "description": "An enterprise-grade personal AI agent for the terminal — powered by Claude, GPT, Gemini & more",
   "author": "Furkan Gönel <frkngnl000@gmail.com>",
   "type": "module",
-  "main": "out/main/index.js",
-  "bin": {
-    "cowrangler": "./dist/main.js"
-  },
+  "main": "apps/desktop/out/main/index.js",
+  "workspaces": [
+    "packages/*",
+    "packages/adapters/*",
+    "apps/*"
+  ],
   "scripts": {
-    "dev": "NODE_OPTIONS='--loader ts-node/esm --no-warnings' ts-node src/main.ts",
-    "build": "tsc && npm run copy-assets && chmod +x dist/main.js",
-    "copy-assets": "mkdir -p dist/bundled_skills && cp -rf src/bundled_skills/* dist/bundled_skills/ && mkdir -p dist/i18n/messages && cp src/i18n/messages/*.json dist/i18n/messages/ && mkdir -p dist/core/cowrangler-sandbox.bundle && cp -rf src/core/cowrangler-sandbox.bundle/* dist/core/cowrangler-sandbox.bundle/",
-    "start": "node dist/main.js",
-    "setup": "npm install && npm run build && npm link",
-    "clean": "rm -rf dist",
+    "dev": "npm run dev -w @cowrangler/cli",
+    "build": "tsc -b && npm run build -w @cowrangler/core && npm run build -w @cowrangler/cli",
+    "start": "npm run start -w @cowrangler/cli",
+    "setup": "npm install && npm run build && npm link --workspace apps/cli",
+    "clean": "rm -rf packages/core/dist packages/adapters/*/dist apps/cli/dist apps/desktop/dist apps/desktop/out",
     "test": "vitest run",
     "test:watch": "vitest",
     "bench": "node scripts/microbench/run.mjs",
     "test:coverage": "vitest run --coverage",
-    "desktop:dev": "electron-vite dev",
-    "desktop:build": "electron-vite build",
-    "desktop:preview": "electron-vite preview",
+    "desktop:dev": "npm run dev -w @cowrangler/desktop",
+    "desktop:build": "npm run build -w @cowrangler/desktop",
+    "desktop:preview": "npm run preview -w @cowrangler/desktop",
     "desktop:pack": "npm run desktop:build && electron-builder",
-    "desktop:rebuild": "electron-rebuild -f -w better-sqlite3",
+    "desktop:rebuild": "electron-rebuild -f -w better-sqlite3,node-pty && chmod +x node_modules/node-pty/build/Release/spawn-helper 2>/dev/null || true && chmod +x node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true",
     "desktop:release": "bash scripts/release-desktop.sh"
   },
   "build": {
@@ -34,17 +35,17 @@
       "buildResources": "assets"
     },
     "files": [
-      "out/**",
+      "apps/desktop/out/**",
       "assets/**",
       "package.json"
     ],
     "extraResources": [
       {
-        "from": "src/bundled_skills",
+        "from": "bundled_skills",
         "to": "bundled_skills"
       },
       {
-        "from": "src/core/cowrangler-sandbox.bundle",
+        "from": "packages/core/src/cowrangler-sandbox.bundle",
         "to": "cowrangler-sandbox.bundle"
       }
     ],
@@ -156,7 +157,8 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node-cron": "^3.0.11",
-    "@types/node-telegram-bot-api": "^0.64.14",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
     "ai": "^4.0.0",
     "axios": "^1.6.0",
     "better-sqlite3": "^12.10.0",
@@ -164,7 +166,6 @@
     "chalk": "^5.3.0",
     "cheerio": "^1.0.0-rc.12",
     "cli-table3": "^0.6.5",
-    "discord.js": "^14.26.4",
     "dotenv": "^16.4.5",
     "electron-updater": "^6.3.9",
     "esbuild-wasm": "^0.24.0",
@@ -180,7 +181,7 @@
     "marked": "^12.0.0",
     "marked-terminal": "^7.0.0",
     "node-cron": "^4.2.1",
-    "node-telegram-bot-api": "^0.67.0",
+    "node-pty": "^1.0.0",
     "ora": "^8.0.1",
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^1.1.1",
@@ -191,6 +192,7 @@
     "turndown": "^7.1.3",
     "xlsx": "^0.18.5",
     "zod": "^3.23.0",
+    "zod-to-json-schema": "^3.23.0",
     "zustand": "^4.5.2"
   },
   "optionalDependencies": {

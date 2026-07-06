@@ -6,7 +6,7 @@ import {
   selectBackend,
   shouldUseSandbox,
   binaryExists,
-} from "../src/core/sandbox.js";
+} from "@cowrangler/core/sandbox.js";
 import fs from "fs";
 import path from "path";
 import os from "os";

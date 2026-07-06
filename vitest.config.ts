@@ -8,8 +8,8 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov"],
-      include: ["src/**/*.ts"],
-      exclude: ["src/main.ts", "src/**/*.d.ts"],
+      include: ["packages/**/src/**/*.ts", "apps/**/src/**/*.ts"],
+      exclude: ["apps/cli/src/main.ts", "**/*.d.ts"],
     },
     // ESM ortamı — ts files are run directly by vitest
     testTimeout: 15_000,

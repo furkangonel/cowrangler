@@ -1,0 +1,21 @@
+{
+  "name": "@cowrangler/cli",
+  "version": "2.1.0",
+  "private": true,
+  "description": "Cowrangler CLI — terminal arayüzü (ink) + gateway/cron/lsp/batch.",
+  "type": "module",
+  "main": "./dist/main.js",
+  "bin": {
+    "cowrangler": "./dist/main.js"
+  },
+  "scripts": {
+    "build": "tsc -b && npm run copy-assets && chmod +x dist/main.js",
+    "copy-assets": "mkdir -p dist/bundled_skills && cp -rf ../../bundled_skills/* dist/bundled_skills/",
+    "dev": "NODE_OPTIONS='--loader ts-node/esm --no-warnings' ts-node src/main.ts",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@cowrangler/core": "*",
+    "@cowrangler/adapter-cli": "*"
+  }
+}

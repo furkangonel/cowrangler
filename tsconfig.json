@@ -1,22 +1,11 @@
 {
-  "compilerOptions": {
-    "target": "ESNext",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "esModuleInterop": true,
-    "allowSyntheticDefaultImports": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "strict": true,
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "jsx": "react-jsx",
-  },
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["node_modules", "dist", "out", "release", "src/desktop", "src/electron", "src/bundled_skills"],
-  "ts-node": {
-    "esm": true,
-    "experimentalSpecifierResolution": "node",
-    "transpileOnly": true,
-  },
+  "files": [],
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/adapters/cli" },
+    { "path": "packages/adapters/cowork" },
+    { "path": "packages/adapters/design" },
+    { "path": "packages/adapters/code" },
+    { "path": "apps/cli" }
+  ]
 }
