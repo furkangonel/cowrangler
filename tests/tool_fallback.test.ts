@@ -8,7 +8,7 @@ import {
   parseToolCalls,
   hasToolCall,
   TOOL_FALLBACK_SENTINEL,
-} from "../src/core/tool_fallback.js";
+} from "@cowrangler/core/tool_fallback.js";
 
 describe("buildToolFallbackInstructions", () => {
   it("araç adlarını ve parametre anahtarlarını listeler", () => {

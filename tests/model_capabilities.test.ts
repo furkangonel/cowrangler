@@ -8,8 +8,8 @@ import {
   modelSupportsNativeToolCalling,
   deriveNativeToolCalling,
   getModelMeta,
-} from "../src/core/model_metadata.js";
-import { computeCompressThreshold } from "../src/core/context_engine.js";
+} from "@cowrangler/core/model_metadata.js";
+import { computeCompressThreshold } from "@cowrangler/core/context_engine.js";
 
 describe("getModelCapabilities", () => {
   it("Claude için tam yetenek seti döner (tek kaynak)", () => {

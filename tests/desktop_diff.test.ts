@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { computeLineDiff } from "../src/desktop/lib/diff";
-import { isEditTool, extractEdit } from "../src/desktop/lib/codeEdit";
+import { computeLineDiff } from "../apps/desktop/src/desktop/lib/diff";
+import { isEditTool, extractEdit } from "../apps/desktop/src/desktop/lib/codeEdit";
 
 // WP-3 — Code arayüzü inline diff çekirdeği testleri.
 

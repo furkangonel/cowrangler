@@ -12,7 +12,7 @@ import { execFileSync } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import * as git from "../src/core/git.js";
+import * as git from "@cowrangler/core/git.js";
 
 let repo: string;
 const run = (args: string[]) => execFileSync("git", args, { cwd: repo, stdio: "pipe" });

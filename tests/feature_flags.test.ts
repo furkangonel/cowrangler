@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, afterEach } from "vitest";
-import { isGatewayEnabled } from "../src/core/feature_flags.js";
+import { isGatewayEnabled } from "@cowrangler/core/feature_flags.js";
 
 const ORIGINAL = process.env.ENABLE_GATEWAY;
 

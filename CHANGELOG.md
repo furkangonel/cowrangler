@@ -6,6 +6,23 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.1.0] — 2026-07-06
+
+### Added
+- **Dedicated Code agent prompt** — the Code tab now runs its own `desktop_code` system prompt instead of falling back to the generic session prompt. It is code-first (read → edit → run → verify), prefers running the code to prove it works, and treats git as **display-only**: the agent stages/commits/pushes or opens a PR only when you explicitly ask, never as a side effect of a task.
+- **Code header ⋯ menu — Plan & Tasks** — a kebab next to the Terminal / Diff / Preview toggles opens two read-only right-panel views: **Plan** (the agent's `write_plan` output — title, summary, steps with file/risk badges) and **Tasks** (a deliberately primitive checkbox list of the agent's `manage_task` steps). Each is enabled only when the agent has actually produced a plan / task list.
+
+### Changed
+- **Code session matches Code Home** — the session view now uses the same layout as the home screen: folder · branch · PR row on top, composer with the model picker at the bottom. The separate middle control bar was removed.
+- **Unified Code model pool** — the Code session model picker now reads the same pool as Code Home (saved models **+** plugin-contributed models), so plugin models like Antigravity appear consistently in both places.
+- **Diff panel is display-only** — the working-tree diff view no longer has a "Create PR" action; it only shows changes.
+
+### Removed
+- **General Chat mode** — the project-less "General Chat" surface has been fully removed: the Chat tab, `GlobalChatView`, the `__global__` chat sessions, the `desktop_chat` system prompt, and the `FEATURES.chat` flag are gone. The global memory scope and global workspace directory (still used by the Code tab) are unchanged.
+- **Cosmetic Code effort control** — the Low/Med/High "effort" selector was removed; it was never passed to the model call and had no effect.
+
+---
+
 ## [2.0.9] — 2026-07-02
 
 ### Added

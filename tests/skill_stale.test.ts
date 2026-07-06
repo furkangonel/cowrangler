@@ -7,7 +7,7 @@ import { describe, it, expect } from "vitest";
 import {
   isSkillStale,
   type SkillUsageStats,
-} from "../src/core/skill_usage.js";
+} from "@cowrangler/core/skill_usage.js";
 
 const DAY = 86_400_000;
 const NOW = 1_700_000_000_000;

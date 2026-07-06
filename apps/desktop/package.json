@@ -1,0 +1,20 @@
+{
+  "name": "@cowrangler/desktop",
+  "version": "2.1.0",
+  "private": true,
+  "description": "Cowrangler Desktop — Electron shell (cowork/design/code yüzeyleri).",
+  "type": "module",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "pack": "npm run build && electron-builder"
+  },
+  "dependencies": {
+    "@cowrangler/core": "*",
+    "@cowrangler/adapter-cowork": "*",
+    "@cowrangler/adapter-design": "*",
+    "@cowrangler/adapter-code": "*"
+  }
+}

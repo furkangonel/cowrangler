@@ -8,8 +8,8 @@ import {
   isInsideWorkspace,
   normalizePermissionMode,
   analyzeBashRisk,
-} from "../src/core/permissions.js";
-import { setProjectContext, getProjectWorkdir } from "../src/core/project_context.js";
+} from "@cowrangler/core/permissions.js";
+import { setProjectContext, getProjectWorkdir } from "@cowrangler/core/project_context.js";
 
 const WS = path.join(os.tmpdir(), "cowrangler-wp7-workspace");
 

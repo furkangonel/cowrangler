@@ -1,0 +1,133 @@
+[
+  {
+    "id": "openai",
+    "wire": "openai",
+    "auth": "key|oauth",
+    "oauth_vault": "oauth:openai",
+    "base_url": "https://api.openai.com/v1",
+    "env": ["OPENAI_API_KEY"],
+    "npm": "@ai-sdk/openai",
+    "models_url": "/models"
+  },
+  {
+    "id": "anthropic",
+    "wire": "anthropic",
+    "auth": "key|oauth",
+    "oauth_vault": "oauth:anthropic",
+    "base_url": "https://api.anthropic.com/v1",
+    "env": ["ANTHROPIC_API_KEY"],
+    "npm": "@ai-sdk/anthropic",
+    "models_url": "/models"
+  },
+  {
+    "id": "google",
+    "wire": "gemini",
+    "auth": "key|oauth",
+    "oauth_vault": "oauth:google",
+    "base_url": "https://generativelanguage.googleapis.com/v1beta",
+    "env": ["GOOGLE_GENERATIVE_AI_API_KEY"],
+    "npm": "@ai-sdk/google",
+    "models_url": "/models"
+  },
+  {
+    "id": "groq",
+    "wire": "openai",
+    "base_url": "https://api.groq.com/openai/v1",
+    "env": ["GROQ_API_KEY"],
+    "npm": "@ai-sdk/openai",
+    "models_url": "/models"
+  },
+  {
+    "id": "openrouter",
+    "wire": "openai",
+    "base_url": "https://openrouter.ai/api/v1",
+    "env": ["OPENROUTER_API_KEY"],
+    "npm": "@ai-sdk/openai",
+    "models_url": "/models"
+  },
+  {
+    "id": "mistral",
+    "wire": "openai",
+    "base_url": "https://api.mistral.ai/v1",
+    "env": ["MISTRAL_API_KEY"],
+    "npm": "@ai-sdk/openai",
+    "models_url": "/models"
+  },
+  {
+    "id": "deepseek",
+    "wire": "openai",
+    "base_url": "https://api.deepseek.com/v1",
+    "env": ["DEEPSEEK_API_KEY"],
+    "npm": "@ai-sdk/openai",
+    "models_url": "/models"
+  },
+  {
+    "id": "xai",
+    "wire": "openai",
+    "base_url": "https://api.x.ai/v1",
+    "env": ["XAI_API_KEY"],
+    "npm": "@ai-sdk/openai",
+    "models_url": "/models"
+  },
+  {
+    "id": "together",
+    "wire": "openai",
+    "base_url": "https://api.together.xyz/v1",
+    "env": ["TOGETHER_API_KEY"],
+    "npm": "@ai-sdk/openai",
+    "models_url": "/models"
+  },
+  {
+    "id": "cerebras",
+    "wire": "openai",
+    "base_url": "https://api.cerebras.ai/v1",
+    "env": ["CEREBRAS_API_KEY"],
+    "npm": "@ai-sdk/openai",
+    "models_url": "/models"
+  },
+  {
+    "id": "fireworks",
+    "wire": "openai",
+    "base_url": "https://api.fireworks.ai/inference/v1",
+    "env": ["FIREWORKS_API_KEY"],
+    "npm": "@ai-sdk/openai",
+    "models_url": "/models"
+  },
+  {
+    "id": "copilot",
+    "wire": "openai",
+    "auth": "key|oauth",
+    "oauth_vault": "oauth:copilot",
+    "base_url": "https://models.inference.ai.azure.com",
+    "env": ["GITHUB_TOKEN"],
+    "npm": "@ai-sdk/openai",
+    "models_url": "/models"
+  },
+  {
+    "id": "ollama",
+    "wire": "openai",
+    "base_url": "http://127.0.0.1:11434/v1",
+    "env": [],
+    "npm": "@ai-sdk/openai",
+    "models_url": "/models",
+    "env_override": "OLLAMA_BASE_URL"
+  },
+  {
+    "id": "lmstudio",
+    "wire": "openai",
+    "base_url": "http://127.0.0.1:1234/v1",
+    "env": [],
+    "npm": "@ai-sdk/openai",
+    "models_url": "/models",
+    "env_override": "LMSTUDIO_BASE_URL"
+  },
+  {
+    "id": "local",
+    "wire": "openai",
+    "base_url": "http://127.0.0.1:8080/v1",
+    "env": [],
+    "npm": "@ai-sdk/openai",
+    "models_url": "/models",
+    "env_override": "LOCAL_API_BASE_URL"
+  }
+]

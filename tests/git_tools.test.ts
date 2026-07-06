@@ -13,12 +13,12 @@ import { execSync } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import "../src/tools/git_tools.js"; // tool'ları TOOL_SCHEMAS'e kaydeder
-import { TOOL_SCHEMAS } from "../src/tools/registry.js";
+import "@cowrangler/core/tools/git_tools.js"; // tool'ları TOOL_SCHEMAS'e kaydeder
+import { TOOL_SCHEMAS } from "@cowrangler/core/tools/registry.js";
 import {
   setProjectContext,
   getProjectWorkdir,
-} from "../src/core/project_context.js";
+} from "@cowrangler/core/project_context.js";
 
 const BRANCH = "wp1-cwd-check";
 let tmpRepo: string;
