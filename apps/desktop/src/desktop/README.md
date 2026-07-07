@@ -1,5 +1,7 @@
 <p align="center">
-  <img src="https://em-content.zobj.net/source/apple/391/octopus_1f419.png" width="100" alt="Octopus" />
+  <img src="../../../../assets/octopuses/oct.png" width="200" alt="Pixel Octopus" />&nbsp;&nbsp;&nbsp;
+  <img src="../../../../assets/octopuses/cowork_oct.png" width="200" alt="Pixel Octopus" />&nbsp;&nbsp;&nbsp;
+  <img src="../../../../assets/octopuses/cowrangler_dsgn.png" width="200" alt="Pixel Octopus" />
 </p>
 
 <h1 align="center">Cowrangler Desktop</h1>
