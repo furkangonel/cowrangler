@@ -183,6 +183,9 @@ function InlineNewTask({ projectId, projectName, projectIcon }: { projectId: str
   const [activeIdx, setActiveIdx] = useState(0)
   const [confirmedSkills, setConfirmedSkills] = useState<SkillDef[]>([])
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
+  const [modelGates, setModelGates] = useState<Record<string, { locked: boolean; reason?: string; pluginId: string; actionId?: string }>>({})
+  const [unlockingModel, setUnlockingModel] = useState<string | null>(null)
+  const [pluginModels, setPluginModels] = useState<string[]>([])
   
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const modelPickerRef = useRef<HTMLDivElement>(null)
@@ -196,6 +199,35 @@ function InlineNewTask({ projectId, projectName, projectIcon }: { projectId: str
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+
+  useEffect(() => {
+    if (modelPickerOpen) {
+      ipc.plugins.modelGates?.().then(g => setModelGates(g || {})).catch(() => {})
+      ipc.plugins.models?.().then(m => setPluginModels(Array.isArray(m) ? m : [])).catch(() => {})
+    }
+  }, [modelPickerOpen])
+
+  const displayModels = React.useMemo(
+    () => [...new Set([...savedModels, ...pluginModels])],
+    [savedModels, pluginModels],
+  )
+
+  async function handleUnlockModel(modelId: string, gate: { pluginId: string; actionId?: string }) {
+    if (!gate.actionId) return
+    setUnlockingModel(modelId)
+    try {
+      const res = await ipc.plugins.runAction(gate.pluginId, gate.actionId)
+      const fresh: Record<string, { locked: boolean; reason?: string; pluginId: string; actionId?: string }> =
+        (await ipc.plugins.modelGates?.().catch(() => ({}))) || {}
+      setModelGates(fresh)
+      if (res?.ok && !fresh[modelId]?.locked) {
+        setModel(modelId)
+        setModelPickerOpen(false)
+      }
+    } finally {
+      setUnlockingModel(null)
+    }
+  }
 
   useEffect(() => {
     if (slashOpen) {
@@ -321,7 +353,7 @@ function InlineNewTask({ projectId, projectName, projectIcon }: { projectId: str
       )}
 
       {/* Composer card */}
-      <div className="bg-bg-secondary border border-border rounded-2xl overflow-hidden shadow-sm focus-within:border-accent/50 transition-colors mb-2">
+      <div className="bg-bg-secondary border border-border rounded-2xl shadow-sm focus-within:border-accent/50 transition-colors mb-2">
         {confirmedSkills.length > 0 && (
           <div className="flex flex-wrap gap-1.5 px-3 pt-2.5 pb-1">
             {confirmedSkills.map(skill => (
@@ -353,7 +385,7 @@ function InlineNewTask({ projectId, projectName, projectIcon }: { projectId: str
         />
 
         {/* Footer row */}
-        <div className="flex items-center gap-2.5 px-3 py-2 border-t border-border-subtle bg-bg-tertiary">
+        <div className="flex items-center gap-2.5 px-3 py-2 border-t border-border-subtle bg-bg-tertiary rounded-b-2xl">
           <select
             disabled
             className="flex-1 bg-bg-secondary/50 border border-border-subtle rounded-lg text-xs text-text-muted px-2.5 py-1.5 outline-none cursor-not-allowed appearance-none opacity-80"
@@ -383,30 +415,50 @@ function InlineNewTask({ projectId, projectName, projectIcon }: { projectId: str
               <div className="absolute bottom-full right-0 mb-1.5 z-50 bg-bg-secondary border border-border rounded-xl shadow-pop overflow-hidden animate-slide-up w-72">
                 <div className="p-2 space-y-0.5 max-h-56 overflow-y-auto">
                   <p className="px-2.5 py-1.5 text-[9px] font-semibold uppercase tracking-wider text-text-muted select-none">Select active model</p>
-                  {savedModels.map(modelId => {
+                  {displayModels.map(modelId => {
                     const slash = modelId.indexOf('/')
                     const provider = slash > 0 ? modelId.slice(0, slash) : null
                     const name = slash > 0 ? modelId.slice(slash + 1) : modelId
                     const active = getModel() === modelId
+                    const gate = modelGates[modelId]
+                    const locked = !!gate?.locked
+                    const unlocking = unlockingModel === modelId
                     return (
                       <button
                         key={modelId}
-                        onClick={() => { setModel(modelId); setModelPickerOpen(false) }}
+                        onClick={() => {
+                          if (locked) { void handleUnlockModel(modelId, gate) }
+                          else { setModel(modelId); setModelPickerOpen(false) }
+                        }}
+                        disabled={unlocking}
+                        title={locked ? (gate?.reason || 'Sign-in required') : undefined}
                         className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left transition-colors ${
                           active ? 'bg-accent-subtle text-accent font-medium' : 'text-text-secondary hover:bg-bg-hover'
-                        }`}
+                        } ${locked ? 'opacity-80' : ''}`}
                       >
                         {provider && (
                           <span className="flex-shrink-0 text-[8px] leading-none font-medium uppercase tracking-wide px-1 py-0.5 rounded bg-bg-tertiary text-text-muted/80 border border-border/50 max-w-[56px] truncate" title={provider}>
                             {provider}
                           </span>
                         )}
-                        <span className="flex-1 truncate font-mono">{name}</span>
-                        {active && <span className="text-2xs opacity-60">●</span>}
+                        <span className={`flex-1 truncate font-mono ${locked ? 'text-text-muted' : ''}`}>{name}</span>
+                        {locked ? (
+                          unlocking ? (
+                            <span className="flex items-center gap-1 text-[9px] text-amber-500">
+                              <svg width="10" height="10" viewBox="0 0 24 24" className="animate-spin" fill="none" stroke="currentColor" strokeWidth={2}><path d="M21 12a9 9 0 1 1-6.219-8.56" strokeLinecap="round" /></svg>
+                              Signing in…
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-[9px] font-medium text-amber-500" title={gate?.reason || 'Sign-in required'}>
+                              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" strokeLinecap="round" /></svg>
+                              Sign in
+                            </span>
+                          )
+                        ) : active && <span className="text-2xs opacity-60">●</span>}
                       </button>
                     )
                   })}
-                  {savedModels.length === 0 && (
+                  {displayModels.length === 0 && (
                     <p className="px-2.5 py-2 text-2xs text-text-muted italic">No saved models — add in Settings</p>
                   )}
                 </div>
