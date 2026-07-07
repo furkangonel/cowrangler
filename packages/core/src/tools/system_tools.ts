@@ -7,7 +7,7 @@ import { registerTool } from "./registry.js";
 import { SUB_AGENTS } from "../subagents.js";
 import { Agent } from "../agent.js";
 import { LLM } from "../llm.js";
-import { getProjectTodoFile, getProjectPlanFile } from "../project_context.js";
+import { getProjectTodoFile, getProjectPlanFile, getProjectWorkdir } from "../project_context.js";
 import { getConfig } from "../init.js";
 import { PROJECT_ROOT, LOCAL_DIR } from "../init.js";
 import {
@@ -170,7 +170,7 @@ Use execute_bash only when necessary. Prefer purpose-built tools (git_*, file_*)
     permission_mode?: PermissionMode;
   }) => {
     const config = getConfig();
-    const effectiveCwd = cwd ?? PROJECT_ROOT;
+    const effectiveCwd = cwd ?? getProjectWorkdir();
     const effectivePermMode = (permission_mode ??
       config.permission_mode ??
       "default") as PermissionMode;
@@ -208,14 +208,14 @@ Use execute_bash only when necessary. Prefer purpose-built tools (git_*, file_*)
     }
 
     // ── Configure sandbox from config ───────────────────────────────────────
-    configureSandbox({
+     configureSandbox({
       enabled: effectivePermMode === "bypass" ? false : (config.sandbox?.enabled ?? true),
-      workspaceRoot: PROJECT_ROOT,
+      workspaceRoot: getProjectWorkdir(),
       maxOutputBytes: 512 * 1024,
       maxTimeoutMs: config.sandbox?.max_timeout_ms ?? 30000,
       networkRestricted: config.sandbox?.network_restricted ?? false,
       auditLogPath: config.sandbox?.audit_log
-        ? path.join(LOCAL_DIR, "audit.log")
+        ? path.join(getProjectWorkdir(), ".cowrangler", "audit.log")
         : undefined,
       // Docker backend — sandbox bundle runner'ı docker provider ile çalıştırır.
       provider: backend === "docker" ? "docker" : (config.sandbox?.provider ?? "auto"),
@@ -726,7 +726,7 @@ The report is returned to you (the calling agent) for review before acting on it
     if (isolate) {
       try {
         const { createWorktree } = await import("../worktree.js");
-        const wt = createWorktree(PROJECT_ROOT, `${agentType}-${Date.now().toString(36)}`);
+        const wt = createWorktree(getProjectWorkdir(), `${agentType}-${Date.now().toString(36)}`);
         isolationNote =
           `\n\nISOLATION: Do ALL file writes and commands under this dedicated git worktree:\n  ${wt.path}\n` +
           `(branch: ${wt.branch}). Use absolute paths under it. Do not touch files outside it.`;

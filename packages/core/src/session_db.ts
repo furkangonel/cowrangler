@@ -264,6 +264,7 @@ export class SessionDB {
         | "billing_provider"
         | "billing_mode"
         | "pinned"
+        | "workdir"
       >
     >,
   ): void {

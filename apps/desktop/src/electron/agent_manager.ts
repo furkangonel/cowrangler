@@ -35,6 +35,11 @@ export class AgentManager {
     config: { model: string; systemPrompt: string; allowedTools?: string[]; maxIterations?: number },
     workdir?: string,
   ): Agent {
+    if (workdir) {
+      this.workdirs.set(projectId, workdir)
+      setProjectContext(workdir)
+      setWorkspace(workdir)
+    }
     if (!this.agents.has(projectId)) {
       const llm = new LLM(config.model)
       const agent = new Agent(llm, config.systemPrompt, config.maxIterations ?? 25, config.allowedTools, 'desktop')
@@ -47,7 +52,6 @@ export class AgentManager {
       }
       if (config.maxIterations !== undefined) existing.maxIterations = config.maxIterations
     }
-    if (workdir) this.workdirs.set(projectId, workdir)
     return this.agents.get(projectId)!
   }
 

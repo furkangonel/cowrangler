@@ -111,8 +111,16 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
     let workdir = resolveWorkdir(projectId, project)
     if (projectId === CODE_PROJECT_ID && sessionId) {
       const sess = getSessionDB().getSession(sessionId)
-      if (sess && sess.workdir) {
-        workdir = sess.workdir
+      if (sess) {
+        if (sess.workdir && sess.workdir !== '/' && sess.workdir !== '') {
+          workdir = sess.workdir
+        } else if (workdir && workdir !== '/' && workdir !== '') {
+          try {
+            getSessionDB().updateSession(sessionId, { workdir })
+          } catch (e) {
+            console.error('[agent:chat] Failed to self-heal session workdir:', e)
+          }
+        }
       }
     }
 
@@ -324,7 +332,13 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
     if (!sessionId) return []
     // Workdir'i project DB'den çöz — agent instance olmadan da çalışır
     const project = getProjectDB().get(projectId)
-    const workdir = resolveWorkdir(projectId, project)
+    let workdir = resolveWorkdir(projectId, project)
+    if (projectId === CODE_PROJECT_ID && sessionId) {
+      const sess = getSessionDB().getSession(sessionId)
+      if (sess && sess.workdir && sess.workdir !== '/' && sess.workdir !== '') {
+        workdir = sess.workdir
+      }
+    }
     if (!workdir) return []
     return AgentManager.readTodo(workdir, sessionId)
   })
@@ -365,7 +379,13 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
     try {
       if (!sessionId) return null
       const project = getProjectDB().get(projectId)
-      const workdir = resolveWorkdir(projectId, project)
+      let workdir = resolveWorkdir(projectId, project)
+      if (projectId === CODE_PROJECT_ID && sessionId) {
+        const sess = getSessionDB().getSession(sessionId)
+        if (sess && sess.workdir && sess.workdir !== '/' && sess.workdir !== '') {
+          workdir = sess.workdir
+        }
+      }
       if (!workdir) return null
       const planFile = path.join(workdir, '.cowrangler', 'plans', `${sessionId}.md`)
       if (!fs.existsSync(planFile)) return null

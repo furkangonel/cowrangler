@@ -10,7 +10,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import {
   ArrowLeft, ArrowRight, RotateCw, ExternalLink,
-  Monitor, Tablet, Smartphone,
+  Monitor, Tablet, Smartphone, Square,
 } from 'lucide-react'
 import { ipc } from '../../lib/ipc'
 import { useGitStore } from '../../stores/git.store'
@@ -61,6 +61,17 @@ export function LivePreviewPanel() {
     }
   }, [detect, workdir])
 
+  // Agent'tan gelen set_preview_url yönlendirmelerini dinle
+  useEffect(() => {
+    const unsub = ipc.preview.onSetUrl((newUrl) => {
+      setUrl(newUrl)
+      setInput(newUrl)
+      setStatus('ready')
+      setReloadKey((k) => k + 1)
+    })
+    return unsub
+  }, [])
+
   const go = (u: string) => {
     let full = u.trim()
     if (!full) return
@@ -74,6 +85,20 @@ export function LivePreviewPanel() {
   const back = () => { try { iframeRef.current?.contentWindow?.history.back() } catch { /* cross-origin */ } }
   const forward = () => { try { iframeRef.current?.contentWindow?.history.forward() } catch { /* cross-origin */ } }
   const openExternal = () => { if (url) ipc.fs.openExternal(url) }
+  
+  const handleStop = async () => {
+    if (!url) return
+    const m = url.match(/:(\d+)(?:\/|$)/)
+    const port = m ? parseInt(m[1], 10) : null
+    if (!port) return
+
+    const res = await ipc.preview.stop(port).catch(() => null)
+    if (res && res.ok) {
+      setUrl(null)
+      setInput('')
+      setStatus('none')
+    }
+  }
 
   const width = DEVICE_WIDTH[device]
 
@@ -84,6 +109,15 @@ export function LivePreviewPanel() {
         <ToolBtn onClick={back} title="Back"><ArrowLeft size={13} /></ToolBtn>
         <ToolBtn onClick={forward} title="Forward"><ArrowRight size={13} /></ToolBtn>
         <ToolBtn onClick={reload} title="Reload"><RotateCw size={13} /></ToolBtn>
+        {status === 'ready' && url && (
+          <button
+            onClick={handleStop}
+            title="Stop dev server"
+            className="p-1.5 rounded-md text-red-500 hover:text-red-600 hover:bg-red-50/15 transition-colors flex-shrink-0 flex items-center justify-center"
+          >
+            <Square size={9} fill="currentColor" />
+          </button>
+        )}
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}

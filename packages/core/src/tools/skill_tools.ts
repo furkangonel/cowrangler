@@ -4,6 +4,7 @@ import path from "path";
 import { registerTool } from "./registry.js";
 import { SkillManager } from "../skills.js";
 import { DIRS } from "../init.js";
+import { getProjectLocalSkillsDir } from "../project_context.js";
 
 const skillManager = new SkillManager();
 
@@ -74,7 +75,7 @@ registerTool(
     if (!cleanId)
       return "ERROR: Invalid skill_id. Use kebab-case (e.g., 'my-workflow').";
 
-    const baseDir = scope === "global" ? DIRS.global.skills : DIRS.local.skills;
+    const baseDir = scope === "global" ? DIRS.global.skills : getProjectLocalSkillsDir();
     const skillDir = path.join(baseDir, cleanId);
 
     if (fs.existsSync(skillDir)) {

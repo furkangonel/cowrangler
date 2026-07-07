@@ -83,7 +83,7 @@ function createWindow(): void {
     registerDesignIPC()
     registerExportIPC()
     registerTerminalIPC(ipcMain, () => mainWindow)
-    registerPreviewIPC(ipcMain)
+    registerPreviewIPC(ipcMain, () => mainWindow)
     registerPluginsIPC(ipcMain)
 
     // ── Design window ──────────────────────────────────────────────────────

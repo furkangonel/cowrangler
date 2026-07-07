@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://em-content.zobj.net/source/apple/391/electric-plug_1f50c.png" width="90" alt="Plugin" />
+    <img src="assets/octopuses/cowrangler_plugins.png" width="200" alt="Octopus" />
 </p>
 
 <h1 align="center">Writing Cowrangler Plugins</h1>

@@ -40,7 +40,14 @@ export function CodeSessionView() {
   } = useSessionsStore()
   const { getModel, config } = useSettingsStore()
   const userName = ((config?.['desktop.userName'] as string) || (config?.['name'] as string) || null)
-  const { activeCodeSessionId, setActiveCodeSession, pendingCodePrompt, clearCodePrompt } = useUIStore()
+  const {
+    activeCodeSessionId,
+    setActiveCodeSession,
+    pendingCodePrompt,
+    clearCodePrompt,
+    setRightPanelOpen,
+    setCodeRightTab,
+  } = useUIStore()
   const gitStore = useGitStore()
   const bottomRef = useRef<HTMLDivElement>(null)
   const status = agentStore.status
@@ -71,7 +78,7 @@ export function CodeSessionView() {
     if (activeCodeSessionId && activeCodeSessionId !== NEW_CODE_SESSION) {
       loadMessages(activeCodeSessionId)
       ipc.sessions.get(activeCodeSessionId).then(sess => {
-        if (sess && sess.workdir) {
+        if (sess && sess.workdir && sess.workdir !== '/' && sess.workdir !== '') {
           gitStore.setWorkdir(sess.workdir)
           ipc.agent.setCodeWorkdir(sess.workdir).catch(() => {})
         }
@@ -86,6 +93,63 @@ export function CodeSessionView() {
   useEffect(() => {
     ipc.agent.setCodeWorkdir(workdir ?? null).catch(() => {})
     if (workdir) gitStore.refresh()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workdir])
+
+  // Git takibini otomatik yenile: 5 saniyede bir poll + pencere odaklanınca anında yenile.
+  useEffect(() => {
+    if (!workdir) return
+
+    const handleFocus = () => {
+      gitStore.refresh().catch(() => {})
+    }
+    window.addEventListener('focus', handleFocus)
+
+    const interval = setInterval(() => {
+      gitStore.refresh().catch(() => {})
+    }, 5000)
+
+    return () => {
+      window.removeEventListener('focus', handleFocus)
+      clearInterval(interval)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workdir])
+
+  const [devServerRunning, setDevServerRunning] = useState<boolean | null>(null)
+
+  // Dev server tespiti ve otomatik preview tabına geçiş
+  useEffect(() => {
+    if (!workdir) return
+
+    let isMounted = true
+
+    const checkServer = async () => {
+      const found = await ipc.preview.detect(workdir).catch(() => null)
+      const isNowRunning = !!found
+      
+      if (!isMounted) return
+
+      setDevServerRunning((prev) => {
+        if (prev !== null) {
+          // Geçiş algılama: Eskiden çalışmıyordu, şimdi çalışıyor -> Sağ paneli aç ve Run sekmesine geç
+          if (!prev && isNowRunning) {
+            setRightPanelOpen(true)
+            setCodeRightTab('run')
+          }
+        }
+        return isNowRunning
+      })
+    }
+
+    checkServer()
+
+    const interval = setInterval(checkServer, 3000)
+
+    return () => {
+      isMounted = false
+      clearInterval(interval)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workdir])
 

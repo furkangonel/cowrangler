@@ -507,6 +507,8 @@ interface ElectronAPI {
   preview: {
     detect: (workdir?: string) => Promise<{ url: string; port: number } | null>
     check: (port: number) => Promise<{ open: boolean }>
+    onSetUrl: (cb: (url: string) => void) => () => void
+    stop: (port: number) => Promise<{ ok: boolean; message: string }>
   }
   terminal: {
     create: (opts: { id: string; cwd?: string | null; cols?: number; rows?: number }) => Promise<{ ok: boolean }>
