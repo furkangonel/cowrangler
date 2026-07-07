@@ -107,10 +107,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     pin: (sessionId: string, pinned: boolean) => ipcRenderer.invoke('sessions:pin', sessionId, pinned),
     dashboardStats: (sinceMs?: number) => ipcRenderer.invoke('sessions:dashboardStats', sinceMs),
   },
-  // ── Preview (canlı dev-server) ───────────────────────────────────────────
   preview: {
     detect: (workdir?: string) => ipcRenderer.invoke('preview:detect', workdir),
     check: (port: number) => ipcRenderer.invoke('preview:check', port),
+    onSetUrl: (cb: (url: string) => void) => {
+      const listener = (_e: any, url: string) => cb(url)
+      ipcRenderer.on('preview:set-url', listener)
+      return () => ipcRenderer.removeListener('preview:set-url', listener)
+    },
+    stop: (port: number) => ipcRenderer.invoke('preview:stop', port),
   },
   // ── Terminal (pty) ───────────────────────────────────────────────────────
   terminal: {

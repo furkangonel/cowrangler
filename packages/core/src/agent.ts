@@ -18,9 +18,9 @@ import { LLM } from "./llm.js";
 import { SkillManager } from "./skills.js";
 import { TOOL_SCHEMAS } from "./tools/registry.js";
 import { BriefBuffer, createSendMessageTool } from "./tools/brief_tool.js";
-import { DIRS, COWRNGLR_MD, getConfig } from "./init.js";
+import { DIRS, getConfig } from "./init.js";
 import { scanContext } from "./context_security.js";
-import { setActiveSessionId, getProjectWorkdir } from "./project_context.js";
+import { setActiveSessionId, getProjectWorkdir, getProjectCowrnglrMd, getProjectMemoryDir } from "./project_context.js";
 import { buildToolFallbackInstructions } from "./tool_fallback.js";
 import { DefaultContextEngine, ContextSnapshot } from "./context_engine.js";
 import { getSessionDB } from "./session_db.js";
@@ -182,8 +182,9 @@ export class Agent {
   private _buildSystemPrompt(basePrompt: string): string {
     let finalPrompt = basePrompt;
 
-    if (fs.existsSync(COWRNGLR_MD)) {
-      let cowrnglrContent = fs.readFileSync(COWRNGLR_MD, "utf-8").trim();
+    const cowrnglrMd = getProjectCowrnglrMd();
+    if (fs.existsSync(cowrnglrMd)) {
+      let cowrnglrContent = fs.readFileSync(cowrnglrMd, "utf-8").trim();
       if (cowrnglrContent) {
         const scan = scanContext(cowrnglrContent, "COWRNGLR.md");
         cowrnglrContent = scan.content;
@@ -193,19 +194,20 @@ export class Agent {
       }
     }
 
-    if (fs.existsSync(DIRS.local.memory)) {
-      const stat = fs.statSync(DIRS.local.memory);
+    const localMemoryDir = getProjectMemoryDir();
+    if (fs.existsSync(localMemoryDir)) {
+      const stat = fs.statSync(localMemoryDir);
       let memoryContent = "";
       if (stat.isDirectory()) {
-        const files = fs.readdirSync(DIRS.local.memory).filter(f => f.endsWith(".md"));
+        const files = fs.readdirSync(localMemoryDir).filter(f => f.endsWith(".md"));
         for (const file of files) {
-          const content = fs.readFileSync(path.join(DIRS.local.memory, file), "utf-8").trim();
+          const content = fs.readFileSync(path.join(localMemoryDir, file), "utf-8").trim();
           if (content) {
             memoryContent += `\n--- [${file}] ---\n${content}\n`;
           }
         }
       } else {
-        memoryContent = fs.readFileSync(DIRS.local.memory, "utf-8").trim();
+        memoryContent = fs.readFileSync(localMemoryDir, "utf-8").trim();
       }
       
       memoryContent = memoryContent.trim();

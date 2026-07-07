@@ -220,7 +220,7 @@ const GLOBAL_BUNDLE_PATH = path.join(os.homedir(), ".cowrangler", "cowrangler-sa
  * Bundle sürümü. Runner script'leri her değiştiğinde ARTIR — böylece eski
  * kopyalar (stale cache) otomatik olarak yeniden kopyalanır.
  */
-const SANDBOX_BUNDLE_VERSION = "2";
+const SANDBOX_BUNDLE_VERSION = "4";
 const BUNDLE_VERSION_FILE = path.join(GLOBAL_BUNDLE_PATH, ".bundle_version");
 
 /** Global bundle güncel sürümde mi? */
@@ -383,8 +383,11 @@ export function runInSandbox(
 
   const riskLevel = analyzeBashRisk(command);
 
-  // ── 1. Sandbox kapalıysa direkt asenkron çalıştır ──────────────────────────
-  if (!_config.enabled) {
+  // Arka planda çalıştırılan dev-server komutları için sandbox'ı devredışı bırak (process'in hayatta kalması için)
+  const isDevServerCmd = /\b(npm\s+(run\s+)?dev|npm\s+start|vite|next|astro|gatsby|react-scripts|npx\s+(--no-install\s+)?vite)\b/i.test(command) && command.includes("&");
+
+  // ── 1. Sandbox kapalıysa veya dev server arka planda çalışacaksa direkt asenkron çalıştır ──────────────────────────
+  if (!_config.enabled || isDevServerCmd) {
     return new Promise<SandboxResult>((resolve) => {
       exec(command, {
         cwd,

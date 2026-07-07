@@ -8,10 +8,11 @@
  * döner. Ayrıca workdir/package.json script'lerinden ipucu almaya çalışır
  * (dev script'i bir port belirtiyorsa onu öne alır).
  */
-import type { IpcMain } from "electron";
+import type { BrowserWindow, IpcMain } from "electron";
 import net from "net";
 import fs from "fs";
 import path from "path";
+import { onSetPreviewUrl, killPortProcess } from "@cowrangler/core/tools/preview_tools.js";
 
 const COMMON_PORTS = [5173, 3000, 4321, 8080, 8000, 4200, 3001, 5174, 1420];
 
@@ -49,7 +50,15 @@ function portHintFromPackage(workdir: string): number | null {
   return null;
 }
 
-export function registerPreviewIPC(ipcMain: IpcMain): void {
+export function registerPreviewIPC(
+  ipcMain: IpcMain,
+  getWindow: () => BrowserWindow | null,
+): void {
+  // Core preview_tools'daki set_preview_url çağrısını dinleyip renderer'a gönder
+  onSetPreviewUrl((url) => {
+    getWindow()?.webContents.send("preview:set-url", url);
+  });
+
   ipcMain.handle("preview:detect", async (_e, workdir?: string) => {
     const ports: number[] = [];
     if (workdir) {
@@ -69,5 +78,10 @@ export function registerPreviewIPC(ipcMain: IpcMain): void {
   // Belirli bir URL/port canlı mı? (manuel giriş doğrulaması için)
   ipcMain.handle("preview:check", async (_e, port: number) => {
     return { open: await isPortOpen(port) };
+  });
+
+  // Dev-server'ı port üzerinden sonlandır
+  ipcMain.handle("preview:stop", async (_e, port: number) => {
+    return await killPortProcess(port);
   });
 }

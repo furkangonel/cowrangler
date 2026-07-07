@@ -26,6 +26,7 @@ case $PROVIDER in
 (allow process-exec)
 (allow sysctl-read)
 (allow file-read* (literal "/"))
+(allow file-read* (literal "/Users"))
 (allow file-read* (subpath "/usr/lib"))
 (allow file-read* (subpath "/usr/share"))
 (allow file-read* (subpath "/System/Library"))
@@ -44,6 +45,9 @@ case $PROVIDER in
 (allow file-write* (subpath "/private/tmp"))
 (allow file-read* (subpath "$CWD"))
 (allow file-write* (subpath "$CWD"))
+(allow file-read* (subpath "/dev"))
+(allow file-write* (literal "/dev/null"))
+(allow file-write* (literal "/dev/zero"))
 EOF
 
       # Allow home directory read access for tools configuration (e.g. .npmrc, .gitconfig) but write only to project path

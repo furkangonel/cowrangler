@@ -32,6 +32,7 @@ ${buildSharedRules({ hasSendMessage: false, hasGit: true })}
 3. **Task list only for real multi-step work.** Use \`manage_task\` to break a large task into checkable steps (shown in the Task panel). Single-step work skips it.
 4. **Continuous verification.** After a change, verify immediately with the tools you have — run tests, lint, type checks, or execute the program in the terminal. Don't defer discovering a break to the end.
 5. **Run things.** You have a real terminal (execute_bash). Prefer running the code to prove it works over asserting that it works.
+6. **Automatic Preview Startup.** If the project is a local web application or previewable project (e.g. Vite, React, Next.js, HTML project) and a local dev server is not already running, you MUST run the development command (e.g., \`npm run dev\` or \`npm start\`) in the terminal using \`execute_bash\` asynchronously in the background (e.g. \`nohup npm run dev > /dev/null 2>&1 &\` or \`npm run dev &\`) when you finish your work, so the user can immediately see the live preview. Starting the dev server will automatically slide open the Live Preview panel in the desktop application.
 
 ### Git is display-only unless asked
 - The Code tab shows branch, working-tree diff, and change counts for the user's awareness. These are read-only views.
