@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://em-content.zobj.net/source/apple/391/octopus_1f419.png" width="120" alt="Octopus" />
+    <img src="assets/octopuses/oct.png" width="200" alt="Octopus" />
 </p>
 
 <h1 align="center">Cowrangler</h1>
