@@ -19,7 +19,7 @@
 **Cowrangler Design** is a visual design playground integrated directly into Cowrangler Desktop. It provides developers and AI agents with an interactive, side-by-side workspace to sketch, develop, and preview React/HTML/CSS interfaces in real time. It enables rapid UI prototyping, responsive testing, and visual adjustments without leaving your project environment.
 
 <p align="center">
-  <img src="../../../../assets/main_page.png" alt="Cowrangler Design Visual Editor" width="800" />
+  <img src="../../../../../../assets/main_page.png" alt="Cowrangler Design Visual Editor" width="800" />
 </p>
 
 ---
@@ -37,7 +37,7 @@
   * *Widgets / UI Elements* — Feed sections, card list sliders, calendar layouts, navigation bars, and multistep wizards.
 
 <p align="center">
-  <img src="../../../../assets/template_samples.png" alt="Cowrangler Design Templates Registry" width="800" />
+  <img src="../../../../../../assets/template_samples.png" alt="Cowrangler Design Templates Registry" width="800" />
 </p>
 * 📦 **Custom Design Systems** — Supply the agent with your project's styling guidelines. Connect your stylesheets and token specifications to ensure generated components match your company's aesthetic rules.
 * 💾 **Direct Export** — Copy generated code snippets or export structural elements directly to your project workspace files.

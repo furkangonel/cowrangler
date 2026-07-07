@@ -267,6 +267,8 @@ export interface GitStatus {
   upstream: string | null
   files: GitFileEntry[]
   clean: boolean
+  additions?: number
+  deletions?: number
 }
 
 export interface GitBranchInfo {

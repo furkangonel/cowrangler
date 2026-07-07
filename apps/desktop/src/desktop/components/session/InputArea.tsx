@@ -11,9 +11,10 @@ interface Props {
   projectId: string
   /** When true, hides the bottom model picker row. */
   hideModelPicker?: boolean
+  placeholder?: string
 }
 
-export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelPicker }: Props) {
+export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelPicker, placeholder }: Props) {
   const [value, setValue] = useState('')
   const [skills, setSkills] = useState<SkillDef[]>([])
   const [slashOpen, setSlashOpen] = useState(false)
@@ -428,7 +429,7 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelP
               onChange={handleInput}
               onKeyDown={handleKeyDown}
               disabled={disabled}
-              placeholder={disabled ? 'Agent is working…' : 'Type a task…  ( call a skill with / )'}
+              placeholder={placeholder || (disabled ? 'Agent is working…' : 'Type a task…  ( call a skill with / )')}
               rows={1}
               className="flex-1 bg-transparent text-md text-text-primary placeholder-text-muted resize-none outline-none max-h-[220px] overflow-y-auto selectable py-1.5 disabled:opacity-60"
               style={{ minHeight: '28px' }}

@@ -60,6 +60,9 @@ export class LLM {
    */
 
   private _validateRequiredVars(modelName: string): void {
+    if (modelName.startsWith("antigravity/")) {
+      modelName = "google/antigravity-" + modelName.slice("antigravity/".length);
+    }
     // ── Plugin-provided providers ──────────────────────────────────────────
     // If an installed plugin registered a provider interceptor for this model's
     // provider (e.g. Antigravity OAuth under "google"), it supplies its own
@@ -203,6 +206,9 @@ export class LLM {
 
 
   private resolveProvider(modelName: string): LanguageModelV1 {
+    if (modelName.startsWith("antigravity/")) {
+      modelName = "google/antigravity-" + modelName.slice("antigravity/".length);
+    }
     // 0. PROVIDER/MODEL_NAME FORMAT (eg. anthropic/claude-sonnet-4-6)
     // Uzun format kısa prefix'lerden önce kontrol edilir.
     if (modelName.startsWith("anthropic/")) {

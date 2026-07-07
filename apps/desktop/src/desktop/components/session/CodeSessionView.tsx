@@ -12,7 +12,7 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react'
 import {
   Plus, Square, FolderOpen, GitBranch, Check, Monitor, GitBranchPlus,
-  ChevronRight, ChevronDown, Code2, GitPullRequest, RefreshCw,
+  ChevronRight, ChevronDown, Code2, GitPullRequest, RefreshCw, X,
 } from 'lucide-react'
 import { ipc } from '../../lib/ipc'
 import { useAgentStore } from '../../stores/agent.store'
@@ -101,6 +101,19 @@ export function CodeSessionView() {
       agentStore.setError('No model selected. Choose a model from Settings → Models & API.')
       return
     }
+
+    if (!activeCodeSessionId) {
+      await ipc.agent.newSession(CODE_PROJECT_ID)
+      agentStore.setStatus('idle')
+      agentStore.clearToolCalls()
+      agentStore.clearTimelines()
+      clearUIMessages()
+
+      sessionStorage.setItem('pendingCodePrompt', message)
+      setActiveCodeSession(NEW_CODE_SESSION)
+      return
+    }
+
     addUserMessage(message)
     agentStore.setStatus('thinking')
     agentStore.clearToolCalls()
@@ -111,7 +124,7 @@ export function CodeSessionView() {
       agentStore.setStatus('error')
       agentStore.setError(err?.message ?? String(err))
     }
-  }, [status, activeCodeSessionId, getModel, agentStore, addUserMessage])
+  }, [status, activeCodeSessionId, getModel, agentStore, addUserMessage, clearUIMessages, setActiveCodeSession])
 
   const handleInterrupt = useCallback(() => {
     ipc.agent.interrupt(CODE_PROJECT_ID)
@@ -126,6 +139,19 @@ export function CodeSessionView() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingCodePrompt])
+
+  // Check for pending prompt in sessionStorage when entering a new code session
+  useEffect(() => {
+    if (activeCodeSessionId === NEW_CODE_SESSION) {
+      const pending = sessionStorage.getItem('pendingCodePrompt')
+      if (pending) {
+        sessionStorage.removeItem('pendingCodePrompt')
+        setTimeout(() => {
+          void handleSend(pending)
+        }, 100)
+      }
+    }
+  }, [activeCodeSessionId, handleSend])
 
   // WP-B2: "Create PR" agent'a talimattır (elle commit/push yok). Agent
   // git_add/git_commit/git_push/git_open_pr tool'larını kullanır.
@@ -182,7 +208,8 @@ export function CodeSessionView() {
         <InputArea
           onSend={handleSend}
           onInterrupt={handleInterrupt}
-          disabled={status === 'thinking'}
+          disabled={status === 'thinking' || !workdir}
+          placeholder={!workdir ? 'Lütfen işlem başlatmak için önce bir klasör (proje) seçin...' : undefined}
           projectId={CODE_PROJECT_ID}
         />
       </div>
@@ -329,11 +356,33 @@ function CodeWorkspaceBar({
 }) {
   const [menu, setMenu] = useState<null | 'folder' | 'branch'>(null)
   const currentBranch = gitStatus?.branch || branches?.current || null
-  const recents = menu === 'folder' ? readRecents() : []
+  const [recents, setRecents] = useState<string[]>([])
 
-  useEffect(() => { if (workdir) pushRecent(workdir) }, [workdir])
+  useEffect(() => {
+    if (menu === 'folder') {
+      setRecents(readRecents())
+    }
+  }, [menu])
+
+  useEffect(() => {
+    if (workdir) {
+      pushRecent(workdir)
+      if (menu === 'folder') {
+        setRecents(readRecents())
+      }
+    }
+  }, [workdir, menu])
 
   const close = () => setMenu(null)
+
+  const handleRemoveRecent = (e: React.MouseEvent, pathToRemove: string) => {
+    e.stopPropagation()
+    try {
+      const list = readRecents().filter((p) => p !== pathToRemove)
+      localStorage.setItem(RECENTS_KEY, JSON.stringify(list))
+      setRecents(list)
+    } catch { /* yoksay */ }
+  }
 
   return (
     <div className="flex items-center gap-1.5 px-4 py-1.5 text-[11px] text-text-muted flex-shrink-0 relative">
@@ -353,14 +402,25 @@ function CodeWorkspaceBar({
                 <div className="px-2 py-1 text-[10px] text-text-muted uppercase tracking-wide">Recent</div>
               )}
               {recents.map((p) => (
-                <button
+                <div
                   key={p}
-                  onClick={() => { close(); useGitStore.getState().setWorkdir(p); ipc.agent.setCodeWorkdir(p).catch(() => {}) }}
-                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left hover:bg-bg-hover transition-colors"
+                  className="w-full flex items-center group px-1 py-0.5 rounded-lg hover:bg-bg-hover transition-colors text-left"
                 >
-                  <span className="truncate text-xs text-text-primary">{p.split('/').pop()}</span>
-                  {p === workdir && <Check size={12} className="ml-auto text-accent flex-shrink-0" />}
-                </button>
+                  <button
+                    onClick={() => { close(); useGitStore.getState().setWorkdir(p); ipc.agent.setCodeWorkdir(p).catch(() => {}) }}
+                    className="flex-1 flex items-center gap-2 px-1 py-1 text-left min-w-0"
+                  >
+                    <span className="truncate text-xs text-text-primary" title={p}>{p.split('/').pop()}</span>
+                    {p === workdir && <Check size={12} className="text-accent flex-shrink-0 ml-auto" />}
+                  </button>
+                  <button
+                    onClick={(e) => handleRemoveRecent(e, p)}
+                    className="opacity-0 group-hover:opacity-100 p-1 text-text-muted hover:text-text-primary rounded hover:bg-bg-secondary flex-shrink-0 transition-opacity ml-1"
+                    title="Remove from recents"
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
               ))}
               <button
                 onClick={() => { close(); onPickFolder() }}
@@ -435,7 +495,7 @@ function CodeGitBar({
   loading: boolean
 }) {
   const stagedCount   = (gitStatus?.files ?? []).filter((f: any) => f.staged).length
-  const unstagedCount = (gitStatus?.files ?? []).filter((f: any) => !f.staged).length
+  const unstagedCount = (gitStatus?.files ?? []).filter((f: any) => f.unstaged).length
   const [prMenuOpen, setPrMenuOpen] = useState(false)
 
   // Manuel yol: GitHub compare sayfasını tarayıcıda aç (agent yerine kullanıcı).
@@ -472,12 +532,18 @@ function CodeGitBar({
       {!gitStatus?.clean && (gitStatus?.files?.length > 0) && (
         <>
           <span className="text-border-subtle mx-0.5">│</span>
-          <div className="flex items-center gap-2 py-0.5 font-medium">
-            {stagedCount > 0 && (
-              <span className="text-emerald-500">+{stagedCount}</span>
+          <div className="flex items-center gap-1.5 py-0.5 font-medium">
+            <span className="text-text-secondary" title={`${stagedCount} staged, ${unstagedCount} unstaged`}>
+              {gitStatus.files.length} {gitStatus.files.length === 1 ? 'file' : 'files'}
+            </span>
+            {((gitStatus.additions || 0) > 0 || (gitStatus.deletions || 0) > 0) && (
+              <span className="text-text-muted/40 font-normal">|</span>
             )}
-            {unstagedCount > 0 && (
-              <span className="text-amber-500">~{unstagedCount}</span>
+            {(gitStatus.additions || 0) > 0 && (
+              <span className="text-emerald-500" title={`${gitStatus.additions} insertions`}>+{gitStatus.additions}</span>
+            )}
+            {(gitStatus.deletions || 0) > 0 && (
+              <span className="text-rose-500" title={`${gitStatus.deletions} deletions`}>-{gitStatus.deletions}</span>
             )}
           </div>
         </>

@@ -150,6 +150,15 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
     // birden fazla proje aynı süreçte güvenli şekilde yönetilebilir.
     agentManager.applyProjectContext(projectId)
 
+    // Load existing session history into the agent if it is different
+    if (sessionId && agent.currentSessionId !== sessionId) {
+      try {
+        agent.loadSession(sessionId);
+      } catch (err) {
+        console.error('[agent:chat] Failed to load session:', err);
+      }
+    }
+
     // Aktif UI-conversation session'ını burada da (yeniden) ayarla — tek yetkili
     // yer bu, çünkü her `agent:chat` çağrısı zaten kendi `sessionId`'sini taşıyor.
     // Önceden yalnızca renderer'ın ayrı 'agent:setActiveSession' çağrısına
@@ -265,11 +274,11 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
         sessionId: currentSessionId,
       })
     } catch (err: any) {
-      console.error('[agent:chat] Fatal Error:', err)
       // AbortError means user pressed Stop — not an error, just interrupted
       if (err?.name === 'AbortError' || err?.message?.includes('aborted') || err?.message?.includes('This operation was aborted')) {
         sender.send('agent:interrupted')
       } else {
+        console.error('[agent:chat] Fatal Error:', err)
         sender.send('agent:error', friendlyError(err.message || String(err)))
       }
     }

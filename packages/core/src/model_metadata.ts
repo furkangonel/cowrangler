@@ -223,6 +223,9 @@ function normalizeModelKey(model: string): string {
 }
 
 export function getModelMeta(model: string): ModelMeta | null {
+  if (model.startsWith("antigravity/")) {
+    model = "google/antigravity-" + model.slice("antigravity/".length);
+  }
   // Yerel modeller
   if (model.startsWith("ollama/") || model.startsWith("lmstudio/") || model.startsWith("local/")) {
     return {
