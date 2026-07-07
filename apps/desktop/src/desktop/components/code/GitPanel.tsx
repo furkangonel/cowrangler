@@ -34,7 +34,7 @@ export function GitPanel() {
   const [logLoading, setLogLoading] = useState(false)
 
   const staged = useMemo(() => (status?.files ?? []).filter(f => f.staged), [status])
-  const unstaged = useMemo(() => (status?.files ?? []).filter(f => !f.staged), [status])
+  const unstaged = useMemo(() => (status?.files ?? []).filter(f => f.unstaged), [status])
 
   const needsSetUpstream = !status?.upstream
 

@@ -13,6 +13,7 @@
 import { streamText, CoreMessage } from "ai";
 import fs from "fs";
 import path from "path";
+import crypto from "crypto";
 import { LLM } from "./llm.js";
 import { SkillManager } from "./skills.js";
 import { TOOL_SCHEMAS } from "./tools/registry.js";
@@ -1059,6 +1060,84 @@ export class Agent {
     this.sessionToolCallCount = 0;
     this.baseSystemPrompt = this._buildSystemPrompt(this.originalPrompt);
     this._startSession("cli");
+  }
+
+  /** Oturum geçmişini veritabanından yükler */
+  loadSession(sessionId: string): void {
+    const db = getSessionDB();
+    const sess = db.getSession(sessionId);
+    if (!sess) return;
+
+    this.sessionId = sessionId;
+    setActiveSessionId(sessionId);
+
+    const dbMsgs = db.getMessages(sessionId);
+    const mapped: CoreMessage[] = [];
+
+    for (const m of dbMsgs) {
+      if (m.role === "user") {
+        mapped.push({ role: "user", content: m.content });
+      } else if (m.role === "assistant" || m.role === "reasoning" || m.role === "tool_call") {
+        let last = mapped[mapped.length - 1];
+        if (!last || last.role !== "assistant") {
+          last = { role: "assistant", content: [] };
+          mapped.push(last);
+        }
+
+        if (typeof last.content === "string") {
+          last.content = [{ type: "text", text: last.content }];
+        }
+        const contentArr = last.content as any[];
+
+        if (m.role === "assistant") {
+          contentArr.push({ type: "text", text: m.content });
+        } else if (m.role === "reasoning") {
+          contentArr.push({ type: "text", text: `[Reasoning] ${m.content}` });
+        } else if (m.role === "tool_call") {
+          let args = {};
+          try {
+            args = JSON.parse(m.content);
+          } catch {
+            args = {};
+          }
+          contentArr.push({
+            type: "tool-call",
+            toolCallId: m.tool_call_id || `tc-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            toolName: m.tool_name || "",
+            args,
+          });
+        }
+      } else if (m.role === "tool_result") {
+        let last = mapped[mapped.length - 1];
+        if (!last || last.role !== "tool") {
+          last = { role: "tool", content: [] };
+          mapped.push(last);
+        }
+        const contentArr = last.content as any[];
+        let result: any;
+        try {
+          result = JSON.parse(m.content);
+        } catch {
+          result = m.content;
+        }
+        contentArr.push({
+          type: "tool-result",
+          toolCallId: m.tool_call_id || "",
+          toolName: m.tool_name || "",
+          result,
+        });
+      }
+    }
+
+    // Boş nesneleri temizle
+    this.messages = mapped.filter(m => {
+      if (Array.isArray(m.content) && m.content.length === 0) return false;
+      return true;
+    });
+
+    this.sessionToolCallCount = sess.tool_call_count;
+    this.contextEngine.reset();
+    this.baseSystemPrompt = this._buildSystemPrompt(this.originalPrompt);
   }
 
   /** Son asistan yanıtının düz metnini döndürür (/copy için). */

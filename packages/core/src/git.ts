@@ -83,6 +83,8 @@ export interface GitStatus {
   upstream: string | null;
   files: GitFileEntry[];
   clean: boolean;
+  additions?: number;
+  deletions?: number;
 }
 
 export interface GitBranchInfo {
@@ -150,7 +152,50 @@ export function status(cwd: string = getProjectWorkdir()): GitStatus {
     ? porcelain.stdout.split("\n").map(parseStatusLine).filter((f): f is GitFileEntry => f !== null)
     : [];
 
-  return { repo: true, branch, ahead, behind, upstream, files, clean: files.length === 0 };
+  let additions = 0;
+  let deletions = 0;
+
+  if (files.length > 0) {
+    // Unstaged diff stat
+    const unstagedNumstat = tryGit(["diff", "--numstat"], cwd);
+    if (unstagedNumstat.ok && unstagedNumstat.stdout) {
+      for (const line of unstagedNumstat.stdout.split("\n")) {
+        const parts = line.trim().split(/\s+/);
+        if (parts.length >= 2) {
+          const add = parseInt(parts[0], 10);
+          const del = parseInt(parts[1], 10);
+          if (!isNaN(add)) additions += add;
+          if (!isNaN(del)) deletions += del;
+        }
+      }
+    }
+
+    // Staged diff stat
+    const stagedNumstat = tryGit(["diff", "--numstat", "--staged"], cwd);
+    if (stagedNumstat.ok && stagedNumstat.stdout) {
+      for (const line of stagedNumstat.stdout.split("\n")) {
+        const parts = line.trim().split(/\s+/);
+        if (parts.length >= 2) {
+          const add = parseInt(parts[0], 10);
+          const del = parseInt(parts[1], 10);
+          if (!isNaN(add)) additions += add;
+          if (!isNaN(del)) deletions += del;
+        }
+      }
+    }
+  }
+
+  return {
+    repo: true,
+    branch,
+    ahead,
+    behind,
+    upstream,
+    files,
+    clean: files.length === 0,
+    additions,
+    deletions,
+  };
 }
 
 /** Diff çıktısı (staged veya unstaged, opsiyonel tek dosya). */
