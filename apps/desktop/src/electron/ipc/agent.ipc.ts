@@ -161,6 +161,19 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       setActiveSessionId(sessionId || null)
     }
 
+    // Session'ı projeye bağla + başlığı ilk promptun ilk 20 karakterinden ata
+    const currentSessionId = agent.currentSessionId
+    if (currentSessionId) {
+      projectDB.linkSession(projectId, currentSessionId)
+      try {
+        const sessionDB = getSessionDB()
+        const existing = sessionDB.getSession(currentSessionId)
+        if (existing && !existing.title) {
+          sessionDB.updateSession(currentSessionId, { title: deriveSessionTitle(message) })
+        }
+      } catch { /* başlık ataması kritik değil */ }
+    }
+
     // TODO izlemeyi başlat — workdir'i doğrudan geçir ki agent instance'a bağımlı olmasın
     if (workdir) {
       agentManager.watchTodo(projectId, workdir, sessionId || '__new__', (tasks) => {
@@ -242,18 +255,6 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
         )
       }
 
-      // Session'ı projeye bağla + başlığı ilk promptun ilk 20 karakterinden ata
-      const currentSessionId = agent.currentSessionId
-      if (currentSessionId) {
-        projectDB.linkSession(projectId, currentSessionId)
-        try {
-          const sessionDB = getSessionDB()
-          const existing = sessionDB.getSession(currentSessionId)
-          if (existing && !existing.title) {
-            sessionDB.updateSession(currentSessionId, { title: deriveSessionTitle(message) })
-          }
-        } catch { /* başlık ataması kritik değil */ }
-      }
 
       sender.send('agent:done', {
         text: result.text,
