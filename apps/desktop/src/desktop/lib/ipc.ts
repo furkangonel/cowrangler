@@ -134,6 +134,7 @@ export interface SessionRecord {
   workdir: string | null
   parent_session_id: string | null
   pinned: number
+  last_active_at?: number
 }
 
 export interface MessageRecord {

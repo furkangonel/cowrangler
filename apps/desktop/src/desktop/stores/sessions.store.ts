@@ -47,7 +47,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
       const sessions = await ipc.sessions.list(projectId)
       sessions.sort((a, b) => {
         if (a.pinned !== b.pinned) return (b.pinned || 0) - (a.pinned || 0)
-        return b.started_at - a.started_at
+        return (b.last_active_at || b.started_at) - (a.last_active_at || a.started_at)
       })
       set(s => ({
         sessionsByProject: { ...s.sessionsByProject, [projectId]: sessions },
