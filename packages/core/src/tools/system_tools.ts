@@ -19,6 +19,7 @@ import {
   checkPermission,
   riskBadge,
   PermissionMode,
+  isOptionSelected,
 } from "../permissions.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -241,33 +242,7 @@ Use execute_bash only when necessary. Prefer purpose-built tools (git_*, file_*)
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-function isOptionSelected(answer: string, option: string): boolean {
-  if (!answer) return false;
-  const normalizedAnswer = answer.toLowerCase().trim();
-  const normalizedOption = option.toLowerCase().trim();
 
-  if (normalizedAnswer === normalizedOption) return true;
-
-  // Also accept Turkish variants if option is "Go ahead" or "Allow"
-  if (normalizedOption === "go ahead" || normalizedOption === "allow") {
-    const positives = ["go ahead", "allow", "yes", "y", "devam", "devam et", "onay", "onayla", "evet", "ok", "proceed"];
-    if (positives.includes(normalizedAnswer)) return true;
-  }
-
-  const lines = answer.split("\n");
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith("A:")) {
-      const val = trimmed.slice(2).trim().toLowerCase();
-      if (val.includes(normalizedOption)) return true;
-      if (normalizedOption === "go ahead" || normalizedOption === "allow") {
-        const positives = ["go ahead", "allow", "yes", "y", "devam", "devam et", "onay", "onayla", "evet", "ok", "proceed"];
-        if (positives.some(p => val.includes(p))) return true;
-      }
-    }
-  }
-  return false;
-}
 
 // WRITE PLAN — Plan modu: kullanıcı onayına sun, işleme başlama
 // ─────────────────────────────────────────────────────────────────────────────
@@ -433,7 +408,8 @@ Never ask the user to type "go ahead" after this tool already returned PLAN_APPR
             question: approvalQuestion,
             options: ["Go ahead", "Modify plan", "Cancel"],
           }
-        ]
+        ],
+        intent: "plan_approval"
       }, { sessionId });
 
       if (isOptionSelected(approval, "Go ahead")) {

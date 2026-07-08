@@ -55,33 +55,7 @@ function isRetryable(error: unknown): boolean {
   );
 }
 
-function isOptionSelected(answer: string, option: string): boolean {
-  if (!answer) return false;
-  const normalizedAnswer = answer.toLowerCase().trim();
-  const normalizedOption = option.toLowerCase().trim();
 
-  if (normalizedAnswer === normalizedOption) return true;
-
-  // Also accept Turkish variants if option is "Go ahead" or "Allow"
-  if (normalizedOption === "go ahead" || normalizedOption === "allow") {
-    const positives = ["go ahead", "allow", "yes", "y", "devam", "devam et", "onay", "onayla", "evet", "ok", "proceed"];
-    if (positives.includes(normalizedAnswer)) return true;
-  }
-
-  const lines = answer.split("\n");
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith("A:")) {
-      const val = trimmed.slice(2).trim().toLowerCase();
-      if (val.includes(normalizedOption)) return true;
-      if (normalizedOption === "go ahead" || normalizedOption === "allow") {
-        const positives = ["go ahead", "allow", "yes", "y", "devam", "devam et", "onay", "onayla", "evet", "ok", "proceed"];
-        if (positives.some(p => val.includes(p))) return true;
-      }
-    }
-  }
-  return false;
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AGENT
@@ -364,7 +338,7 @@ export class Agent {
           this._onToolEvent?.({ id, name, args, phase: "start" });
           try {
             // ── Centralized Permission Check ──
-            const { checkPermission, riskBadge, normalizePermissionMode } = await import("./permissions.js");
+            const { checkPermission, riskBadge, normalizePermissionMode, isOptionSelected } = await import("./permissions.js");
             const config = getConfig();
             let permissionMode = normalizePermissionMode(args?.permission_mode ?? config.permission_mode ?? "default");
 
@@ -410,13 +384,24 @@ export class Agent {
 
                   // Onay istemi cevapsız kalırsa sonsuza dek asılı kalma:
                   // 10 dk sonra güvenli varsayılan olan Deny ile devam et.
+                  const isDestructive =
+                    permResult.actionClass === "irreversible" ||
+                    permResult.externalEffect ||
+                    permResult.riskLevel === "dangerous" ||
+                    permResult.riskLevel === "critical" ||
+                    name === "delete_file" ||
+                    name === "delete_folder";
+
+                  const intent = isDestructive ? "destructive_confirmation" as const : "permission_approval" as const;
+
                   const approval = await executeAskUser({
                     questions: [
                       {
                         question: questionText,
                         options: ["Allow", "Deny"],
                       }
-                    ]
+                    ],
+                    intent
                   }, { sessionId: this.sessionId }, { timeoutMs: 10 * 60_000, timeoutAnswer: "Deny" });
 
                   if (!isOptionSelected(approval, "Allow")) {

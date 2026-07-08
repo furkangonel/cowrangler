@@ -8,6 +8,7 @@ import {
   isInsideWorkspace,
   normalizePermissionMode,
   analyzeBashRisk,
+  isOptionSelected,
 } from "@cowrangler/core/permissions.js";
 import { setProjectContext, getProjectWorkdir } from "@cowrangler/core/project_context.js";
 
@@ -195,6 +196,27 @@ describe("WP-7 — Policy configurations (Allowlist, Denylist, alwaysAskDestruct
     const rAccept = checkPermission("git_push", "accept", undefined, policy);
     expect(rAccept.allowed).toBe(true);
     expect(rAccept.requiresApproval).toBeFalsy();
+  });
+});
+
+describe("WP-7 — Structured QA Answers (isOptionSelected)", () => {
+  it("supports legacy string responses", () => {
+    expect(isOptionSelected("Allow", "Allow")).toBe(true);
+    expect(isOptionSelected("Go ahead", "go ahead")).toBe(true);
+    expect(isOptionSelected("devam et", "Allow")).toBe(true);
+    expect(isOptionSelected("A: Go ahead\nQ: Approve?", "Go ahead")).toBe(true);
+  });
+
+  it("supports structured JSON responses", () => {
+    const r1 = JSON.stringify({ kind: "choice", selected: ["Allow"] });
+    expect(isOptionSelected(r1, "Allow")).toBe(true);
+
+    const r2 = JSON.stringify({ kind: "choice", selected: ["Go ahead"] });
+    expect(isOptionSelected(r2, "Go ahead")).toBe(true);
+    expect(isOptionSelected(r2, "Allow")).toBe(true);
+
+    const r3 = JSON.stringify({ kind: "text", customText: "Proceed" });
+    expect(isOptionSelected(r3, "Allow")).toBe(true);
   });
 });
 

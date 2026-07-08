@@ -275,6 +275,64 @@ function matchesPattern(command: string, patterns: string[]): boolean {
   return false;
 }
 
+export function isOptionSelected(answer: string, option: string): boolean {
+  if (!answer) return false;
+
+  // Try parsing as JSON first
+  try {
+    const parsed = JSON.parse(answer);
+    if (parsed && typeof parsed === "object") {
+      if (parsed.kind === "choice" && Array.isArray(parsed.selected)) {
+        const normalizedOption = option.toLowerCase().trim();
+        const optionPositives = (normalizedOption === "go ahead" || normalizedOption === "allow")
+          ? ["go ahead", "allow", "yes", "y", "devam", "devam et", "onay", "onayla", "evet", "ok", "proceed"]
+          : [normalizedOption];
+        
+        return parsed.selected.some((sel: string) => {
+          const s = sel.toLowerCase().trim();
+          return optionPositives.includes(s);
+        });
+      }
+      if (parsed.kind === "text" && typeof parsed.customText === "string") {
+        const normalizedAnswer = parsed.customText.toLowerCase().trim();
+        const normalizedOption = option.toLowerCase().trim();
+        if (normalizedAnswer === normalizedOption) return true;
+        if (normalizedOption === "go ahead" || normalizedOption === "allow") {
+          const positives = ["go ahead", "allow", "yes", "y", "devam", "devam et", "onay", "onayla", "evet", "ok", "proceed"];
+          if (positives.includes(normalizedAnswer)) return true;
+        }
+      }
+    }
+  } catch {
+    // fallback to legacy string checks
+  }
+
+  const normalizedAnswer = answer.toLowerCase().trim();
+  const normalizedOption = option.toLowerCase().trim();
+
+  if (normalizedAnswer === normalizedOption) return true;
+
+  // Also accept Turkish variants if option is "Go ahead" or "Allow"
+  if (normalizedOption === "go ahead" || normalizedOption === "allow") {
+    const positives = ["go ahead", "allow", "yes", "y", "devam", "devam et", "onay", "onayla", "evet", "ok", "proceed"];
+    if (positives.includes(normalizedAnswer)) return true;
+  }
+
+  const lines = answer.split("\n");
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("A:")) {
+      const val = trimmed.slice(2).trim().toLowerCase();
+      if (val.includes(normalizedOption)) return true;
+      if (normalizedOption === "go ahead" || normalizedOption === "allow") {
+        const positives = ["go ahead", "allow", "yes", "y", "devam", "devam et", "onay", "onayla", "evet", "ok", "proceed"];
+        if (positives.some(p => val.includes(p))) return true;
+      }
+    }
+  }
+  return false;
+}
+
 export interface PermissionPolicy {
   allow?: string[];
   deny?: string[];

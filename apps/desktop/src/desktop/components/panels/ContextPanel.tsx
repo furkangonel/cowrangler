@@ -247,6 +247,35 @@ function PlanSection({ projectId, sessionId }: { projectId: string | null; sessi
           {plan.notes ? (
             <p className="text-2xs text-text-muted mt-2 pt-2 border-t border-border-subtle">📝 {plan.notes}</p>
           ) : null}
+
+          {plan.status === 'pending' && (
+            <div className="flex gap-1.5 mt-3 pt-2.5 border-t border-border-subtle/50">
+              <button
+                onClick={async () => {
+                  await ipc.agent.answerQuestion(JSON.stringify({ kind: 'choice', selected: ['Go ahead'] }))
+                }}
+                className="flex-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-3xs font-medium transition-colors"
+              >
+                Approve
+              </button>
+              <button
+                onClick={async () => {
+                  await ipc.agent.answerQuestion(JSON.stringify({ kind: 'choice', selected: ['Modify plan'] }))
+                }}
+                className="px-2 py-1 border border-border-subtle text-text-secondary hover:bg-bg-hover hover:text-text-primary rounded text-3xs font-medium transition-colors"
+              >
+                Modify
+              </button>
+              <button
+                onClick={async () => {
+                  await ipc.agent.answerQuestion(JSON.stringify({ kind: 'choice', selected: ['Cancel'] }))
+                }}
+                className="px-2 py-1 border border-border-subtle text-error hover:bg-bg-hover rounded text-3xs font-medium transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

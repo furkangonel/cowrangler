@@ -13,7 +13,9 @@ export const askUserDef = {
       question: z.string().describe('The question to ask the user.'),
       options: z.array(optionSchema).describe('The options as strings. At least 2.'),
       is_multi_select: z.boolean().optional().describe('If true, the user can select multiple options.')
-    }))
+    })),
+    intent: z.enum(["clarification", "plan_approval", "permission_approval", "destructive_confirmation"]).optional()
+      .describe("Intent of this prompt to help UI customize layout/actions")
   })
 }
 
@@ -38,8 +40,9 @@ function settleAskUser(answer: string) {
   }
 }
 
-export function resolveAskUser(answer: string) {
-  settleAskUser(answer)
+export function resolveAskUser(answer: string | object) {
+  const val = typeof answer === 'string' ? answer : JSON.stringify(answer);
+  settleAskUser(val)
 }
 
 /**
@@ -58,6 +61,7 @@ export function hasPendingAskUser(): boolean {
 
 // Subscribe to ask user events so UI can show the prompt
 export interface AskUserPayload {
+  intent?: string
   questions: { question: string; options: string[]; is_multi_select: boolean }[]
   meta?: {
     projectId?: string | null;
@@ -101,6 +105,7 @@ export async function executeAskUser(
   // Normalize to the shape every UI expects: options are plain strings,
   // is_multi_select is always a boolean.
   const payload: AskUserPayload = {
+    intent: args.intent,
     meta: {
       ...(meta && typeof meta === 'object' ? meta : {}),
       sessionId: activeSessionId,

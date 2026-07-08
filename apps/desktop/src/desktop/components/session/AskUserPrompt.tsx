@@ -1,5 +1,32 @@
 import React, { useState, useEffect } from 'react'
-import { X, ChevronLeft, ChevronRight, Check, ArrowRight, PenTool } from 'lucide-react'
+import { X, ChevronLeft, ChevronRight, Check, ArrowRight, PenTool, ShieldAlert, ClipboardList, HelpCircle, AlertTriangle } from 'lucide-react'
+
+const INTENTS_CONFIG = {
+  clarification: {
+    title: 'Clarification Request',
+    icon: HelpCircle,
+    color: 'border-blue-500/20 bg-blue-500/5 text-blue-500',
+    btnClass: 'bg-blue-600 hover:bg-blue-700 text-white',
+  },
+  plan_approval: {
+    title: 'Plan Approval Required',
+    icon: ClipboardList,
+    color: 'border-violet-500/20 bg-violet-500/5 text-violet-500',
+    btnClass: 'bg-violet-600 hover:bg-violet-700 text-white',
+  },
+  permission_approval: {
+    title: 'Permission Request',
+    icon: ShieldAlert,
+    color: 'border-orange-500/20 bg-orange-500/5 text-orange-500',
+    btnClass: 'bg-orange-600 hover:bg-orange-700 text-white',
+  },
+  destructive_confirmation: {
+    title: 'Destructive Action Warning',
+    icon: AlertTriangle,
+    color: 'border-red-500/20 bg-red-500/5 text-red-500 animate-pulse',
+    btnClass: 'bg-red-600 hover:bg-red-700 text-white',
+  }
+}
 
 export function AskUserPrompt({ payload, onSubmit }: { payload: any; onSubmit: (ans: string) => void }) {
   const isObj = typeof payload === 'object' && payload !== null && Array.isArray(payload.questions)
@@ -21,28 +48,18 @@ export function AskUserPrompt({ payload, onSubmit }: { payload: any; onSubmit: (
       return
     }
 
-    let finalAnswer = ""
-    questions.forEach((q: any, i: number) => {
-      const selectedOpts = selections[i] || []
-      const custom = customAnswers[i]?.trim()
-      
-      if (selectedOpts.length > 0 || custom) {
-        finalAnswer += `Q: ${q.question}\n`
-        if (selectedOpts.length > 0) {
-          finalAnswer += `A: ${selectedOpts.join(', ')}\n`
-        }
-        if (custom) {
-          finalAnswer += `A (Custom): ${custom}\n`
-        }
-        finalAnswer += '\n'
-      }
-    })
-
-    if (finalAnswer.trim()) {
-      onSubmit(finalAnswer.trim())
-    } else {
-      onSubmit("Skipped")
+    const structured = {
+      kind: 'choice' as const,
+      selected: selections[0] || [],
+      customText: customAnswers[0] || '',
+      answers: questions.map((q: any, i: number) => ({
+        question: q.question,
+        selected: selections[i] || [],
+        customText: customAnswers[i] || ''
+      }))
     }
+
+    onSubmit(JSON.stringify(structured))
   }
 
   const handleNext = () => {
@@ -81,28 +98,17 @@ export function AskUserPrompt({ payload, onSubmit }: { payload: any; onSubmit: (
     if (currentStep < questions.length - 1) {
       setCurrentStep(c => c + 1)
     } else {
-      let finalAnswer = ""
-      questions.forEach((q: any, i: number) => {
-        const selectedOpts = i === currentStep ? [opt] : (updatedSelections[i] || [])
-        const custom = customAnswers[i]?.trim()
-        
-        if (selectedOpts.length > 0 || custom) {
-          finalAnswer += `Q: ${q.question}\n`
-          if (selectedOpts.length > 0) {
-            finalAnswer += `A: ${selectedOpts.join(', ')}\n`
-          }
-          if (custom) {
-            finalAnswer += `A (Custom): ${custom}\n`
-          }
-          finalAnswer += '\n'
-        }
-      })
-
-      if (finalAnswer.trim()) {
-        onSubmit(finalAnswer.trim())
-      } else {
-        onSubmit("Skipped")
+      const structured = {
+        kind: 'choice' as const,
+        selected: updatedSelections[0] || [],
+        customText: customAnswers[0] || '',
+        answers: questions.map((q: any, i: number) => ({
+          question: q.question,
+          selected: i === currentStep ? [opt] : (updatedSelections[i] || []),
+          customText: customAnswers[i] || ''
+        }))
       }
+      onSubmit(JSON.stringify(structured))
     }
   }
 
@@ -189,8 +195,18 @@ export function AskUserPrompt({ payload, onSubmit }: { payload: any; onSubmit: (
   const currentSelections = selections[currentStep] || []
   const currentCustom = customAnswers[currentStep] || ''
 
+  const intent = payload.intent || 'clarification'
+  const intentConfig = INTENTS_CONFIG[intent as keyof typeof INTENTS_CONFIG] || INTENTS_CONFIG.clarification
+  const IntentIcon = intentConfig.icon
+
   return (
     <div className="mx-4 mb-4 bg-bg-primary border border-border rounded-2xl shadow-lg overflow-hidden animate-fade-in text-text-primary w-[min(44rem,calc(100vw-2rem))] max-h-[min(34rem,calc(100vh-8rem))] flex flex-col">
+      {/* Intent Header */}
+      <div className={`flex items-center gap-2 px-5 py-2.5 border-b border-border/40 ${intentConfig.color} text-xs font-semibold`}>
+        <IntentIcon size={14} className="flex-shrink-0" />
+        <span>{intentConfig.title}</span>
+      </div>
+
       {/* Header */}
       <div className="p-5 pb-4 flex items-start justify-between gap-4 flex-shrink-0 border-b border-border/60">
         <h3 className="text-[15px] font-medium leading-snug whitespace-pre-wrap break-words max-h-28 overflow-y-auto custom-scrollbar pr-1">{q.question}</h3>
@@ -305,7 +321,7 @@ export function AskUserPrompt({ payload, onSubmit }: { payload: any; onSubmit: (
           <button 
             onClick={handleNext}
             title={currentStep < questions.length - 1 ? 'Next question' : 'Submit answer'}
-            className="w-9 h-9 flex items-center justify-center bg-text-primary text-bg-primary rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+            className={`w-9 h-9 flex items-center justify-center rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 ${intentConfig.btnClass}`}
           >
             <ArrowRight size={16} />
           </button>
