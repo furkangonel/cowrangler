@@ -83,8 +83,10 @@ export function CodeSessionView() {
           ipc.agent.setCodeWorkdir(sess.workdir).catch(() => {})
         }
       }).catch(console.error)
+      ipc.agent.setActiveSession(activeCodeSessionId).catch(() => {})
     } else {
       clearUIMessages()
+      ipc.agent.setActiveSession(null).catch(() => {})
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCodeSessionId])

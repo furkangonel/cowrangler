@@ -181,6 +181,8 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
     // Session'ı projeye bağla + başlığı ilk promptun ilk 20 karakterinden ata
     const currentSessionId = agent.currentSessionId
     if (currentSessionId) {
+      const { setActiveSessionId } = await import('@cowrangler/core/project_context.js')
+      setActiveSessionId(currentSessionId)
       projectDB.linkSession(projectId, currentSessionId)
       try {
         const sessionDB = getSessionDB()
