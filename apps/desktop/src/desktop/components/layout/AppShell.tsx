@@ -95,13 +95,13 @@ export function AppShell() {
               <TabToggleBtn
                 active={codeRightTab === 'files'}
                 onClick={() => toggleCodeRightTab('files')}
-                title="Files"
+                title="Diff"
                 icon={<LayoutGrid size={14} />}
               />
               <TabToggleBtn
                 active={codeRightTab === 'run'}
                 onClick={() => toggleCodeRightTab('run')}
-                title="Run"
+                title="Preview"
                 icon={<Play size={14} />}
               />
               <CodeMoreMenu
