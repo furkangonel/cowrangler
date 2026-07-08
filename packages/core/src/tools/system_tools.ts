@@ -154,7 +154,7 @@ Use execute_bash only when necessary. Prefer purpose-built tools (git_*, file_*)
       .default(30000)
       .describe("Timeout in ms (max: 30000 in sandbox, 60000 direct)"),
     permission_mode: z
-      .enum(["default", "plan", "auto", "bypass"])
+      .enum(["ask", "accept", "plan", "auto", "bypass", "default"])
       .optional()
       .describe("Override permission mode for this call"),
   }),

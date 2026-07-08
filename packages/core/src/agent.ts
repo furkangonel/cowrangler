@@ -364,9 +364,9 @@ export class Agent {
           this._onToolEvent?.({ id, name, args, phase: "start" });
           try {
             // ── Centralized Permission Check ──
-            const { checkPermission, riskBadge } = await import("./permissions.js");
+            const { checkPermission, riskBadge, normalizePermissionMode } = await import("./permissions.js");
             const config = getConfig();
-            let permissionMode = (config.permission_mode ?? "default") as any;
+            let permissionMode = normalizePermissionMode(args?.permission_mode ?? config.permission_mode ?? "default");
 
             // Design mode auto-bypass check
             const isDesignMode = this.allowedTools &&
@@ -384,7 +384,13 @@ export class Agent {
                 extraInfo = args.path ? path.resolve(getProjectWorkdir(), args.path) : args.path;
               }
 
-              const permResult = checkPermission(name, permissionMode, extraInfo);
+              const policy = {
+                allow: config["permissions.allow"],
+                deny: config["permissions.deny"],
+                alwaysAskDestructive: config["permissions.alwaysAskDestructive"] !== false,
+              };
+
+              const permResult = checkPermission(name, permissionMode, extraInfo, policy);
 
               if (!permResult.allowed && !permResult.requiresApproval) {
                 const blockMsg = `${riskBadge(permResult.riskLevel)} BLOCKED: ${permResult.reason}`;

@@ -90,6 +90,7 @@ export const CONNECTORS_CATALOG: ConnectorCatalogEntry[] = [
     transport: "stdio",
     auth: "none",
     popular: 4,
+    logo: "https://git-scm.com/images/logos/downloads/Git-Icon-1788C.png",
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-git"],
     requiresPathArg: true,
@@ -203,7 +204,7 @@ export const CONNECTORS_CATALOG: ConnectorCatalogEntry[] = [
     transport: "stdio",
     auth: "token",
     popular: 7,
-    logo: "https://cdn.simpleicons.org/slack",
+    logo: "https://cdn.bfldr.com/5H442O3W/at/pl546j-7le8zk-6gwiyo/Slack_Mark.svg?format=svg",
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-slack"],
     authFields: [
