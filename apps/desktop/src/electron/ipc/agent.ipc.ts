@@ -58,6 +58,10 @@ function friendlyError(raw: string): string {
   return raw
 }
 
+function isPlanApprovedResult(result: unknown): boolean {
+  return typeof result === 'string' && result.startsWith('PLAN_APPROVED_CONTINUE:')
+}
+
 function buildSystemPrompt(basePrompt: string, instructions: string): string {
   let prompt = basePrompt
   if (instructions?.trim()) {
@@ -208,6 +212,8 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
     // ask_user / write_plan bu turda kullanıcıya bir diyalog açtı mı? Açtıysa
     // "boş yanıt" fallback'i tetiklenmez — soru/onay diyaloğu zaten görünür çıktıdır.
     let askedUser = false
+    let planApprovedThisTurn = false
+    let actionsAfterPlanApproval = 0
 
     const onToolEvent = (e: {
       id: string
@@ -219,6 +225,18 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       error?: string
     }) => {
       if (e.phase === 'done' && WRITE_TOOLS.has(e.name)) writeCount++
+      if (
+        e.phase === 'done' &&
+        planApprovedThisTurn &&
+        e.name !== 'ask_user' &&
+        e.name !== 'write_plan' &&
+        e.name !== 'send_message'
+      ) {
+        actionsAfterPlanApproval++
+      }
+      if (e.phase === 'done' && e.name === 'write_plan' && isPlanApprovedResult(e.result)) {
+        planApprovedThisTurn = true
+      }
       if (e.name === 'ask_user' || e.name === 'write_plan') askedUser = true
       sender.send('agent:toolCall', {
         id: e.id,
@@ -261,13 +279,24 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
         )
       }
 
+      // ── Plan approval continuation guard ─────────────────────────────────
+      // write_plan zaten UI içinde onay aldıysa kullanıcıya tekrar "go ahead"
+      // yazdırma. Model onaydan sonra gerçek bir tool çalıştırmadan turu
+      // kapatırsa aynı konuşma içinde tek otomatik devam turu başlat.
+      if (planApprovedThisTurn && actionsAfterPlanApproval === 0) {
+        result = await agent.chat(
+          '[SYSTEM] The user approved the implementation plan in the UI. Continue implementing it now in this same session. Do not ask for "go ahead", "proceed", or any additional approval unless a separate destructive/irreversible permission prompt is required. Do not write another plan.',
+          undefined, onStepText, undefined, onToolEvent, onReasoningText,
+        )
+      }
+
       // ── Empty-reply guard (tüm desktop bağlamları) ─────────────────────────
       // Tek-kanal düz metin modunda tur, kullanıcıya HİÇ görünür metin
       // üretmeden bitebilir (model sadece araç çağırıp durdu). Bu, "agent bir
       // anda hiçbir şey yazmıyor" şikâyetinin ta kendisi. Kullanıcıya bir soru/
-      // onay diyaloğu açılmadıysa (askedUser) ve nihai metin boşsa, BİR kez
-      // özet iste. Yalnızca bir kez — döngü yok.
-      if (!askedUser && (!result.text || !result.text.trim())) {
+      // onay diyaloğu açılmadıysa (askedUser) veya plan onayı sonrası otomatik
+      // devam çalıştıysa ve nihai metin boşsa, BİR kez özet iste. Yalnızca bir kez.
+      if ((!askedUser || planApprovedThisTurn) && (!result.text || !result.text.trim())) {
         result = await agent.chat(
           '[SYSTEM] You ended the turn without any visible reply to the user. Write a brief plain-text message now: if you completed work, summarize what changed and the outcome; if you were blocked, say what you need. Do not call tools — just reply in text.',
           undefined, onStepText, undefined, onToolEvent, onReasoningText,

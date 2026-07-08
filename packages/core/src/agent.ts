@@ -438,7 +438,7 @@ export class Agent {
               this._lastStreamActivity = Date.now();
             }
             try { const { runHooks } = await import("./hooks.js"); await runHooks("post_tool_call", { tool: name }); } catch { /* hooks best-effort */ }
-            if (name === "write_plan" && typeof r === "string" && r.startsWith("Plan approved by user")) {
+            if (name === "write_plan" && typeof r === "string" && r.startsWith("PLAN_APPROVED_CONTINUE:")) {
               if (args.steps && Array.isArray(args.steps)) {
                 const workdir = getProjectWorkdir();
                 for (const step of args.steps) {

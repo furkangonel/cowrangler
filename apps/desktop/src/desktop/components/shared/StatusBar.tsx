@@ -94,12 +94,12 @@ export function StatusBar() {
             <ellipse cx="12" cy="8.5" rx="6.5" ry="5" />
             <path d="M12 13.5 C 12 17, 10 19, 8 21.5" />
           </svg>
-          <span className="truncate max-w-[150px]">{shortModel}</span>
+          <span className="truncate max-w-[220px]">{shortModel}</span>
           <ChevronUp size={11} className={`transition-transform duration-200 text-text-muted/70 ${modelPickerOpen ? 'rotate-180' : ''}`} />
         </button>
         {modelPickerOpen && (
-          <div className="absolute bottom-full left-0 mb-1.5 z-50 bg-bg-secondary border border-border rounded-xl shadow-pop overflow-hidden animate-slide-up w-80">
-            <div className="p-2 space-y-0.5 max-h-60 overflow-y-auto">
+          <div className="absolute bottom-full left-0 mb-1.5 z-50 bg-bg-secondary border border-border rounded-xl shadow-pop overflow-hidden animate-slide-up w-[30rem] max-w-[calc(100vw-2rem)]">
+            <div className="p-2 space-y-0.5 max-h-72 overflow-y-auto">
               <p className="px-2.5 py-1.5 text-[9px] font-semibold uppercase tracking-wider text-text-muted select-none">Select active model</p>
               {savedModels.map(modelId => {
                 const slash = modelId.indexOf('/')
@@ -109,6 +109,7 @@ export function StatusBar() {
                 <button
                   key={modelId}
                   onClick={() => { setModel(modelId); setModelPickerOpen(false) }}
+                  title={modelId}
                   className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left transition-colors ${
                     model === modelId ? 'bg-accent-subtle text-accent font-medium' : 'text-text-secondary hover:bg-bg-hover'
                   }`}
@@ -118,7 +119,7 @@ export function StatusBar() {
                       {provider}
                     </span>
                   )}
-                  <span className="flex-1 truncate font-mono">{name}</span>
+                  <span className="flex-1 min-w-0 truncate font-mono">{name}</span>
                   {model === modelId && <span className="text-2xs opacity-60">●</span>}
                 </button>
                 )

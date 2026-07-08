@@ -282,11 +282,11 @@ Use this BEFORE starting any non-trivial implementation that involves:
 
 Workflow:
 1. Call write_plan with your proposed approach
-2. The plan is saved and returned — use send_message to present it to the user
-3. STOP and wait for the user to say "go ahead", "proceed", "devam et" or similar
-4. Only then start implementation
+2. The plan is saved, shown in the Plan panel, and approved inside this tool
+3. If this tool returns PLAN_APPROVED_CONTINUE, continue implementation immediately in the same turn
+4. If the user asks to modify or cancel the plan, do not start implementation
 
-Never skip the user approval step after writing a plan.`,
+Never ask the user to type "go ahead" after this tool already returned PLAN_APPROVED_CONTINUE.`,
   z.object({
     title: z
       .string()
@@ -369,9 +369,11 @@ Never skip the user approval step after writing a plan.`,
       lines.push(`## Notes`, ``, notes, ``);
     }
 
+    const awaitingApprovalLine =
+      `*Awaiting user approval — reply "go ahead" or "devam et" to proceed.*`;
     lines.push(
       `---`,
-      `*Awaiting user approval — reply "go ahead" or "devam et" to proceed.*`,
+      awaitingApprovalLine,
     );
 
     const planContent = lines.filter((l) => l !== undefined).join("\n");
@@ -435,12 +437,16 @@ Never skip the user approval step after writing a plan.`,
       }, { sessionId });
 
       if (isOptionSelected(approval, "Go ahead")) {
+        const approvedPlanContent = planContent.replace(
+          awaitingApprovalLine,
+          `*Approved in the UI — implementation should continue now.*`,
+        );
         emitPlan({
           title, summary, steps, estimated_duration, notes,
-          markdown: planContent, status: "approved", sessionId,
+          markdown: approvedPlanContent, status: "approved", sessionId,
           createdAt: new Date().toISOString(),
         });
-        return `Plan approved by user. Proceed with implementation directly.\n\n${planContent}`;
+        return `PLAN_APPROVED_CONTINUE: The user approved this plan in the UI. Continue implementation directly now; do not ask for "go ahead" again.\n\n${approvedPlanContent}`;
       } else if (isOptionSelected(approval, "Modify plan")) {
         emitPlan({
           title, summary, steps, estimated_duration, notes,
