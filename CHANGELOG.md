@@ -6,6 +6,16 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.1.2] — 2026-07-09
+
+### Added
+- Implement structured choice/text response resolution in ask_user tool and normalize selected options checking.
+- Configure intent parameter for write_plan (plan_approval) and permission checks (permission_approval/destructive_confirmation).
+- Render customized headers, alert badges, and action buttons in AskUserPrompt.tsx based on the AskUserIntent.
+- Add interactive Approve, Modify, and Cancel buttons inside CodePlanPanel.tsx and Left Panel's ContextPanel.tsx.
+- Group pinned sessions at the top of the sessions list in Code mode sidebar.
+- Add comprehensive unit tests for structured responses.
+
 ## [2.1.1] — 2026-07-08
 
 ### Fixed
