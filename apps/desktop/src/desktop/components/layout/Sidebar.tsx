@@ -422,20 +422,47 @@ function CodeSessionsList() {
     </div>
   )
 
+  const pinned = sessions.filter(s => s.pinned)
+  const recents = sessions.filter(s => !s.pinned)
+
   return (
-    <div className="mb-3 space-y-0.5">
-      <p className="text-2xs text-text-muted font-semibold uppercase tracking-widest px-2 py-1">Recents</p>
-      {sessions.map(s => (
-        <SessionRow
-          key={s.id}
-          session={s}
-          active={activeCodeSessionId === s.id}
-          onSelect={() => { setActiveCodeSession(s.id); setActiveProject(null) }}
-          onRename={t => renameSession(s.id, t)}
-          onDelete={() => handleDelete(s.id)}
-          onPin={() => useSessionsStore.getState().pinSession(CODE_PROJECT_ID, s.id, !s.pinned)}
-        />
-      ))}
+    <div className="mb-3 space-y-3">
+      {pinned.length > 0 && (
+        <div className="space-y-0.5">
+          <p className="text-2xs text-text-muted font-semibold uppercase tracking-widest px-2 py-1 flex items-center gap-1">
+            <Pin size={10} className="text-accent rotate-45" />
+            <span>Pinned</span>
+          </p>
+          {pinned.map(s => (
+            <SessionRow
+              key={s.id}
+              session={s}
+              active={activeCodeSessionId === s.id}
+              onSelect={() => { setActiveCodeSession(s.id); setActiveProject(null) }}
+              onRename={t => renameSession(s.id, t)}
+              onDelete={() => handleDelete(s.id)}
+              onPin={() => useSessionsStore.getState().pinSession(CODE_PROJECT_ID, s.id, !s.pinned)}
+            />
+          ))}
+        </div>
+      )}
+
+      {(recents.length > 0 || pinned.length === 0) && (
+        <div className="space-y-0.5">
+          <p className="text-2xs text-text-muted font-semibold uppercase tracking-widest px-2 py-1">Recents</p>
+          {recents.map(s => (
+            <SessionRow
+              key={s.id}
+              session={s}
+              active={activeCodeSessionId === s.id}
+              onSelect={() => { setActiveCodeSession(s.id); setActiveProject(null) }}
+              onRename={t => renameSession(s.id, t)}
+              onDelete={() => handleDelete(s.id)}
+              onPin={() => useSessionsStore.getState().pinSession(CODE_PROJECT_ID, s.id, !s.pinned)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

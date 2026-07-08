@@ -19,6 +19,7 @@ import {
   checkPermission,
   riskBadge,
   PermissionMode,
+  isOptionSelected,
 } from "../permissions.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -154,7 +155,7 @@ Use execute_bash only when necessary. Prefer purpose-built tools (git_*, file_*)
       .default(30000)
       .describe("Timeout in ms (max: 30000 in sandbox, 60000 direct)"),
     permission_mode: z
-      .enum(["default", "plan", "auto", "bypass"])
+      .enum(["ask", "accept", "plan", "auto", "bypass", "default"])
       .optional()
       .describe("Override permission mode for this call"),
   }),
@@ -241,33 +242,7 @@ Use execute_bash only when necessary. Prefer purpose-built tools (git_*, file_*)
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-function isOptionSelected(answer: string, option: string): boolean {
-  if (!answer) return false;
-  const normalizedAnswer = answer.toLowerCase().trim();
-  const normalizedOption = option.toLowerCase().trim();
 
-  if (normalizedAnswer === normalizedOption) return true;
-
-  // Also accept Turkish variants if option is "Go ahead" or "Allow"
-  if (normalizedOption === "go ahead" || normalizedOption === "allow") {
-    const positives = ["go ahead", "allow", "yes", "y", "devam", "devam et", "onay", "onayla", "evet", "ok", "proceed"];
-    if (positives.includes(normalizedAnswer)) return true;
-  }
-
-  const lines = answer.split("\n");
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith("A:")) {
-      const val = trimmed.slice(2).trim().toLowerCase();
-      if (val.includes(normalizedOption)) return true;
-      if (normalizedOption === "go ahead" || normalizedOption === "allow") {
-        const positives = ["go ahead", "allow", "yes", "y", "devam", "devam et", "onay", "onayla", "evet", "ok", "proceed"];
-        if (positives.some(p => val.includes(p))) return true;
-      }
-    }
-  }
-  return false;
-}
 
 // WRITE PLAN — Plan modu: kullanıcı onayına sun, işleme başlama
 // ─────────────────────────────────────────────────────────────────────────────
@@ -282,11 +257,11 @@ Use this BEFORE starting any non-trivial implementation that involves:
 
 Workflow:
 1. Call write_plan with your proposed approach
-2. The plan is saved and returned — use send_message to present it to the user
-3. STOP and wait for the user to say "go ahead", "proceed", "devam et" or similar
-4. Only then start implementation
+2. The plan is saved, shown in the Plan panel, and approved inside this tool
+3. If this tool returns PLAN_APPROVED_CONTINUE, continue implementation immediately in the same turn
+4. If the user asks to modify or cancel the plan, do not start implementation
 
-Never skip the user approval step after writing a plan.`,
+Never ask the user to type "go ahead" after this tool already returned PLAN_APPROVED_CONTINUE.`,
   z.object({
     title: z
       .string()
@@ -369,9 +344,11 @@ Never skip the user approval step after writing a plan.`,
       lines.push(`## Notes`, ``, notes, ``);
     }
 
+    const awaitingApprovalLine =
+      `*Awaiting user approval — reply "go ahead" or "devam et" to proceed.*`;
     lines.push(
       `---`,
-      `*Awaiting user approval — reply "go ahead" or "devam et" to proceed.*`,
+      awaitingApprovalLine,
     );
 
     const planContent = lines.filter((l) => l !== undefined).join("\n");
@@ -431,16 +408,21 @@ Never skip the user approval step after writing a plan.`,
             question: approvalQuestion,
             options: ["Go ahead", "Modify plan", "Cancel"],
           }
-        ]
+        ],
+        intent: "plan_approval"
       }, { sessionId });
 
       if (isOptionSelected(approval, "Go ahead")) {
+        const approvedPlanContent = planContent.replace(
+          awaitingApprovalLine,
+          `*Approved in the UI — implementation should continue now.*`,
+        );
         emitPlan({
           title, summary, steps, estimated_duration, notes,
-          markdown: planContent, status: "approved", sessionId,
+          markdown: approvedPlanContent, status: "approved", sessionId,
           createdAt: new Date().toISOString(),
         });
-        return `Plan approved by user. Proceed with implementation directly.\n\n${planContent}`;
+        return `PLAN_APPROVED_CONTINUE: The user approved this plan in the UI. Continue implementation directly now; do not ask for "go ahead" again.\n\n${approvedPlanContent}`;
       } else if (isOptionSelected(approval, "Modify plan")) {
         emitPlan({
           title, summary, steps, estimated_duration, notes,

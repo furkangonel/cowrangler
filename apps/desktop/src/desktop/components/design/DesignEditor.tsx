@@ -438,15 +438,15 @@ export function DesignEditor({ onBack }: Props) {
                 <div className="flex items-center justify-end pt-1.5">
                   <div className="flex items-center gap-2">
                     <div className="relative" ref={modelRef}>
-                      <button onClick={() => setModelPickerOpen(o => !o)} className="flex items-center gap-1 text-xs" style={{ color: 'var(--d-ink-muted)' }}>
-                        <span className="font-medium" style={{ color: 'var(--d-ink-soft)' }}>{modelLabel}</span>
+                      <button onClick={() => setModelPickerOpen(o => !o)} className="flex items-center gap-1 text-xs min-w-0 max-w-[240px]" style={{ color: 'var(--d-ink-muted)' }} title={effectiveModel}>
+                        <span className="font-medium truncate min-w-0" style={{ color: 'var(--d-ink-soft)' }}>{modelLabel}</span>
                         <ChevronDown size={11} />
                       </button>
                       {modelPickerOpen && (
-                        <div className="absolute bottom-full mb-1.5 right-0 z-30 rounded-xl overflow-hidden design-elev-lg w-52" style={{ background: 'var(--d-surface)', border: '1px solid var(--d-line)' }}>
-                          <div className="p-1.5 space-y-0.5 max-h-52 overflow-y-auto">
+                        <div className="absolute bottom-full mb-1.5 right-0 z-30 rounded-xl overflow-hidden design-elev-lg w-[28rem] max-w-[calc(100vw-2rem)]" style={{ background: 'var(--d-surface)', border: '1px solid var(--d-line)' }}>
+                          <div className="p-1.5 space-y-0.5 max-h-72 overflow-y-auto">
                             <ModelOption label={`Use Global Model (${getModel()?.split('/').pop() ?? 'default'})`} selected={!selectedModel} onClick={() => { setSelectedModel(null); setModelPickerOpen(false) }} />
-                            {savedModels.map(m => <ModelOption key={m} label={m.split('/').pop() ?? m} selected={selectedModel === m} onClick={() => { setSelectedModel(m); setModelPickerOpen(false) }} />)}
+                            {savedModels.map(m => <ModelOption key={m} label={m.split('/').pop() ?? m} title={m} selected={selectedModel === m} onClick={() => { setSelectedModel(m); setModelPickerOpen(false) }} />)}
                             {savedModels.length === 0 && <p className="px-2.5 py-2 text-xs italic" style={{ color: 'var(--d-ink-faint)' }}>No saved models</p>}
                           </div>
                         </div>
@@ -804,6 +804,11 @@ function DesignQaCard({ payload, onSubmit }: { payload: any; onSubmit: (ans: str
   const [step, setStep] = useState(0)
   const [picked, setPicked] = useState<Record<number, string[]>>({})
   const [custom, setCustom] = useState<Record<number, string>>({})
+  const [focused, setFocused] = useState(0)
+
+  useEffect(() => {
+    setFocused(0)
+  }, [step])
 
   if (!isObj) {
     return (
@@ -846,21 +851,42 @@ function DesignQaCard({ payload, onSubmit }: { payload: any; onSubmit: (ans: str
 
   const q = questions[step]
   const sel = picked[step] ?? []
+  const opts = q.options ?? []
+
+  function confirmFocused() {
+    if (opts[focused]) choose(opts[focused])
+    else advance(picked, custom)
+  }
 
   return (
-    <div className="flex flex-col w-full">
-      <div className="flex items-center justify-between px-4 pt-4 pb-2">
+    <div
+      className="flex flex-col w-full max-h-[min(32rem,calc(100vh-8rem))]"
+      onKeyDown={e => {
+        if (e.target instanceof HTMLInputElement) return
+        if (e.key === 'ArrowDown') { e.preventDefault(); setFocused(i => opts.length ? (i + 1) % opts.length : 0) }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); setFocused(i => opts.length ? (i - 1 + opts.length) % opts.length : 0) }
+        else if (/^[1-9]$/.test(e.key)) {
+          const idx = Number(e.key) - 1
+          if (opts[idx]) { e.preventDefault(); choose(opts[idx]) }
+        } else if (e.key === 'Enter' || (e.key === ' ' && q.is_multi_select)) {
+          e.preventDefault()
+          confirmFocused()
+        }
+      }}
+      tabIndex={0}
+    >
+      <div className="flex items-center justify-between px-4 pt-4 pb-2 flex-shrink-0">
         <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--d-ink-muted)' }}>Question {step + 1} of {questions.length}</span>
       </div>
-      <p className="px-3.5 pb-2.5 text-sm font-medium leading-snug" style={{ color: 'var(--d-ink)' }}>{q.question}</p>
-      <div className="px-2.5 pb-2.5 space-y-1.5">
-        {(q.options ?? []).map((opt, i) => {
+      <p className="px-3.5 pb-2.5 text-sm font-medium leading-snug whitespace-pre-wrap break-words max-h-28 overflow-y-auto flex-shrink-0" style={{ color: 'var(--d-ink)' }}>{q.question}</p>
+      <div className="px-2.5 pb-2.5 space-y-1.5 overflow-y-auto min-h-0 flex-1">
+        {opts.map((opt, i) => {
           const on = sel.includes(opt)
           return (
-            <button key={i} onClick={() => choose(opt)} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-sm transition-colors hover:bg-black/[0.03]"
-              style={{ border: `1px solid ${on ? 'var(--d-clay)' : 'var(--d-line)'}`, background: on ? 'var(--d-clay-wash)' : 'transparent', color: 'var(--d-ink)' }}>
+            <button key={i} onMouseEnter={() => setFocused(i)} onClick={() => choose(opt)} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-sm transition-colors hover:bg-black/[0.03]"
+              style={{ border: `1px solid ${on || focused === i ? 'var(--d-clay)' : 'var(--d-line)'}`, background: on ? 'var(--d-clay-wash)' : 'transparent', color: 'var(--d-ink)', boxShadow: focused === i ? '0 0 0 2px color-mix(in srgb, var(--d-clay) 18%, transparent)' : 'none' }}>
               <span className="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0" style={{ border: `1px solid ${on ? 'var(--d-clay)' : 'var(--d-line)'}`, background: on ? 'var(--d-clay)' : 'transparent' }}>{on && <Check size={11} className="text-white" />}</span>
-              <span className="flex-1">{opt}</span>
+              <span className="flex-1 min-w-0 whitespace-pre-wrap break-words">{opt}</span>
             </button>
           )
         })}
@@ -874,7 +900,7 @@ function DesignQaCard({ payload, onSubmit }: { payload: any; onSubmit: (ans: str
         />
       </div>
       {q.is_multi_select && (
-        <div className="px-3.5 pb-3 flex justify-end">
+        <div className="px-3.5 py-3 flex justify-end flex-shrink-0" style={{ borderTop: '1px solid var(--d-line)', background: 'var(--d-surface)' }}>
           <button onClick={() => advance(picked, custom)} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold text-white" style={{ background: 'var(--d-clay)' }}>
             {step < questions.length - 1 ? 'Next' : 'Confirm'} <ArrowRight size={13} />
           </button>
@@ -1136,9 +1162,9 @@ function DlItem({ label, onClick }: { label: string; onClick: () => void }) {
   )
 }
 
-function ModelOption({ label, selected, onClick }: { label: string; selected: boolean; onClick: () => void }) {
+function ModelOption({ label, title, selected, onClick }: { label: string; title?: string; selected: boolean; onClick: () => void }) {
   return (
-    <button onClick={onClick} className="w-full px-2.5 py-1.5 rounded-lg text-xs text-left transition-colors" style={{ background: selected ? 'var(--d-cream-2)' : 'transparent', color: 'var(--d-ink)', fontWeight: selected ? 600 : 400 }}>
+    <button onClick={onClick} title={title ?? label} className="w-full px-2.5 py-1.5 rounded-lg text-xs text-left transition-colors truncate" style={{ background: selected ? 'var(--d-cream-2)' : 'transparent', color: 'var(--d-ink)', fontWeight: selected ? 600 : 400 }}>
       {label}
     </button>
   )

@@ -8,6 +8,7 @@ import {
   isInsideWorkspace,
   normalizePermissionMode,
   analyzeBashRisk,
+  isOptionSelected,
 } from "@cowrangler/core/permissions.js";
 import { setProjectContext, getProjectWorkdir } from "@cowrangler/core/project_context.js";
 
@@ -146,6 +147,76 @@ describe("WP-7 — Ask/Plan/Bypass modes preserved", () => {
   });
   it("bypass allows everything (non-critical)", () => {
     expect(checkPermission("execute_bash", "bypass", "rm -rf node_modules").allowed).toBe(true);
+  });
+});
+
+describe("WP-7 — Policy configurations (Allowlist, Denylist, alwaysAskDestructive)", () => {
+  it("denylist checks first and blocks matching commands immediately", () => {
+    const policy = { deny: ["npm publish", "rm -rf"] };
+    const r = checkPermission("execute_bash", "bypass", "rm -rf node_modules", policy);
+    expect(r.allowed).toBe(false);
+    expect(r.reason).toContain("Blocked by deny pattern");
+  });
+
+  it("denylist blocks even in auto/accept/bypass mode", () => {
+    const policy = { deny: ["npm publish"] };
+    expect(checkPermission("execute_bash", "bypass", "npm publish", policy).allowed).toBe(false);
+    expect(checkPermission("execute_bash", "auto", "npm publish", policy).allowed).toBe(false);
+  });
+
+  it("critical commands are hard-blocked after denylist", () => {
+    const policy = { allow: ["rm -rf /"] };
+    // Even if in allowlist, critical rm -rf / must be blocked!
+    const r = checkPermission("execute_bash", "auto", "rm -rf /", policy);
+    expect(r.allowed).toBe(false);
+    expect(r.reason).toContain("CRITICAL risk command blocked");
+  });
+
+  it("allowlist allows non-critical reversible/readonly actions without asking", () => {
+    const policy = { allow: ["npm run test", "npm publish"] };
+    // npm run test is moderate, reversible. It should be allowed.
+    const r1 = checkPermission("execute_bash", "ask", "npm run test", policy);
+    expect(r1.allowed).toBe(true);
+
+    // npm publish is irreversible, so allowlist should NOT bypass approval for it.
+    const r2 = checkPermission("execute_bash", "ask", "npm publish", policy);
+    expect(r2.allowed).toBe(false);
+    expect(r2.requiresApproval).toBe(true);
+  });
+
+  it("alwaysAskDestructive = false disables prompt for irreversible actions in auto/accept modes", () => {
+    const policy = { alwaysAskDestructive: false };
+
+    // In auto mode, irreversible delete of /etc/passwd:
+    const rAuto = checkPermission("delete_file", "auto", "/etc/passwd", policy);
+    expect(rAuto.allowed).toBe(true);
+    expect(rAuto.requiresApproval).toBeFalsy();
+
+    // In accept mode, irreversible git push:
+    const rAccept = checkPermission("git_push", "accept", undefined, policy);
+    expect(rAccept.allowed).toBe(true);
+    expect(rAccept.requiresApproval).toBeFalsy();
+  });
+});
+
+describe("WP-7 — Structured QA Answers (isOptionSelected)", () => {
+  it("supports legacy string responses", () => {
+    expect(isOptionSelected("Allow", "Allow")).toBe(true);
+    expect(isOptionSelected("Go ahead", "go ahead")).toBe(true);
+    expect(isOptionSelected("devam et", "Allow")).toBe(true);
+    expect(isOptionSelected("A: Go ahead\nQ: Approve?", "Go ahead")).toBe(true);
+  });
+
+  it("supports structured JSON responses", () => {
+    const r1 = JSON.stringify({ kind: "choice", selected: ["Allow"] });
+    expect(isOptionSelected(r1, "Allow")).toBe(true);
+
+    const r2 = JSON.stringify({ kind: "choice", selected: ["Go ahead"] });
+    expect(isOptionSelected(r2, "Go ahead")).toBe(true);
+    expect(isOptionSelected(r2, "Allow")).toBe(true);
+
+    const r3 = JSON.stringify({ kind: "text", customText: "Proceed" });
+    expect(isOptionSelected(r3, "Allow")).toBe(true);
   });
 });
 

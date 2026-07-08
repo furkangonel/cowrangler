@@ -158,7 +158,7 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
     }
   });
 
-  const boxWidth = Math.min(termCols - 4, 64);
+  const boxWidth = Math.max(48, Math.min(termCols - 4, 92));
   const innerWidth = boxWidth - 4; // border + padding
 
   // Görünür pencere: maksimum 8 satır

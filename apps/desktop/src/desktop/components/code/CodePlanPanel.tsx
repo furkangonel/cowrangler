@@ -1,14 +1,14 @@
 /**
- * CodePlanPanel — Code sağ panelinin salt-görünüm "Plan" yüzeyi.
+ * CodePlanPanel — Code sağ panelinin aktif "Plan" yüzeyi.
  *
  * write_plan ile üretilen aktif planı (agentStore.currentPlan) gösterir:
- * başlık + özet + adımlar (dosya/risk rozetleriyle). Onay/redde YOK — plan burada
- * yalnızca gösterilir; onay diyaloğu sohbet akışındaki write_plan kartında yapılır.
+ * başlık + özet + adımlar (dosya/risk rozetleriyle) ile Approve/Modify/Cancel onay butonlarını sunar.
  */
 import React from 'react'
 import { ListChecks, FileText, X } from 'lucide-react'
 import { useAgentStore } from '../../stores/agent.store'
 import { useUIStore } from '../../stores/ui.store'
+import { ipc } from '../../lib/ipc'
 
 const RISK_COLOR: Record<string, string> = {
   low: 'text-emerald-500 bg-emerald-500/10',
@@ -85,6 +85,35 @@ export function CodePlanPanel() {
             <p className="text-[11px] text-text-muted leading-relaxed mt-3 border-t border-border-subtle/40 pt-2 whitespace-pre-wrap">
               {plan.notes}
             </p>
+          )}
+
+          {plan.status === 'pending' && (
+            <div className="flex gap-2 mt-4 pt-3 border-t border-border-subtle/40">
+              <button
+                onClick={async () => {
+                  await ipc.agent.answerQuestion(JSON.stringify({ kind: 'choice', selected: ['Go ahead'] }))
+                }}
+                className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-xs font-semibold shadow-sm transition-colors"
+              >
+                Approve
+              </button>
+              <button
+                onClick={async () => {
+                  await ipc.agent.answerQuestion(JSON.stringify({ kind: 'choice', selected: ['Modify plan'] }))
+                }}
+                className="px-3 py-1.5 border border-border-subtle text-text-secondary hover:bg-bg-hover hover:text-text-primary rounded-md text-xs font-semibold transition-colors"
+              >
+                Modify
+              </button>
+              <button
+                onClick={async () => {
+                  await ipc.agent.answerQuestion(JSON.stringify({ kind: 'choice', selected: ['Cancel'] }))
+                }}
+                className="px-3 py-1.5 border border-border-subtle text-error hover:bg-bg-hover rounded-md text-xs font-semibold transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
           )}
         </div>
       )}
