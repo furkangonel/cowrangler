@@ -243,11 +243,27 @@ Use execute_bash only when necessary. Prefer purpose-built tools (git_*, file_*)
 // ─────────────────────────────────────────────────────────────────────────────
 function isOptionSelected(answer: string, option: string): boolean {
   if (!answer) return false;
-  if (answer.trim() === option.trim()) return true;
+  const normalizedAnswer = answer.toLowerCase().trim();
+  const normalizedOption = option.toLowerCase().trim();
+
+  if (normalizedAnswer === normalizedOption) return true;
+
+  // Also accept Turkish variants if option is "Go ahead" or "Allow"
+  if (normalizedOption === "go ahead" || normalizedOption === "allow") {
+    const positives = ["go ahead", "allow", "yes", "y", "devam", "devam et", "onay", "onayla", "evet", "ok", "proceed"];
+    if (positives.includes(normalizedAnswer)) return true;
+  }
+
   const lines = answer.split("\n");
   for (const line of lines) {
-    if (line.trim().startsWith("A:") && line.includes(option)) {
-      return true;
+    const trimmed = line.trim();
+    if (trimmed.startsWith("A:")) {
+      const val = trimmed.slice(2).trim().toLowerCase();
+      if (val.includes(normalizedOption)) return true;
+      if (normalizedOption === "go ahead" || normalizedOption === "allow") {
+        const positives = ["go ahead", "allow", "yes", "y", "devam", "devam et", "onay", "onayla", "evet", "ok", "proceed"];
+        if (positives.some(p => val.includes(p))) return true;
+      }
     }
   }
   return false;

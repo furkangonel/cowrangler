@@ -56,6 +56,38 @@ export function AskUserPrompt({ payload, onSubmit }: { payload: any; onSubmit: (
     handleNext() // skip current question and move to next
   }
 
+  const handleSelectAndSubmit = (opt: string) => {
+    const updatedSelections = { ...selections, [currentStep]: [opt] }
+    setSelections(updatedSelections)
+
+    if (currentStep < questions.length - 1) {
+      setCurrentStep(c => c + 1)
+    } else {
+      let finalAnswer = ""
+      questions.forEach((q: any, i: number) => {
+        const selectedOpts = i === currentStep ? [opt] : (updatedSelections[i] || [])
+        const custom = customAnswers[i]?.trim()
+        
+        if (selectedOpts.length > 0 || custom) {
+          finalAnswer += `Q: ${q.question}\n`
+          if (selectedOpts.length > 0) {
+            finalAnswer += `A: ${selectedOpts.join(', ')}\n`
+          }
+          if (custom) {
+            finalAnswer += `A (Custom): ${custom}\n`
+          }
+          finalAnswer += '\n'
+        }
+      })
+
+      if (finalAnswer.trim()) {
+        onSubmit(finalAnswer.trim())
+      } else {
+        onSubmit("Skipped")
+      }
+    }
+  }
+
   const handleToggleOption = (qIndex: number, option: string, isMulti: boolean) => {
     setSelections(prev => {
       const current = prev[qIndex] || []
@@ -188,7 +220,7 @@ export function AskUserPrompt({ payload, onSubmit }: { payload: any; onSubmit: (
               <button
                 key={opt}
                 onClick={() => {
-                  handleToggleOption(currentStep, opt, false)
+                  handleSelectAndSubmit(opt)
                 }}
                 className={`w-full flex items-center justify-between p-3 rounded-xl text-left transition-all border ${
                   isSelected ? 'bg-bg-secondary border-border' : 'bg-bg-tertiary border-transparent hover:bg-bg-secondary'

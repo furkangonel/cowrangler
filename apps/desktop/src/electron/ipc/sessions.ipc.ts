@@ -11,9 +11,16 @@ export function registerSessionsIPC(ipcMain: IpcMain): void {
     if (!sessionIds.length) return []
 
     const sessions = sessionIds
-      .map(id => sessionDB.getSession(id))
+      .map(id => {
+        const s = sessionDB.getSession(id)
+        if (!s) return null
+        return {
+          ...s,
+          last_active_at: sessionDB.getLastActiveAt(id)
+        }
+      })
       .filter(Boolean)
-      .sort((a, b) => (b!.started_at - a!.started_at))
+      .sort((a, b) => (b!.last_active_at! - a!.last_active_at!))
 
     return sessions
   })

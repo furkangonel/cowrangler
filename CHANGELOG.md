@@ -6,6 +6,13 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.1.1] — 2026-07-08
+
+### Fixed
+- Fixed plan approval auto-submission, session sync, and permission path mapping.
+- Sorted sessions list by last active timestamp in descending order.
+- Updated header sidebar button tooltips to "Diff" and "Preview".
+
 ## [2.1.0] — 2026-07-06
 
 ### Added

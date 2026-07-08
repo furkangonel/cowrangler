@@ -57,11 +57,27 @@ function isRetryable(error: unknown): boolean {
 
 function isOptionSelected(answer: string, option: string): boolean {
   if (!answer) return false;
-  if (answer.trim() === option.trim()) return true;
+  const normalizedAnswer = answer.toLowerCase().trim();
+  const normalizedOption = option.toLowerCase().trim();
+
+  if (normalizedAnswer === normalizedOption) return true;
+
+  // Also accept Turkish variants if option is "Go ahead" or "Allow"
+  if (normalizedOption === "go ahead" || normalizedOption === "allow") {
+    const positives = ["go ahead", "allow", "yes", "y", "devam", "devam et", "onay", "onayla", "evet", "ok", "proceed"];
+    if (positives.includes(normalizedAnswer)) return true;
+  }
+
   const lines = answer.split("\n");
   for (const line of lines) {
-    if (line.trim().startsWith("A:") && line.includes(option)) {
-      return true;
+    const trimmed = line.trim();
+    if (trimmed.startsWith("A:")) {
+      const val = trimmed.slice(2).trim().toLowerCase();
+      if (val.includes(normalizedOption)) return true;
+      if (normalizedOption === "go ahead" || normalizedOption === "allow") {
+        const positives = ["go ahead", "allow", "yes", "y", "devam", "devam et", "onay", "onayla", "evet", "ok", "proceed"];
+        if (positives.some(p => val.includes(p))) return true;
+      }
     }
   }
   return false;
@@ -365,7 +381,7 @@ export class Agent {
               if (name === "execute_bash") {
                 extraInfo = args.command;
               } else if (name === "delete_file" || name === "delete_folder" || name === "write_file" || name === "edit_file" || name === "append_to_file" || name === "create_folder") {
-                extraInfo = args.path;
+                extraInfo = args.path ? path.resolve(getProjectWorkdir(), args.path) : args.path;
               }
 
               const permResult = checkPermission(name, permissionMode, extraInfo);
@@ -424,14 +440,16 @@ export class Agent {
             try { const { runHooks } = await import("./hooks.js"); await runHooks("post_tool_call", { tool: name }); } catch { /* hooks best-effort */ }
             if (name === "write_plan" && typeof r === "string" && r.startsWith("Plan approved by user")) {
               if (args.steps && Array.isArray(args.steps)) {
+                const workdir = getProjectWorkdir();
                 for (const step of args.steps) {
                   if (step.files && Array.isArray(step.files)) {
                     for (const f of step.files) {
-                      this.approvedPlanActions.add(`write_file:${f}`);
-                      this.approvedPlanActions.add(`edit_file:${f}`);
-                      this.approvedPlanActions.add(`append_to_file:${f}`);
-                      this.approvedPlanActions.add(`delete_file:${f}`);
-                      this.approvedPlanActions.add(`create_folder:${f}`);
+                      const absF = path.resolve(workdir, f);
+                      this.approvedPlanActions.add(`write_file:${absF}`);
+                      this.approvedPlanActions.add(`edit_file:${absF}`);
+                      this.approvedPlanActions.add(`append_to_file:${absF}`);
+                      this.approvedPlanActions.add(`delete_file:${absF}`);
+                      this.approvedPlanActions.add(`create_folder:${absF}`);
                     }
                   }
                 }

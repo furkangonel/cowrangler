@@ -41,6 +41,7 @@ export interface SessionRecord {
   title: string | null;
   workdir: string | null;
   pinned: number;
+  last_active_at?: number;
 }
 
 export interface MessageRecord {
@@ -321,6 +322,17 @@ export class SessionDB {
       this.db.prepare(`DELETE FROM sessions WHERE id = ?`).run(id);
     });
     tx(sessionId);
+  }
+
+  getLastActiveAt(sessionId: string): number {
+    const row = this.db
+      .prepare(`SELECT MAX(timestamp) as ts FROM messages WHERE session_id = ?`)
+      .get(sessionId) as { ts: number | null } | undefined;
+    if (row && row.ts !== null) {
+      return row.ts;
+    }
+    const sess = this.getSession(sessionId);
+    return sess ? sess.started_at : 0;
   }
 
   getSession(sessionId: string): SessionRecord | null {
