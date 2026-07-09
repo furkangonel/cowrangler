@@ -33,6 +33,7 @@ export function SessionView({ projectId, sessionId }: Props) {
 
   useEffect(() => {
     agentStore.startListening(projectId, {
+      getActiveSessionId: () => useSessionsStore.getState().activeSessionId,
       onUserMessage: addUserMessage,
       onAssistantStart: addAssistantStreaming,
       onUpdateStreaming: updateStreamingMessage,
@@ -48,6 +49,9 @@ export function SessionView({ projectId, sessionId }: Props) {
   useEffect(() => {
     // Oturum değişince önceki turların tool izlerini ve context snapshot'ı temizle.
     agentStore.clearTimelines()
+    agentStore.clearToolCalls()
+    agentStore.setProgress([])
+    agentStore.setCurrentPlan(null)
     agentStore.setContextSnapshot(null)
     if (!isNew && sessionId && sessionId !== '__new__') {
       loadMessages(sessionId)
@@ -92,6 +96,7 @@ export function SessionView({ projectId, sessionId }: Props) {
     agentStore.clearToolCalls()
     agentStore.clearTimelines()
     agentStore.setProgress([])
+    agentStore.setCurrentPlan(null)
     clearUIMessages()
     setActiveSession('__new__')
   }, [projectId])
@@ -175,4 +180,3 @@ export function SessionView({ projectId, sessionId }: Props) {
     </div>
   )
 }
-

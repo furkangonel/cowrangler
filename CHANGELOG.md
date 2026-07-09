@@ -6,6 +6,19 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.1.3] — 2026-07-09
+
+### Changed
+- Scope Cowork session context panel resources to the active project/session: active skills now come only from that session's context, and MCP servers only appear after they are used in that session.
+- Show session plan files in Cowork Working Folders and improve touched-file detection for the current desktop file tools.
+- Scope desktop agent events (`toolCall`, `progress`, `plan`, `done`) by project/session so stale activity from another session cannot leak into the active UI.
+- Apply the live reasoning shimmer gradient to the Design sidebar button in both expanded and collapsed sidebar modes.
+
+### Fixed
+- Clear session-local UI state (tool calls, timelines, progress, and current plan) when switching or creating sessions.
+- Start task watching on the real session id for new Cowork sessions instead of the temporary `__new__` placeholder.
+- Handle unborn Git repositories in Code mode, including repos on a named branch such as `develop` before the first commit exists, without noisy `HEAD`/branch fatal logs.
+
 ## [2.1.2] — 2026-07-09
 
 ### Added

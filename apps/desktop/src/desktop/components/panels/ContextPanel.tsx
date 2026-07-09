@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { Brain, BookOpen, RefreshCw, Edit2, Save, X, ChevronDown, ChevronRight, Folder, FolderOpen, ExternalLink, Plus, ListChecks, Boxes } from 'lucide-react'
-import { ipc, FileNode, PlanPayload, MCPServerInfo } from '../../lib/ipc'
+import { ipc, FileNode, MCPServerInfo } from '../../lib/ipc'
 import { useSessionsStore } from '../../stores/sessions.store'
 import { useAgentStore } from '../../stores/agent.store'
 import { useProjectsStore } from '../../stores/projects.store'
@@ -290,28 +290,20 @@ function SkillsSection({ projectId, sessionId }: { projectId: string | null; ses
   const activeSessionId = sessionId !== undefined ? sessionId : storeSessionId
   const { toolCalls, timelines } = useAgentStore()
 
-  // Kullanıcının eklediği (bundled olmayan) ETKİN skill'ler + bu oturumda aktif
-  // olan (auto-load veya utilize_skill ile CONTEXT'e giren) skill'ler.
-  const [projectSkills, setProjectSkills] = useState<string[]>([])
+  // Bu oturumda aktif olan (auto-load veya utilize_skill ile CONTEXT'e giren)
+  // skill'ler. Session panelinde proje/genel skill kataloğu gösterilmez.
   const [contextSkills, setContextSkills] = useState<string[]>([])
-  // WP-5: bağlı/aktif MCP sunucuları (tek-tek tool yerine sunucu bazında özet).
   const [mcpServers, setMcpServers] = useState<MCPServerInfo[]>([])
 
   useEffect(() => {
     let cancelled = false
     async function load() {
       try {
-        const all = await ipc.skills.list()
-        if (!cancelled) {
-          setProjectSkills(
-            all.filter(s => s.source !== 'bundled' && s.active !== false).map(s => s.id).sort()
-          )
-        }
-      } catch { /* skills yoksa sorun değil */ }
-      try {
         if (projectId && activeSessionId) {
           const ctx = await ipc.skills.context(projectId, activeSessionId)
           if (!cancelled) setContextSkills(ctx)
+        } else if (!cancelled) {
+          setContextSkills([])
         }
       } catch { /* context yoksa sorun değil */ }
       try {
@@ -376,27 +368,21 @@ function SkillsSection({ projectId, sessionId }: { projectId: string | null; ses
   const skillList = Array.from(usedSkills).sort()
   // Aktif skill var mı: utilize_skill çağrıldıysa VEYA CONTEXT'e skill girdiyse.
   const hasSkills = toolList.includes('utilize_skill') || skillList.length > 0
-  // Henüz aktif olmayan, kullanıcının eklediği skill'ler (öneri olarak gösterilir).
-  const inactiveProjectSkills = projectSkills.filter(s => !skillList.includes(s))
 
   // WP-5: tek-tek tool DÖKÜMÜ YOK. MCP tool'ları (mcp_<server>_<tool>) ait
   // oldukları sunucu altında sayaçla özetlenir; builtin tool'lar listelenmez.
+  // Yalnız bu session'ın tool history'sinde kullanılan MCP'ler görünür.
   const mcpUsage = new Map<string, number>()
+  const knownMcpNames = mcpServers.map(s => s.name).sort((a, b) => b.length - a.length)
   for (const tName of usedTools) {
     if (!tName.startsWith('mcp_')) continue
-    const server = mcpServers.find(s => tName.startsWith(`mcp_${s.name}_`))
-    const key = server ? server.name : tName.slice(4).split('_')[0]
+    const key = knownMcpNames.find(name => tName.startsWith(`mcp_${name}_`)) ?? tName.slice(4).split('_')[0]
     mcpUsage.set(key, (mcpUsage.get(key) ?? 0) + 1)
   }
-  const connectedServers = mcpServers.filter(s => s.status === 'connected')
-  // Gösterilecek sunucular: bağlı olanlar + bu oturumda kullanılıp bağlı
-  // görünmeyenler (kapanmış ama çağrılmış olabilir).
-  const mcpNames = Array.from(
-    new Set([...connectedServers.map(s => s.name), ...mcpUsage.keys()]),
-  ).sort()
+  const mcpNames = Array.from(mcpUsage.keys()).sort()
   const hasMcp = mcpNames.length > 0
 
-  if (!hasSkills && projectSkills.length === 0 && !hasMcp) {
+  if (!hasSkills && !hasMcp) {
     return (
       <div className="flex flex-col items-start gap-3 py-2 opacity-60 pt-4 border-t border-border-subtle">
         <div className="flex gap-1 mb-1">
@@ -446,34 +432,19 @@ function SkillsSection({ projectId, sessionId }: { projectId: string | null; ses
         </div>
       )}
 
-      {inactiveProjectSkills.length > 0 && (
-        <div>
-          <p className="text-xs font-medium text-text-secondary mb-2">Project Skills</p>
-          <div className="flex flex-wrap gap-2">
-            {inactiveProjectSkills.map(skill => (
-              <span key={skill} className="px-2 py-1 rounded bg-bg-tertiary text-text-muted text-xs border border-border-subtle flex items-center gap-1.5" title="Loaded automatically when a request matches it">
-                <BookOpen size={12} />
-                {skill}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
       {hasMcp && (
         <div>
           <p className="text-xs font-medium text-text-secondary mb-2">MCP Servers</p>
           <div className="flex flex-wrap gap-2">
             {mcpNames.map(name => {
               const count = mcpUsage.get(name) ?? 0
-              const connected = connectedServers.some(s => s.name === name)
               return (
                 <span
                   key={name}
                   className="px-2 py-1 rounded bg-bg-tertiary text-text-secondary text-xs border border-border-subtle flex items-center gap-1.5"
-                  title={connected ? 'Connected' : 'Used this session'}
+                  title="Used this session"
                 >
-                  <Boxes size={12} className={connected ? 'text-accent' : 'text-text-muted'} />
+                  <Boxes size={12} className="text-text-muted" />
                   {name}
                   {count > 0 && <span className="text-text-muted">· {count}</span>}
                 </span>

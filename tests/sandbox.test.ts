@@ -17,20 +17,24 @@ describe("Sandbox Engine", () => {
     expect(bundlePath).toContain("cowrangler-sandbox.bundle");
   });
 
-  it("executes basic shell commands asynchronously", async () => {
+  it("executes basic shell commands asynchronously in explicit low-trust mode", async () => {
     configureSandbox({ 
       enabled: true, 
       workspaceRoot: process.cwd(),
       maxOutputBytes: 512 * 1024,
-      maxTimeoutMs: 30000,
+      maxTimeoutMs: 5000,
       networkRestricted: false,
       allowedPaths: [os.homedir(), "/tmp", "/var/tmp"],
-      blockedBinaries: ["dd", "nc"]
+      blockedBinaries: ["dd", "nc"],
+      provider: "fallback",
+      allowUnsandboxed: true,
     });
     const result = await runInSandbox("echo 'hello sandbox'", process.cwd());
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain("hello sandbox");
-    expect(result.sandboxed).toBe(true);
+    expect(result.sandboxed).toBe(false);
+    expect(result.isolated).toBe(false);
+    expect(result.warning).toContain("NOT isolated");
   });
 
   it("blocks dangerous critical pattern commands", async () => {

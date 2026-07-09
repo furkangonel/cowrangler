@@ -84,10 +84,11 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
     // buradan kapsanır.) Gerçek oturuma geçişte loadMessages timeline'ları
     // yeniden inşa eder; __new__/null'da ise temiz kalır.
     import('./agent.store').then(({ useAgentStore }) => {
-      useAgentStore.getState().clearToolCalls()
-      if (id === '__new__' || !id) {
-        useAgentStore.getState().clearTimelines()
-      }
+      const agent = useAgentStore.getState()
+      agent.clearToolCalls()
+      agent.clearTimelines()
+      agent.setProgress([])
+      agent.setCurrentPlan(null)
     })
     // Clear UI messages when switching to a new session
     if (id === '__new__' || !id) {

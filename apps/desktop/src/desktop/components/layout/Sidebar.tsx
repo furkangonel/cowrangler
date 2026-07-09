@@ -180,11 +180,7 @@ export function Sidebar() {
         <button
           onClick={() => ipc.design.openWindow()}
           title="Design"
-          className="w-9 h-9 flex items-center justify-center rounded-xl text-white transition-all hover:opacity-90 active:scale-95"
-          style={{
-            background: 'linear-gradient(145deg, rgb(var(--accent)) 0%, rgb(var(--accent-press)) 100%)',
-            boxShadow: '0 2px 8px color-mix(in srgb, rgb(var(--accent)) 35%, transparent)',
-          }}
+          className="reasoning-gradient-button w-9 h-9 flex items-center justify-center rounded-xl transition-all hover:opacity-90 active:scale-95"
         >
           <Palette size={15} />
         </button>
@@ -309,17 +305,13 @@ export function Sidebar() {
         <div className="px-2 space-y-0.5">
           <button
             onClick={() => ipc.design.openWindow()}
-            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-accent-fg text-xs font-medium
+            className="reasoning-gradient-button w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium
                        transition-all hover:opacity-95 active:scale-[0.98]"
-            style={{
-              background: 'linear-gradient(145deg, rgb(var(--accent)) 0%, rgb(var(--accent-press)) 100%)',
-              boxShadow: '0 2px 8px color-mix(in srgb, rgb(var(--accent)) 28%, transparent)',
-            }}
           >
             <Palette size={13} className="flex-shrink-0" />
             <span>Design</span>
             <span className="ml-auto flex items-center gap-1 text-[10px] bg-white/20 rounded px-1.5 py-0.5 font-semibold leading-none">
-              <Sparkles size={9} />New
+             New
             </span>
           </button>
           <FooterBtn onClick={() => openCustomize()}        icon={<Boxes size={13} />}    label="Customize" />
@@ -523,7 +515,7 @@ function ProjectSection({ project, activeSessionId, sessions, onSession }: {
           </button>
         </div>
       </div>
-      
+
       {/* Sessions List */}
       {expanded && (
         <div className="space-y-0.5 ml-1">
