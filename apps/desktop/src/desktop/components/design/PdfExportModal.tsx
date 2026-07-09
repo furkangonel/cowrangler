@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { X, FileDown } from 'lucide-react'
 import { ipc } from '../../lib/ipc'
 import { buildSrcDoc, kindFromName, resolveTweakVars } from './renderScreen'
@@ -31,11 +31,28 @@ const PREVIEW_W = 300 // px, on-screen page width
  * shared.css (theme vars) + resolved tweak variables. Without shared.css/tweaks
  * the preview loses the design's theme and colours.
  */
-function useSrcDoc(file: ExportFile): string | null {
+/** Once an element scrolls near the viewport, stays true (lazy-mount gate). */
+function useInView<T extends Element>(ref: React.RefObject<T>): boolean {
+  const [seen, setSeen] = useState(false)
+  useEffect(() => {
+    if (seen) return
+    const el = ref.current
+    if (!el) return
+    const io = new IntersectionObserver(([e]) => {
+      if (e.isIntersecting) { setSeen(true); io.disconnect() }
+    }, { rootMargin: '600px' })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [seen, ref])
+  return seen
+}
+
+function useSrcDoc(file: ExportFile, enabled: boolean): string | null {
   const [doc, setDoc] = useState<string | null>(null)
   const tweakValues = useDesignStore(s => s.tweakValues[file.filePath])
   const refreshTick = useDesignStore(s => s.refreshTick)
   useEffect(() => {
+    if (!enabled) return
     let alive = true
     setDoc(null)
     const kind = kindFromName(file.filePath)
@@ -48,10 +65,14 @@ function useSrcDoc(file: ExportFile): string | null {
       if (!alive) return
       const raw = rf.content ?? ''
       const vars = resolveTweakVars(file.tweaks, tweakValues)
-      setDoc(buildSrcDoc({ kind, raw, filePath: file.filePath, css: rc.content ?? '', vars, resize: false }))
+      // Hide scrollbars in the preview — a printed PDF page has none. Just the
+      // bar is suppressed (no overflow:hidden) so nothing gets clipped early.
+      const noScroll = 'html{scrollbar-width:none!important;}html::-webkit-scrollbar,body::-webkit-scrollbar,*::-webkit-scrollbar{width:0!important;height:0!important;display:none!important;}'
+      const css = (rc.content ?? '') + noScroll
+      setDoc(buildSrcDoc({ kind, raw, filePath: file.filePath, css, vars, resize: false }))
     }).catch(() => alive && setDoc(''))
     return () => { alive = false }
-  }, [file.filePath, file.tweaks, tweakValues, refreshTick])
+  }, [enabled, file.filePath, file.tweaks, tweakValues, refreshTick])
   return doc
 }
 
@@ -67,7 +88,9 @@ function pageDims(pageSize: PdfExportOptions['pageSize'], landscape: boolean, fi
  * modal. `scale` zooms the content exactly like printToPDF's scale option.
  */
 function PagePreview({ file, opts, fitW, fitH }: { file: ExportFile; opts: PdfExportOptions; fitW: number; fitH: number }) {
-  const srcDoc = useSrcDoc(file)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const inView = useInView(rootRef)
+  const srcDoc = useSrcDoc(file, inView)
   const { w: pageW, h: pageH } = pageDims(opts.pageSize, opts.landscape, fitW, fitH)
   const disp = PREVIEW_W / pageW
   const marginPx = opts.marginIn * 96
@@ -75,7 +98,7 @@ function PagePreview({ file, opts, fitW, fitH }: { file: ExportFile; opts: PdfEx
   const printH = Math.max(1, pageH - marginPx * 2)
 
   return (
-    <div className="flex flex-col items-center gap-1.5">
+    <div ref={rootRef} className="flex flex-col items-center gap-1.5">
       <div
         className="relative overflow-hidden shadow-md"
         style={{ width: pageW * disp, height: pageH * disp, background: '#fff', border: '1px solid var(--d-line)' }}
@@ -90,6 +113,7 @@ function PagePreview({ file, opts, fitW, fitH }: { file: ExportFile; opts: PdfEx
             <iframe
               title={file.name}
               srcDoc={srcDoc}
+              scrolling="no"
               sandbox="allow-scripts allow-same-origin"
               style={{
                 width: printW,

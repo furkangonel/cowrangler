@@ -175,6 +175,10 @@ interface DesignState {
   setInspectMode: (on: boolean) => void
   setInspectorPick: (pick: InspectorPick | null) => void
 
+  /** Ask a frame's iframe to re-highlight a selector (chip click). Nonce forces re-fire. */
+  highlightRequest: { filePath: string; selector: string; nonce: number } | null
+  requestHighlight: (filePath: string, selector: string) => void
+
   // Accessibility scan results, keyed by filePath.
   a11yResults: Record<string, A11yIssue[]>
   a11yRunning: boolean
@@ -440,6 +444,9 @@ export const useDesignStore = create<DesignState>((set, get) => ({
   // ── Element inspector ─────────────────────────────────────────────────────────
   setInspectMode: (on) => set({ inspectMode: on, inspectorPick: on ? get().inspectorPick : null }),
   setInspectorPick: (pick) => set({ inspectorPick: pick }),
+
+  highlightRequest: null,
+  requestHighlight: (filePath, selector) => set({ highlightRequest: { filePath, selector, nonce: Date.now() } }),
 
   // ── Accessibility ──────────────────────────────────────────────────────────────
   requestA11y: (filePath) => set(s => ({ a11yRunning: true, a11yRequest: { filePath, nonce: (s.a11yRequest?.nonce ?? 0) + 1 } })),

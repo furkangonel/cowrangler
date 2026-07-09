@@ -6,7 +6,7 @@ import {
   Brain, ChevronRight, Paperclip, FileText,
 } from 'lucide-react'
 import { useFileDrop } from '../../lib/useFileDrop'
-import { useDesignStore, DesignSystemRecord, DesignFrame, DesignTweak, DesignDevice, DesignActivity } from '../../stores/design.store'
+import { useDesignStore, DesignSystemRecord, DesignFrame, DesignTweak, DesignDevice, DesignActivity, InspectorPick } from '../../stores/design.store'
 import { useSettingsStore } from '../../stores/settings.store'
 import { DesignCanvas, isDeviceTemplate } from './DesignCanvas'
 import { buildSrcDoc, kindFromName } from './renderScreen'
@@ -36,7 +36,7 @@ export function DesignEditor({ onBack }: Props) {
     renameProject, deleteProject, systems, loadSystems, setPending,
     tweaksOn, setTweaksOn, tweakValues, setTweakValue, resetTweaks, persistTweaks,
     checkpoints, loadCheckpoints, saveCheckpoint, restoreCheckpoint,
-    inspectMode, setInspectMode, inspectorPick, setInspectorPick,
+    inspectMode, setInspectMode, inspectorPick, setInspectorPick, requestHighlight,
     a11yResults, a11yRunning, requestA11y, clearA11y,
   } = useDesignStore()
   const startedRef = useRef<string | null>(null)
@@ -61,6 +61,7 @@ export function DesignEditor({ onBack }: Props) {
   const [dlMenu, setDlMenu] = useState<string | null>(null)
   const [deckMenu, setDeckMenu] = useState(false)
   const [pdfModal, setPdfModal] = useState<ExportFile[] | null>(null)
+  const [pickedRefs, setPickedRefs] = useState<InspectorPick[]>([])
   const [historyMenuOpen, setHistoryMenuOpen] = useState(false)
   const [versionsMenuOpen, setVersionsMenuOpen] = useState(false)
   const [a11yPanelOpen, setA11yPanelOpen] = useState(false)
@@ -84,23 +85,19 @@ export function DesignEditor({ onBack }: Props) {
     if (!useDesignStore.getState().pendingMessage) loadHistory(activeProject.id)
   }, [activeProject?.id])
 
-  // A click in inspect mode drops a targeted reference into the composer so the
-  // next prompt is scoped to that element.
+  // A click in inspect mode adds a targeted element as a chip above the composer
+  // (not raw text). The chip is included in the prompt on send and, when clicked,
+  // re-highlights the element on the canvas.
   useEffect(() => {
     if (!inspectorPick) return
-    const label = inspectorPick.text ? `"${inspectorPick.text}"` : `<${inspectorPick.tag}>`
-    const ref = `On ${inspectorPick.selector} (${label}), `
-    setInput(prev => (prev.startsWith(ref) ? prev : ref + prev))
+    const pick = inspectorPick
+    setPickedRefs(prev =>
+      prev.some(p => p.filePath === pick.filePath && p.selector === pick.selector)
+        ? prev
+        : [...prev, pick])
     setInspectMode(false)
     setInspectorPick(null)
-    requestAnimationFrame(() => {
-      const el = textareaRef.current
-      if (!el) return
-      el.focus()
-      el.style.height = 'auto'
-      el.style.height = Math.min(el.scrollHeight, COMPOSER_MAX_H) + 'px'
-      el.style.overflowY = el.scrollHeight > COMPOSER_MAX_H ? 'auto' : 'hidden'
-    })
+    requestAnimationFrame(() => textareaRef.current?.focus())
   }, [inspectorPick])
 
   // Auto-send the prompt typed on the home screen so generation starts on open.
@@ -252,13 +249,18 @@ export function DesignEditor({ onBack }: Props) {
   const handleSend = useCallback(async () => {
     const text = input.trim()
     const attach = drop.refText()
-    if ((!text && !attach) || chatLoading) return
-    const msg = [text, attach].filter(Boolean).join('\n\n')
+    if ((!text && !attach && pickedRefs.length === 0) || chatLoading) return
+    // Inspector chips → a scoped reference block prepended to the prompt.
+    const refBlock = pickedRefs.length
+      ? 'Targeted elements:\n' + pickedRefs.map(p => `- ${p.selector} (${p.text ? `"${p.text}"` : `<${p.tag}>`}) in ${p.filePath.split('/').pop()}`).join('\n')
+      : ''
+    const msg = [refBlock, text, attach].filter(Boolean).join('\n\n')
     setInput('')
     drop.clear()
+    setPickedRefs([])
     if (textareaRef.current) { textareaRef.current.style.height = 'auto'; textareaRef.current.style.overflowY = 'hidden' }
     await sendMessage(msg, effectiveModel)
-  }, [input, chatLoading, effectiveModel, sendMessage, drop])
+  }, [input, chatLoading, effectiveModel, sendMessage, drop, pickedRefs])
 
   function onKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
@@ -433,6 +435,27 @@ export function DesignEditor({ onBack }: Props) {
                     </div>
                   </div>
                 )}
+                {pickedRefs.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 pb-2">
+                    {pickedRefs.map((p, i) => (
+                      <button
+                        key={p.filePath + p.selector}
+                        onClick={() => requestHighlight(p.filePath, p.selector)}
+                        title={`${p.selector} — click to highlight on canvas`}
+                        className="group flex items-center gap-1 pl-1.5 pr-1 py-0.5 rounded-md text-xs font-medium transition-colors"
+                        style={{ background: 'var(--d-clay-wash)', border: '1px solid var(--d-clay)', color: 'var(--d-clay)' }}
+                      >
+                        <MousePointerClick size={11} className="flex-shrink-0" />
+                        <span className="truncate max-w-[160px]">{p.text ? p.text : `<${p.tag}>`}</span>
+                        <span
+                          onClick={(e) => { e.stopPropagation(); setPickedRefs(prev => prev.filter((_, j) => j !== i)) }}
+                          className="ml-0.5 rounded hover:bg-black/10"
+                          title="Remove"
+                        ><X size={11} /></span>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {drop.files.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 pb-2">
                     {drop.files.map(f => (
@@ -480,7 +503,7 @@ export function DesignEditor({ onBack }: Props) {
                     {chatLoading ? (
                       <button onClick={interruptChat} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white" style={{ background: '#c0392b' }}><Square size={11} className="fill-current" /> Stop</button>
                     ) : (
-                      <button onClick={handleSend} disabled={!input.trim() && drop.files.length === 0} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold text-white transition-all disabled:opacity-50" style={{ background: (input.trim() || drop.files.length > 0) ? 'var(--d-clay)' : 'var(--d-clay-soft)' }}>
+                      <button onClick={handleSend} disabled={!input.trim() && drop.files.length === 0 && pickedRefs.length === 0} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold text-white transition-all disabled:opacity-50" style={{ background: (input.trim() || drop.files.length > 0 || pickedRefs.length > 0) ? 'var(--d-clay)' : 'var(--d-clay-soft)' }}>
                         <ArrowUp size={13} /> Send
                       </button>
                     )}

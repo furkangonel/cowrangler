@@ -144,54 +144,99 @@ async function fileToNativeImage(filePath: string, width: number, height: number
   } finally { win.destroy() }
 }
 
+interface AdvPdfOpts { pageSize?: 'fit' | 'a4' | 'letter'; landscape?: boolean; marginIn?: number; scale?: number; fitW?: number; fitH?: number }
+
 /**
- * Print a file to PDF honouring user page settings (size, orientation, margin,
- * scale). Screen media is emulated so the PDF matches the on-canvas preview.
+ * Print ONE file to a PDF page into an already-open, reused window. Reusing the
+ * window (instead of one per file) is what makes large decks — e.g. 19 pages —
+ * reliable: no window-count blow-up, one debugger session. Screen media is
+ * emulated so the PDF matches the on-canvas preview.
  */
-async function fileToPdfAdvanced(
-  filePath: string,
-  o: { pageSize?: 'fit' | 'a4' | 'letter'; landscape?: boolean; marginIn?: number; scale?: number; fitW?: number; fitH?: number },
-): Promise<Buffer> {
+async function renderPdfPage(win: BrowserWindow, filePath: string, o: AdvPdfOpts): Promise<Buffer> {
   const fitW = o.fitW ?? 794
   const fitH = o.fitH ?? 1123
-  const win = offscreenWindow(fitW, fitH, false)
+  const wc = win.webContents
+  await win.loadFile(filePath)
+  win.setContentSize(fitW, fitH)
+  await settle(win)
+  // Emulated media resets on navigation → re-apply per page (best-effort).
+  try { await wc.debugger.sendCommand('Emulation.setEmulatedMedia', { media: 'screen' }) } catch { /* debugger not attached */ }
+  // Inject sibling shared.css (theme vars) so the export matches the canvas.
+  try {
+    const sharedPath = filePath.replace(/[^/\\]+$/, 'shared.css')
+    if (fs.existsSync(sharedPath)) {
+      const shared = fs.readFileSync(sharedPath, 'utf-8')
+      await wc.executeJavaScript(`(function(){var s=document.createElement('style');s.textContent=${JSON.stringify(shared)};document.head.insertBefore(s,document.head.firstChild);return true;})()`)
+      await new Promise(r => setTimeout(r, 40))
+    }
+  } catch { /* no shared.css → file is self-contained */ }
+  // The design canvas treats each file as one fixed page. Chromium print can add
+  // a trailing blank page for tiny overflow caused by default body margins,
+  // borders, or sub-pixel layout. Clamp the root to the render frame before
+  // printing so one design file stays one PDF page.
+  await wc.executeJavaScript(`(function(){
+    var s=document.createElement('style');
+    s.textContent='html,body{margin:0!important;padding:0!important;'+
+      'width:${fitW}px!important;height:${fitH}px!important;'+
+      'max-width:${fitW}px!important;max-height:${fitH}px!important;'+
+      'overflow:hidden!important;}';
+    document.head.appendChild(s);
+    window.scrollTo(0,0);
+    return true;
+  })()`)
+  await new Promise(r => setTimeout(r, 60))
+  let pageSize: any
+  if (o.pageSize === 'a4') pageSize = 'A4'
+  else if (o.pageSize === 'letter') pageSize = 'Letter'
+  else pageSize = { width: fitW / 96, height: fitH / 96 } // 'fit' → content size in inches
+  const m = Math.max(0, o.marginIn ?? 0)
+  const printed = (await wc.printToPDF({
+    printBackground: true,
+    landscape: !!o.landscape,
+    pageSize,
+    margins: { top: m, bottom: m, left: m, right: m },
+    scale: Math.min(2, Math.max(0.1, o.scale ?? 1)),
+    preferCSSPageSize: false,
+  })) as Buffer
+  return await firstPdfPageOnly(printed, filePath)
+}
+
+async function renderPdfPageInFreshWindow(filePath: string, o: AdvPdfOpts): Promise<Buffer> {
+  const win = offscreenWindow(o.fitW ?? 794, o.fitH ?? 1123, false)
   const wc = win.webContents
   let attached = false
   try {
-    await win.loadFile(filePath)
-    win.setContentSize(fitW, fitH)
-    await settle(win)
-    try {
-      wc.debugger.attach('1.3'); attached = true
-      await wc.debugger.sendCommand('Emulation.setEmulatedMedia', { media: 'screen' })
-    } catch { /* fall back to print media */ }
-    // Inject sibling shared.css (theme vars) at the top of <head> so the export
-    // matches the canvas, which inlines the same shared stylesheet.
-    try {
-      const sharedPath = filePath.replace(/[^/\\]+$/, 'shared.css')
-      if (fs.existsSync(sharedPath)) {
-        const shared = fs.readFileSync(sharedPath, 'utf-8')
-        await wc.executeJavaScript(`(function(){var s=document.createElement('style');s.textContent=${JSON.stringify(shared)};document.head.insertBefore(s,document.head.firstChild);return true;})()`)
-        await new Promise(r => setTimeout(r, 40))
-      }
-    } catch { /* no shared.css → file is self-contained */ }
-    let pageSize: any
-    if (o.pageSize === 'a4') pageSize = 'A4'
-    else if (o.pageSize === 'letter') pageSize = 'Letter'
-    else pageSize = { width: fitW / 96, height: fitH / 96 } // 'fit' → content size in inches
-    const m = Math.max(0, o.marginIn ?? 0)
-    return (await wc.printToPDF({
-      printBackground: true,
-      landscape: !!o.landscape,
-      pageSize,
-      margins: { top: m, bottom: m, left: m, right: m },
-      scale: Math.min(2, Math.max(0.1, o.scale ?? 1)),
-      preferCSSPageSize: false,
-    })) as Buffer
+    try { wc.debugger.attach('1.3'); attached = true } catch { /* print media fallback */ }
+    return await renderPdfPage(win, filePath, o)
   } finally {
     if (attached) { try { wc.debugger.detach() } catch {} }
     win.destroy()
   }
+}
+
+async function renderPdfPageWithRetry(win: BrowserWindow, filePath: string, o: AdvPdfOpts): Promise<Buffer> {
+  try {
+    return await renderPdfPage(win, filePath, o)
+  } catch (first: any) {
+    console.warn('[export:toPdfAdvanced] reused window failed, retrying fresh window:', filePath, first?.message ?? first)
+    return await renderPdfPageInFreshWindow(filePath, o)
+  }
+}
+
+async function countPdfPages(buf: Buffer): Promise<number> {
+  const doc = await PDFDocument.load(buf)
+  return doc.getPageCount()
+}
+
+async function firstPdfPageOnly(buf: Buffer, sourceLabel: string): Promise<Buffer> {
+  const src = await PDFDocument.load(buf)
+  const count = src.getPageCount()
+  if (count <= 1) return buf
+  console.warn(`[export:toPdfAdvanced] ${path.basename(sourceLabel)} produced ${count} pages; keeping first page`)
+  const out = await PDFDocument.create()
+  const [first] = await out.copyPages(src, [0])
+  out.addPage(first)
+  return Buffer.from(await out.save())
 }
 
 /** Build a multi-page PDF where each page is exactly one slide image. */
@@ -467,12 +512,37 @@ export function registerExportIPC(): void {
     if (files.length === 0) return { ok: false, error: 'No screens to export' }
     const filePath = await askSavePath(baseName(undefined, p.name) + '.pdf', 'PDF', ['pdf'])
     if (!filePath) return { ok: false }
+    // ONE reused offscreen window + one debugger session for the whole deck.
+    const win = offscreenWindow(p.fitW ?? 794, p.fitH ?? 1123, false)
+    const wc = win.webContents
+    let attached = false
     try {
+      try { wc.debugger.attach('1.3'); attached = true } catch { /* print media fallback */ }
       const parts: Buffer[] = []
-      for (const f of files) parts.push(await fileToPdfAdvanced(f, p))
-      fs.writeFileSync(filePath, await mergePdfs(parts))
-      return { ok: true, path: filePath, count: files.length }
-    } catch (e: any) { return { ok: false, error: e.message } }
+      const failures: string[] = []
+      for (const f of files) {
+        try {
+          parts.push(await renderPdfPageWithRetry(win, f, p))
+        } catch (e: any) {
+          const msg = `${path.basename(f)}: ${e?.message ?? e}`
+          failures.push(msg)
+          console.error('[export:toPdfAdvanced] page failed after retry:', f, e?.message ?? e)
+        }
+      }
+      if (failures.length > 0) return { ok: false, error: `PDF export incomplete: ${failures.join('; ')}` }
+      const merged = await mergePdfs(parts)
+      const pageCount = await countPdfPages(merged)
+      if (pageCount !== files.length) {
+        return { ok: false, error: `PDF export page mismatch: expected ${files.length} pages, rendered ${pageCount}` }
+      }
+      fs.writeFileSync(filePath, merged)
+      return { ok: true, path: filePath, count: pageCount }
+    } catch (e: any) {
+      return { ok: false, error: e.message }
+    } finally {
+      if (attached) { try { wc.debugger.detach() } catch {} }
+      win.destroy()
+    }
   })
 
   // Whole deck → one multi-page PDF (each file = one page, rendered as an image).
