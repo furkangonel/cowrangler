@@ -19,6 +19,8 @@ import {
   Trash2,
   ArrowRight,
   Link2,
+  FileText,
+  X,
 } from "lucide-react";
 import {
   useDesignStore,
@@ -30,6 +32,7 @@ import { useSettingsStore } from "../../stores/settings.store";
 import { DesignTopBar, DesignAvatar } from "./DesignTopBar";
 import { FAN_TEMPLATES, ALL_TEMPLATES, TemplateMeta } from "./DesignTemplates";
 import { ipc } from "../../lib/ipc";
+import { useDeferredFileDrop } from "../../lib/useDeferredFileDrop";
 
 const PLACEHOLDERS = [
   "Create a loading animation",
@@ -58,6 +61,7 @@ export function DesignHome({ onOpen }: Props) {
     setPending,
   } = useDesignStore();
   const { savedModels, getModel } = useSettingsStore();
+  const drop = useDeferredFileDrop();
 
   const [input, setInput] = useState("");
   const [template, setTemplate] = useState<DesignTemplateType>("blank");
@@ -125,9 +129,13 @@ export function DesignHome({ onOpen }: Props) {
         systemId ?? undefined,
       );
       setActiveProject(project);
+      // Sürüklenen dosyaları yeni projenin workdir'ine kopyala, ref metni al.
+      const attach = await drop.flush(project.id);
+      drop.clear();
+      const finalPrompt = [prompt, attach].filter(Boolean).join("\n\n");
       // Hand the typed prompt (and chosen model) to the editor so it starts
       // generating immediately instead of opening an empty chat.
-      setPending(prompt ? { text: prompt, model: model ?? undefined } : null);
+      setPending(finalPrompt ? { text: finalPrompt, model: model ?? undefined } : null);
       onOpen(project);
     } finally {
       setCreating(false);
@@ -136,8 +144,8 @@ export function DesignHome({ onOpen }: Props) {
 
   function submitComposer() {
     const text = input.trim();
-    if (!text) return;
-    const name = text.split(/\s+/).slice(0, 6).join(" ");
+    if (!text && drop.files.length === 0) return;
+    const name = text.split(/\s+/).slice(0, 6).join(" ") || "Untitled";
     create(name, template, text);
   }
 
@@ -226,6 +234,7 @@ export function DesignHome({ onOpen }: Props) {
             savedModels={savedModels}
             creating={creating}
             onSubmit={submitComposer}
+            drop={drop}
             systems={systems}
             activeSystem={activeSystem}
             setSystemId={setSystemId}
@@ -438,6 +447,7 @@ function Composer(props: {
   model: string | null;
   setModel: (m: string | null) => void;
   globalModel: string | null;
+  drop: ReturnType<typeof useDeferredFileDrop>;
 }) {
   const {
     input,
@@ -451,6 +461,7 @@ function Composer(props: {
     savedModels,
     creating,
     onSubmit,
+    drop,
     systems,
     activeSystem,
     setSystemId,
@@ -489,12 +500,33 @@ function Composer(props: {
   return (
     <div className="mx-auto mt-8 design-rise" style={{ maxWidth: 760 }}>
       <div
-        className="rounded-[28px] design-elev"
+        {...drop.dropBind}
+        className="relative rounded-[28px] design-elev"
         style={{
           background: "var(--d-surface)",
-          border: "1px solid var(--d-line)",
+          border: `1px solid ${drop.isDragging ? "var(--d-clay)" : "var(--d-line)"}`,
         }}
       >
+        {drop.isDragging && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center rounded-[28px] pointer-events-none" style={{ background: "var(--d-clay-wash)" }}>
+            <div className="flex items-center gap-1.5 text-sm font-medium" style={{ color: "var(--d-clay)" }}>
+              <Paperclip size={15} /> Drop files to attach
+            </div>
+          </div>
+        )}
+        {drop.files.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-4 pt-4">
+            {drop.files.map((f, i) => (
+              <div key={i} className="flex items-center gap-1 pl-1 pr-2 py-0.5 rounded-md text-xs font-medium" style={{ background: "var(--d-cream-2)", border: "1px solid var(--d-line)", color: "var(--d-ink-soft)" }}>
+                {f.previewUrl
+                  ? <img src={f.previewUrl} alt={f.name} className="w-5 h-5 rounded object-cover flex-shrink-0" />
+                  : <FileText size={10} className="flex-shrink-0" style={{ color: "var(--d-ink-muted)" }} />}
+                <span className="truncate max-w-[160px]">{f.name}</span>
+                <button onClick={() => drop.remove(i)} className="ml-0.5" title="Remove" style={{ color: "var(--d-ink-muted)" }}><X size={10} /></button>
+              </div>
+            ))}
+          </div>
+        )}
         <textarea
           ref={inputRef}
           value={input}

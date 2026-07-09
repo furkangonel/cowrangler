@@ -940,20 +940,58 @@ function toolGlyph(name: string): string {
   return '▸'
 }
 
+/** Biten satır bu süre sonra kaybolur (kısa bir "tamam" görünümü bırakır). */
+const ACTIVITY_EXPIRE_MS = 1400
+/** Aynı anda gösterilen azami satır — fazlası döngüyle en yeniyle değişir. */
+const ACTIVITY_MAX_ROWS = 4
+
 function ActivityFeed({ items, live }: { items: DesignActivity[]; live: boolean }) {
+  const doneAt = useRef<Map<string, number>>(new Map())
+  const [, force] = useState(0)
+
+  // Biten satırların bitiş zamanını kaydet; tekrar çalışırsa sıfırla.
+  useEffect(() => {
+    const now = Date.now()
+    for (const a of items) {
+      if (a.status === 'done' || a.status === 'error') {
+        if (!doneAt.current.has(a.id)) doneAt.current.set(a.id, now)
+      } else {
+        doneAt.current.delete(a.id)
+      }
+    }
+  }, [items])
+
+  // Bitmiş satır varken periyodik yeniden değerlendir (süre dolunca kaybolsun).
+  useEffect(() => {
+    if (!items.some(a => a.status !== 'start')) return
+    const t = setInterval(() => force(x => x + 1), 300)
+    return () => clearInterval(t)
+  }, [items])
+
+  const now = Date.now()
+  const visible = items
+    .filter(a => {
+      if (a.status === 'start') return true
+      const t = doneAt.current.get(a.id)
+      return t == null || now - t < ACTIVITY_EXPIRE_MS
+    })
+    .slice(-ACTIVITY_MAX_ROWS)
+
+  if (visible.length === 0 && !live) return null
+
   return (
     <div className="w-full flex flex-col gap-1 rounded-xl p-2" style={{ background: 'var(--d-cream-2)', border: '1px solid var(--d-line)' }}>
-      {items.map(a => {
+      {visible.map(a => {
         const running = a.status === 'start'
         const err = a.status === 'error'
         const label = TOOL_LABEL[a.name] ?? a.name.replace(/_/g, ' ')
         return (
-          <div key={a.id} className="flex items-center gap-2 px-1.5 py-0.5 text-xs">
+          <div key={a.id} className="flex items-center gap-2 px-1.5 py-0.5 text-xs animate-fade-in">
             <span className="w-4 flex-shrink-0 flex items-center justify-center" style={{ color: err ? '#c0392b' : running ? 'var(--d-clay)' : 'var(--d-ink-muted)' }}>
               {running ? <span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin inline-block" /> : err ? '✕' : <Check size={12} />}
             </span>
-            <span className="font-medium" style={{ color: 'var(--d-ink-soft)' }}>{label}</span>
-            {a.detail && <span className="truncate font-mono text-[11px]" style={{ color: 'var(--d-ink-muted)' }}>{a.detail}</span>}
+            <span className="font-medium flex-shrink-0" style={{ color: 'var(--d-ink-soft)' }}>{label}</span>
+            {a.detail && <span className="truncate font-mono text-[11px]" style={{ color: 'var(--d-ink-muted)' }} title={a.detail}>{a.detail}</span>}
             <span className="flex-1" />
             {!running && a.durationMs != null && <span className="tabular-nums text-[10px] flex-shrink-0" style={{ color: 'var(--d-ink-faint)' }}>{(a.durationMs / 1000).toFixed(1)}s</span>}
           </div>
