@@ -1,23 +1,64 @@
 import React, { useEffect, useState, useMemo } from 'react'
-import { Plus, Folder, FolderOpen, File, ChevronRight, ChevronDown, ExternalLink, X } from 'lucide-react'
+import { File, ChevronRight, ChevronDown, ExternalLink } from 'lucide-react'
 import { useProjectsStore } from '../../stores/projects.store'
 import { useAgentStore } from '../../stores/agent.store'
-import { ipc, FileNode } from '../../lib/ipc'
+import { ipc, FileNode, ProjectFolder } from '../../lib/ipc'
 import { useUIStore } from '../../stores/ui.store'
 import { useSessionsStore } from '../../stores/sessions.store'
 
 interface Props { projectId: string | null }
 
 export function WorkingFoldersPanel({ projectId }: Props) {
-  const { folders, loadFolders } = useProjectsStore()
-  const { toolCalls, timelines } = useAgentStore()
+  const { folders, loadFolders, getActiveProject } = useProjectsStore()
+  const { toolCalls, timelines, currentPlan } = useAgentStore()
+  const activeSessionId = useSessionsStore(s => s.activeSessionId)
+  const project = getActiveProject()
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const [persistedPlanPath, setPersistedPlanPath] = useState<string | null>(null)
 
   useEffect(() => {
     if (projectId) loadFolders(projectId)
   }, [projectId])
 
   const projectFolders = projectId ? (folders[projectId] ?? []) : []
+  const planPath = useMemo(() => {
+    if (!project?.workdir || !activeSessionId || activeSessionId === '__new__') return null
+    return `${project.workdir.replace(/\/+$/, '')}/.cowrangler/plans/${activeSessionId}.md`
+  }, [project?.workdir, activeSessionId])
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadPlanPath() {
+      setPersistedPlanPath(null)
+      if (!projectId || !activeSessionId || activeSessionId === '__new__' || !planPath) return
+      try {
+        const plan = await ipc.agent.getPlan(projectId, activeSessionId)
+        if (!cancelled && plan) setPersistedPlanPath(planPath)
+      } catch { /* plan yoksa sorun değil */ }
+    }
+    loadPlanPath()
+    return () => { cancelled = true }
+  }, [projectId, activeSessionId, planPath])
+
+  const activePlanPath =
+    currentPlan?.sessionId === activeSessionId && planPath ? planPath : persistedPlanPath
+  const visibleFolders = useMemo(() => {
+    if (!activePlanPath || !project?.workdir) return projectFolders
+    const normalizedPlan = activePlanPath.replace(/\/+$/, '')
+    const containsPlan = projectFolders.some(folder => {
+      const root = folder.folder_path.replace(/\/+$/, '')
+      return normalizedPlan === root || normalizedPlan.startsWith(`${root}/`)
+    })
+    if (containsPlan) return projectFolders
+    const synthetic: ProjectFolder = {
+      id: '__project_workdir__',
+      project_id: projectId ?? '',
+      folder_path: project.workdir,
+      label: null,
+      added_at: 0,
+    }
+    return [...projectFolders, synthetic]
+  }, [activePlanPath, project?.workdir, projectFolders, projectId])
 
   // Extract all file paths from tool arguments that the agent has interacted with
   const { messages } = useSessionsStore()
@@ -25,8 +66,22 @@ export function WorkingFoldersPanel({ projectId }: Props) {
     const paths = new Set<string>()
 
     const FILE_TOOLS = new Set([
-      'view_file', 'replace_file_content', 'multi_replace_file_content', 'write_to_file', 'read_file'
+      'read_file',
+      'write_file',
+      'edit_file',
+      'apply_patch',
+      'append_to_file',
+      'create_folder',
+      'move_item',
+      'delete_file',
+      'file_info',
+      'view_file',
+      'replace_file_content',
+      'multi_replace_file_content',
+      'write_to_file',
     ])
+
+    if (activePlanPath) paths.add(activePlanPath)
 
     const scanArgs = (obj: any, parentKey?: string, toolName?: string) => {
       // If we know the tool name, and it's not a file manipulation tool, skip it.
@@ -84,13 +139,13 @@ export function WorkingFoldersPanel({ projectId }: Props) {
     })
 
     return Array.from(paths)
-  }, [toolCalls, timelines, messages])
+  }, [toolCalls, timelines, messages, activePlanPath])
 
   // Build a virtual file tree for each root folder based ONLY on touched files
   const trees = useMemo(() => {
     const newTrees: Record<string, FileNode[]> = {}
 
-    projectFolders.forEach(folder => {
+    visibleFolders.forEach(folder => {
       // normalize rootPath
       let rootPath = folder.folder_path.replace(/\/+$/, '')
       let rootName = rootPath.split('/').pop() || ''
@@ -154,7 +209,7 @@ export function WorkingFoldersPanel({ projectId }: Props) {
     })
 
     return newTrees
-  }, [projectFolders, touchedFiles])
+  }, [visibleFolders, touchedFiles])
 
   function toggleFolder(folderPath: string) {
     setExpanded(e => ({ ...e, [folderPath]: !e[folderPath] }))
@@ -162,14 +217,14 @@ export function WorkingFoldersPanel({ projectId }: Props) {
 
   return (
     <div className="py-2 pb-3">
-      {projectFolders.length === 0 ? (
+      {visibleFolders.length === 0 ? (
         <div className="flex flex-col gap-2 text-center py-2">
           <p className="text-xs text-text-muted">No folders added.</p>
           <p className="text-2xs text-text-muted/60 px-4">Go to Project Home to manage Working Folders.</p>
         </div>
       ) : (
         <div className="flex flex-col">
-          {projectFolders.map(folder => {
+          {visibleFolders.map(folder => {
             const hasTouchedFiles = trees[folder.folder_path] && trees[folder.folder_path].length > 0
             return (
               <div key={folder.id}>
