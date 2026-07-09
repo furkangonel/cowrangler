@@ -51,6 +51,7 @@ export function tryGit(args: string[], cwd: string = getProjectWorkdir()): GitRu
       cwd,
       encoding: "utf-8",
       maxBuffer: 32 * 1024 * 1024,
+      stdio: ["pipe", "pipe", "pipe"],
     });
     return { ok: true, stdout: stdout.trim(), stderr: "" };
   } catch (e: any) {
@@ -106,6 +107,18 @@ export function isGitRepo(cwd: string = getProjectWorkdir()): boolean {
   return r.ok && r.stdout === "true";
 }
 
+function hasHead(cwd: string = getProjectWorkdir()): boolean {
+  return tryGit(["rev-parse", "--verify", "HEAD"], cwd).ok;
+}
+
+function currentBranchName(cwd: string = getProjectWorkdir()): string {
+  const branch = tryGit(["branch", "--show-current"], cwd);
+  if (branch.ok && branch.stdout) return branch.stdout;
+  const symbolic = tryGit(["symbolic-ref", "--short", "HEAD"], cwd);
+  if (symbolic.ok && symbolic.stdout) return symbolic.stdout;
+  return "HEAD";
+}
+
 /** `git status --porcelain` çıktısındaki tek satırı çözümle. */
 function parseStatusLine(line: string): GitFileEntry | null {
   // Biçim: "XY <path>" — X=index, Y=worktree. Yeniden adlandırmada "orig -> new".
@@ -131,8 +144,11 @@ export function status(cwd: string = getProjectWorkdir()): GitStatus {
   if (!isGitRepo(cwd)) {
     return { repo: false, branch: "", ahead: 0, behind: 0, upstream: null, files: [], clean: true };
   }
-  const branch = tryGit(["rev-parse", "--abbrev-ref", "HEAD"], cwd).stdout || "HEAD";
-  const upstreamRun = tryGit(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], cwd);
+  const branch = currentBranchName(cwd);
+  const headExists = hasHead(cwd);
+  const upstreamRun = headExists
+    ? tryGit(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], cwd)
+    : { ok: false, stdout: "", stderr: "" };
   const upstream = upstreamRun.ok ? upstreamRun.stdout : null;
 
   let ahead = 0;
@@ -155,7 +171,7 @@ export function status(cwd: string = getProjectWorkdir()): GitStatus {
   let additions = 0;
   let deletions = 0;
 
-  if (files.length > 0) {
+  if (files.length > 0 && headExists) {
     // Unstaged diff stat
     const unstagedNumstat = tryGit(["diff", "--numstat"], cwd);
     if (unstagedNumstat.ok && unstagedNumstat.stdout) {
@@ -230,6 +246,9 @@ export function stage(files: string[], cwd: string = getProjectWorkdir()): GitRu
 /** Dosyaları stage'den çıkar (index'i HEAD'e geri al). */
 export function unstage(files: string[], cwd: string = getProjectWorkdir()): GitRun {
   if (!files.length) return { ok: false, stdout: "", stderr: "No files given." };
+  if (!hasHead(cwd)) {
+    return tryGit(["rm", "--cached", "-q", "--", ...files], cwd);
+  }
   return tryGit(["reset", "-q", "HEAD", "--", ...files], cwd);
 }
 
@@ -248,12 +267,16 @@ export function commit(
 
 /** Branch listesi + aktif branch. */
 export function branchList(cwd: string = getProjectWorkdir()): GitBranchInfo {
-  const current = tryGit(["rev-parse", "--abbrev-ref", "HEAD"], cwd).stdout || "HEAD";
+  const current = isGitRepo(cwd) ? currentBranchName(cwd) : "";
   const local = tryGit(["branch", "--format=%(refname:short)"], cwd);
   const remote = tryGit(["branch", "-r", "--format=%(refname:short)"], cwd);
+  const localBranches = local.ok ? local.stdout.split("\n").filter(Boolean) : [];
+  if (current && current !== "HEAD" && !localBranches.includes(current)) {
+    localBranches.unshift(current);
+  }
   return {
     current,
-    local: local.ok ? local.stdout.split("\n").filter(Boolean) : [],
+    local: localBranches,
     remote: remote.ok ? remote.stdout.split("\n").filter(Boolean) : [],
   };
 }
@@ -292,6 +315,7 @@ export function push(
  * biçimlerini destekler. GitHub remote yoksa null döner (PR aç kapalı kalır).
  */
 export function githubCompareUrl(cwd: string = getProjectWorkdir()): string | null {
+  if (!hasHead(cwd)) return null;
   const remote = tryGit(["config", "--get", "remote.origin.url"], cwd);
   if (!remote.ok || !remote.stdout) return null;
   const url = remote.stdout;
