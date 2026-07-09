@@ -596,7 +596,9 @@ interface ElectronAPI {
   exporter: {
     saveCopy: (payload: { srcPath: string }) => Promise<{ ok: boolean; path?: string; error?: string }>
     toPdf: (payload: { srcPath?: string; html?: string; name?: string; landscape?: boolean; document?: boolean }) => Promise<{ ok: boolean; path?: string; count?: number; error?: string }>
-    toImage: (payload: { srcPath?: string; html?: string; name?: string; width?: number; height?: number }) => Promise<{ ok: boolean; path?: string; error?: string }>
+    toImage: (payload: { srcPath?: string; html?: string; name?: string; width?: number; height?: number; format?: 'png' | 'jpeg'; scale?: number; quality?: number }) => Promise<{ ok: boolean; path?: string; error?: string }>
+    copyImage: (payload: { srcPath?: string; html?: string; width?: number; height?: number }) => Promise<{ ok: boolean; error?: string }>
+    toPdfAdvanced: (payload: { files: string[]; name?: string; pageSize?: 'fit' | 'a4' | 'letter'; landscape?: boolean; marginIn?: number; scale?: number; fitW?: number; fitH?: number }) => Promise<{ ok: boolean; path?: string; count?: number; error?: string }>
     fileToPptx: (payload: { srcPath: string; name?: string; width?: number; height?: number }) => Promise<{ ok: boolean; path?: string; count?: number; error?: string }>
     deckToPdf: (payload: { files: string[]; name?: string; slideW?: number; slideH?: number; document?: boolean }) => Promise<{ ok: boolean; path?: string; count?: number; error?: string }>
     deckToPptx: (payload: { files: string[]; name?: string; slideW?: number; slideH?: number }) => Promise<{ ok: boolean; path?: string; count?: number; error?: string }>

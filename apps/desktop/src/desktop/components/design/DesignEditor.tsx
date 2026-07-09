@@ -13,6 +13,7 @@ import { buildSrcDoc, kindFromName } from './renderScreen'
 
 import { CopyButton } from '../shared/CopyButton'
 import { ClampText } from '../ClampText'
+import { PdfExportModal, ExportFile, PdfExportOptions } from './PdfExportModal'
 import { RobotLoader } from '../shared/RobotLoader'
 import { DesignTopBar } from './DesignTopBar'
 import { renderMarkdown } from '../../lib/markdown'
@@ -59,6 +60,7 @@ export function DesignEditor({ onBack }: Props) {
   const [attachedFolder, setAttachedFolder] = useState<string | null>(null)
   const [dlMenu, setDlMenu] = useState<string | null>(null)
   const [deckMenu, setDeckMenu] = useState(false)
+  const [pdfModal, setPdfModal] = useState<ExportFile[] | null>(null)
   const [historyMenuOpen, setHistoryMenuOpen] = useState(false)
   const [versionsMenuOpen, setVersionsMenuOpen] = useState(false)
   const [a11yPanelOpen, setA11yPanelOpen] = useState(false)
@@ -188,13 +190,17 @@ export function DesignEditor({ onBack }: Props) {
       else setToast(null)
     } catch (e: any) { showToast({ ok: false, msg: `Export failed — ${e?.message ?? e}` }) }
   }
-  function downloadScreen(filePath: string, name: string, fmt: 'pdf' | 'png' | 'pptx' | 'html') {
-    const { w, h, landscape } = dimsFor(activeProject?.designType)
-    const isDocument = activeProject?.designType === 'document'
+  function downloadScreen(filePath: string, name: string, fmt: 'pdf' | 'png' | 'jpg' | 'copy' | 'pptx' | 'html') {
+    const { w, h } = dimsFor(activeProject?.designType)
     const base = name.replace(/\.[^.]+$/, '')
     setDlMenu(null)
-    if (fmt === 'pdf') runExport('PDF', ipc.exporter.toPdf({ srcPath: filePath, name: base, landscape, document: isDocument }))
-    else if (fmt === 'png') runExport('PNG', ipc.exporter.toImage({ srcPath: filePath, name: base, width: w, height: h }))
+    if (fmt === 'pdf') {
+      const fr = frames.find(x => x.filePath === filePath)
+      setPdfModal([{ filePath, name, tweaks: fr?.meta?.tweaks }])   // PDF → ölçekli önizleme modalı
+    }
+    else if (fmt === 'png') runExport('PNG', ipc.exporter.toImage({ srcPath: filePath, name: base, width: w, height: h, format: 'png', scale: 2 }))
+    else if (fmt === 'jpg') runExport('JPG', ipc.exporter.toImage({ srcPath: filePath, name: base, width: w, height: h, format: 'jpeg', scale: 2 }))
+    else if (fmt === 'copy') runExport('Copied image', ipc.exporter.copyImage({ srcPath: filePath, width: w, height: h }).then(r => ({ ...r, path: undefined })))
     else if (fmt === 'pptx') runExport('PowerPoint', ipc.exporter.fileToPptx({ srcPath: filePath, name: base, width: w, height: h }))
     else runExport('HTML', ipc.exporter.saveCopy({ srcPath: filePath }))
   }
@@ -202,10 +208,19 @@ export function DesignEditor({ onBack }: Props) {
     if (!activeProject || frames.length === 0) return
     const files = frames.map(f => f.filePath)
     const { w, h } = dimsFor(activeProject.designType)
-    const isDocument = activeProject.designType === 'document'
     setDeckMenu(false)
-    if (fmt === 'pdf') runExport(`PDF (${files.length} screens)`, ipc.exporter.deckToPdf({ files, name: activeProject.name, slideW: w, slideH: h, document: isDocument }))
+    if (fmt === 'pdf') setPdfModal(frames.map(f => ({ filePath: f.filePath, name: f.name, tweaks: f.meta?.tweaks })))  // PDF → önizleme modalı
     else runExport(`PowerPoint (${files.length} slides)`, ipc.exporter.deckToPptx({ files, name: activeProject.name, slideW: w, slideH: h }))
+  }
+  /** PDF önizleme modalından onaylanınca gelişmiş PDF export'unu çalıştırır. */
+  function runPdfExport(exportFiles: ExportFile[], o: PdfExportOptions) {
+    if (!activeProject) return
+    const { w, h } = dimsFor(activeProject.designType)
+    const files = exportFiles.map(f => f.filePath)
+    const name = exportFiles.length > 1 ? activeProject.name : exportFiles[0].name.replace(/\.[^.]+$/, '')
+    setPdfModal(null)
+    runExport(files.length > 1 ? `PDF (${files.length} pages)` : 'PDF',
+      ipc.exporter.toPdfAdvanced({ files, name, fitW: w, fitH: h, ...o }))
   }
   async function exportAllHtml() {
     setDeckMenu(false)
@@ -678,8 +693,10 @@ export function DesignEditor({ onBack }: Props) {
                     <>
                       <div className="fixed inset-0 z-30" onClick={() => setDlMenu(null)} />
                       <div className="absolute right-1 top-full mt-0.5 z-40 rounded-xl overflow-hidden py-1 design-elev-lg" style={{ minWidth: 150, background: 'var(--d-surface)', border: '1px solid var(--d-line)' }}>
-                        <DlItem label="PDF" onClick={() => downloadScreen(f.filePath, f.name, 'pdf')} />
+                        <DlItem label="PDF…" onClick={() => downloadScreen(f.filePath, f.name, 'pdf')} />
                         <DlItem label="PNG image" onClick={() => downloadScreen(f.filePath, f.name, 'png')} />
+                        <DlItem label="JPG image" onClick={() => downloadScreen(f.filePath, f.name, 'jpg')} />
+                        <DlItem label="Copy image" onClick={() => downloadScreen(f.filePath, f.name, 'copy')} />
                         <DlItem label="PowerPoint (.pptx)" onClick={() => downloadScreen(f.filePath, f.name, 'pptx')} />
                         <DlItem label="HTML (copy)" onClick={() => downloadScreen(f.filePath, f.name, 'html')} />
                       </div>
@@ -705,6 +722,18 @@ export function DesignEditor({ onBack }: Props) {
               : <div className="flex-1 flex items-center justify-center text-sm" style={{ color: 'var(--d-ink-faint)' }}>Loading…</div>}
           </div>
         </div>
+      )}
+
+      {/* PDF export preview + scale dialog */}
+      {pdfModal && activeProject && (
+        <PdfExportModal
+          open
+          files={pdfModal}
+          fitW={dimsFor(activeProject.designType).w}
+          fitH={dimsFor(activeProject.designType).h}
+          onClose={() => setPdfModal(null)}
+          onExport={(o) => runPdfExport(pdfModal, o)}
+        />
       )}
 
       {/* Export feedback toast */}

@@ -22,7 +22,7 @@
  *     extension filter + default filename, so the native picker opens already
  *     pointed at the right format.
  */
-import { ipcMain, dialog, BrowserWindow } from 'electron'
+import { ipcMain, dialog, BrowserWindow, clipboard, nativeImage } from 'electron'
 import { createRequire } from 'module'
 import { PDFDocument } from 'pdf-lib'
 import fs from 'fs'
@@ -131,6 +131,67 @@ async function fileToPng(filePath: string, width: number, height: number): Promi
     await settle(win)
     return await capture(win, width, height)
   } finally { win.destroy() }
+}
+
+/** Render a self-contained HTML file to a NativeImage (for JPEG / clipboard). */
+async function fileToNativeImage(filePath: string, width: number, height: number): Promise<Electron.NativeImage> {
+  const win = offscreenWindow(width, height)
+  try {
+    await win.loadFile(filePath)
+    win.setContentSize(width, height)
+    await settle(win)
+    return await win.webContents.capturePage({ x: 0, y: 0, width, height })
+  } finally { win.destroy() }
+}
+
+/**
+ * Print a file to PDF honouring user page settings (size, orientation, margin,
+ * scale). Screen media is emulated so the PDF matches the on-canvas preview.
+ */
+async function fileToPdfAdvanced(
+  filePath: string,
+  o: { pageSize?: 'fit' | 'a4' | 'letter'; landscape?: boolean; marginIn?: number; scale?: number; fitW?: number; fitH?: number },
+): Promise<Buffer> {
+  const fitW = o.fitW ?? 794
+  const fitH = o.fitH ?? 1123
+  const win = offscreenWindow(fitW, fitH, false)
+  const wc = win.webContents
+  let attached = false
+  try {
+    await win.loadFile(filePath)
+    win.setContentSize(fitW, fitH)
+    await settle(win)
+    try {
+      wc.debugger.attach('1.3'); attached = true
+      await wc.debugger.sendCommand('Emulation.setEmulatedMedia', { media: 'screen' })
+    } catch { /* fall back to print media */ }
+    // Inject sibling shared.css (theme vars) at the top of <head> so the export
+    // matches the canvas, which inlines the same shared stylesheet.
+    try {
+      const sharedPath = filePath.replace(/[^/\\]+$/, 'shared.css')
+      if (fs.existsSync(sharedPath)) {
+        const shared = fs.readFileSync(sharedPath, 'utf-8')
+        await wc.executeJavaScript(`(function(){var s=document.createElement('style');s.textContent=${JSON.stringify(shared)};document.head.insertBefore(s,document.head.firstChild);return true;})()`)
+        await new Promise(r => setTimeout(r, 40))
+      }
+    } catch { /* no shared.css → file is self-contained */ }
+    let pageSize: any
+    if (o.pageSize === 'a4') pageSize = 'A4'
+    else if (o.pageSize === 'letter') pageSize = 'Letter'
+    else pageSize = { width: fitW / 96, height: fitH / 96 } // 'fit' → content size in inches
+    const m = Math.max(0, o.marginIn ?? 0)
+    return (await wc.printToPDF({
+      printBackground: true,
+      landscape: !!o.landscape,
+      pageSize,
+      margins: { top: m, bottom: m, left: m, right: m },
+      scale: Math.min(2, Math.max(0.1, o.scale ?? 1)),
+      preferCSSPageSize: false,
+    })) as Buffer
+  } finally {
+    if (attached) { try { wc.debugger.detach() } catch {} }
+    win.destroy()
+  }
 }
 
 /** Build a multi-page PDF where each page is exactly one slide image. */
@@ -314,8 +375,9 @@ async function writePptx(filePath: string, pngs: Buffer[], w: number, h: number)
   await pptx.writeFile({ fileName: filePath })
 }
 
-interface Payload { srcPath?: string; html?: string; name?: string; landscape?: boolean; width?: number; height?: number; document?: boolean }
+interface Payload { srcPath?: string; html?: string; name?: string; landscape?: boolean; width?: number; height?: number; document?: boolean; format?: 'png' | 'jpeg'; scale?: number; quality?: number }
 interface DeckPayload { files: string[]; name?: string; slideW?: number; slideH?: number; document?: boolean }
+interface AdvPdfPayload { files: string[]; name?: string; pageSize?: 'fit' | 'a4' | 'letter'; landscape?: boolean; marginIn?: number; scale?: number; fitW?: number; fitH?: number }
 
 export function registerExportIPC(): void {
   // Plain "Save a copy" of the source HTML file.
@@ -367,16 +429,49 @@ export function registerExportIPC(): void {
     } catch (e: any) { return { ok: false, error: e.message } }
   })
 
-  // Single screen → PNG image.
+  // Single screen → PNG / JPEG image (optional hi-res scale for crisp output).
   ipcMain.handle('export:toImage', async (_, p: Payload) => {
-    const filePath = await askSavePath(baseName(p.srcPath, p.name) + '.png', 'PNG', ['png'])
+    const fmt = p.format === 'jpeg' ? 'jpeg' : 'png'
+    const ext = fmt === 'jpeg' ? 'jpg' : 'png'
+    const scale = Math.min(4, Math.max(1, p.scale ?? 1))
+    const W = Math.round((p.width ?? 1280) * scale)
+    const H = Math.round((p.height ?? 800) * scale)
+    const filePath = await askSavePath(baseName(p.srcPath, p.name) + '.' + ext, fmt.toUpperCase(), [ext])
     if (!filePath) return { ok: false }
     try {
-      const png = p.srcPath && fs.existsSync(p.srcPath)
-        ? await fileToPng(p.srcPath, p.width ?? 1280, p.height ?? 800)
-        : await htmlToPng(p.html ?? '', p.width ?? 1280, p.height ?? 800)
-      fs.writeFileSync(filePath, png)
+      const img = p.srcPath && fs.existsSync(p.srcPath)
+        ? await fileToNativeImage(p.srcPath, W, H)
+        : nativeImage.createFromBuffer(await htmlToPng(p.html ?? '', W, H))
+      const buf = fmt === 'jpeg' ? img.toJPEG(Math.min(100, Math.max(1, p.quality ?? 92))) : img.toPNG()
+      fs.writeFileSync(filePath, buf)
       return { ok: true, path: filePath }
+    } catch (e: any) { return { ok: false, error: e.message } }
+  })
+
+  // Single screen → copy PNG to the system clipboard.
+  ipcMain.handle('export:copyImage', async (_, p: Payload) => {
+    try {
+      const W = p.width ?? 1280, H = p.height ?? 800
+      const img = p.srcPath && fs.existsSync(p.srcPath)
+        ? await fileToNativeImage(p.srcPath, W, H)
+        : nativeImage.createFromBuffer(await htmlToPng(p.html ?? '', W, H))
+      clipboard.writeImage(img)
+      return { ok: true }
+    } catch (e: any) { return { ok: false, error: e.message } }
+  })
+
+  // Advanced PDF: one or many screens → PDF with page size, orientation, margin
+  // and scale from the export-preview dialog. Each file becomes one page; merged.
+  ipcMain.handle('export:toPdfAdvanced', async (_, p: AdvPdfPayload) => {
+    const files = (p.files ?? []).filter(f => fs.existsSync(f))
+    if (files.length === 0) return { ok: false, error: 'No screens to export' }
+    const filePath = await askSavePath(baseName(undefined, p.name) + '.pdf', 'PDF', ['pdf'])
+    if (!filePath) return { ok: false }
+    try {
+      const parts: Buffer[] = []
+      for (const f of files) parts.push(await fileToPdfAdvanced(f, p))
+      fs.writeFileSync(filePath, await mergePdfs(parts))
+      return { ok: true, path: filePath, count: files.length }
     } catch (e: any) { return { ok: false, error: e.message } }
   })
 
