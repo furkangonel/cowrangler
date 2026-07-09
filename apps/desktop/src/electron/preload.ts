@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
+import { contextBridge, ipcRenderer, IpcRendererEvent, webUtils } from 'electron'
 
 // Type-safe IPC yüzeyi — window.electronAPI olarak erişilir
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -294,7 +294,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   fs: {
     pickFolder: () => ipcRenderer.invoke('fs:pickFolder'),
     pickFile: () => ipcRenderer.invoke('fs:pickFile'),
+    /** Sürüklenen File için gerçek disk yolunu döndürür (Electron webUtils). Yoksa ''. */
+    pathForFile: (file: File): string => {
+      try { return webUtils.getPathForFile(file) } catch { return '' }
+    },
     addFiles: (payload: { projectId: string; paths: string[] }) => ipcRenderer.invoke('fs:addFiles', payload),
+    /** Disk yolu olmayan (ör. tarayıcı/canvas'tan sürüklenen) görselleri byte olarak yaz. */
+    addFileBytes: (payload: { projectId: string; files: { name: string; dataBase64: string }[] }) =>
+      ipcRenderer.invoke('fs:addFileBytes', payload),
     fileTree: (dirPath: string, depth?: number) => ipcRenderer.invoke('fs:fileTree', dirPath, depth),
     readFile: (filePath: string) => ipcRenderer.invoke('fs:readFile', filePath),
     writeFile: (filePath: string, content: string) => ipcRenderer.invoke('fs:writeFile', filePath, content),

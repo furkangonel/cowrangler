@@ -12,6 +12,7 @@ import { DesignCanvas, isDeviceTemplate } from './DesignCanvas'
 import { buildSrcDoc, kindFromName } from './renderScreen'
 
 import { CopyButton } from '../shared/CopyButton'
+import { ClampText } from '../ClampText'
 import { RobotLoader } from '../shared/RobotLoader'
 import { DesignTopBar } from './DesignTopBar'
 import { renderMarkdown } from '../../lib/markdown'
@@ -355,7 +356,11 @@ export function DesignEditor({ onBack }: Props) {
                         <div className="flex flex-col items-end max-w-[88%]">
                           <div className="px-3.5 py-2.5 text-sm leading-relaxed rounded-2xl w-full"
                             style={{ background: 'var(--d-ink)', color: '#fff', borderBottomRightRadius: 4 }}>
-                            <p className="whitespace-pre-wrap">{m.content}</p>
+                            <ClampText
+                              text={m.content}
+                              className="whitespace-pre-wrap"
+                              toggleClassName="mt-1.5 text-xs font-medium underline opacity-80 hover:opacity-100"
+                            />
                           </div>
                           <div className="mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             <CopyButton text={m.content} className="text-xs flex items-center gap-1 bg-transparent hover:bg-black/5 dark:hover:bg-white/10" />
@@ -416,13 +421,18 @@ export function DesignEditor({ onBack }: Props) {
                 {drop.files.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 pb-2">
                     {drop.files.map(f => (
-                      <div key={f.relPath} className="flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium max-w-[200px]" style={{ background: 'var(--d-cream-2)', border: '1px solid var(--d-line)', color: 'var(--d-ink-soft)' }}>
-                        <FileText size={10} className="flex-shrink-0" style={{ color: 'var(--d-ink-muted)' }} />
+                      <div key={f.relPath} className="flex items-center gap-1 pl-1 pr-2 py-0.5 rounded-md text-xs font-medium max-w-[200px]" style={{ background: 'var(--d-cream-2)', border: '1px solid var(--d-line)', color: 'var(--d-ink-soft)' }}>
+                        {f.previewUrl
+                          ? <img src={f.previewUrl} alt={f.name} className="w-5 h-5 rounded object-cover flex-shrink-0" />
+                          : <FileText size={10} className="flex-shrink-0" style={{ color: 'var(--d-ink-muted)' }} />}
                         <span className="truncate">{f.name}</span>
                         <button onClick={() => drop.remove(f.relPath)} className="ml-0.5" title="Remove" style={{ color: 'var(--d-ink-muted)' }}><X size={10} /></button>
                       </div>
                     ))}
                   </div>
+                )}
+                {drop.error && (
+                  <div className="pb-2 text-2xs" style={{ color: 'var(--d-clay)' }}>{drop.error}</div>
                 )}
                 <textarea
                   ref={textareaRef}

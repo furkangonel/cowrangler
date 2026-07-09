@@ -46,7 +46,27 @@ export function fromCoreMessage(m: AnyMsg): Message {
           isError: part.isError,
         });
         break;
-      // image / file parçaları şimdilik atlanır (metin ajanı)
+      case "image": {
+        // vercel image part → native base64 image. `image` bir data URL, base64
+        // string veya Uint8Array/Buffer olabilir.
+        let data = "";
+        let mimeType: string = part.mimeType ?? "image/png";
+        const img = part.image;
+        if (typeof img === "string") {
+          const du = img.match(/^data:([^;]+);base64,(.*)$/s);
+          if (du) {
+            mimeType = du[1];
+            data = du[2];
+          } else {
+            data = img; // zaten çıplak base64
+          }
+        } else if (img instanceof Uint8Array || Buffer.isBuffer(img)) {
+          data = Buffer.from(img).toString("base64");
+        }
+        if (data) parts.push({ type: "image", mimeType, data });
+        break;
+      }
+      // diğer file parçaları şimdilik atlanır
     }
   }
   return { role, content: parts };
@@ -68,6 +88,8 @@ export function toCoreMessage(m: Message): AnyMsg {
         return { type: "text", text: p.text };
       case "reasoning":
         return { type: "reasoning", text: p.text };
+      case "image":
+        return { type: "image", image: `data:${p.mimeType};base64,${p.data}`, mimeType: p.mimeType };
       case "tool_call":
         return { type: "tool-call", toolCallId: p.id, toolName: p.name, args: p.args ?? {} };
       case "tool_result":

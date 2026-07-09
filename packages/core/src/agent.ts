@@ -561,8 +561,8 @@ export class Agent {
       }
     } catch { /* hafıza best-effort */ }
 
-    // Kullanıcı mesajını ekle
-    this.messages.push({ role: "user", content: finalUserMessage });
+    // Kullanıcı mesajını ekle — ekli görseller varsa native vision içeriği kur.
+    this.messages.push({ role: "user", content: this._buildUserContent(finalUserMessage) });
 
     // Session DB'ye yaz
     if (this.sessionId) {
@@ -1171,6 +1171,47 @@ export class Agent {
 
   get contextLength(): number {
     return this.messages.length;
+  }
+
+  /**
+   * Ekli görselleri native vision içeriğine dönüştürür.
+   * Mesajdaki "- <path>.png/jpg/webp/gif" referanslarını tarar, proje
+   * workdir'inden base64 okur ve metin + image parçalı içerik döndürür.
+   * Görsel yoksa metni aynen döndürür (prompt caching korunur).
+   */
+  private _buildUserContent(text: string): string | any[] {
+    try {
+      const MIME: Record<string, string> = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+      };
+      const workdir = getProjectWorkdir();
+      if (!workdir) return text;
+      const root = path.resolve(workdir);
+      const refRe = /^-\s+(.+\.(?:png|jpe?g|webp|gif))\s*$/gim;
+      const images: any[] = [];
+      const seen = new Set<string>();
+      let m: RegExpExecArray | null;
+      while ((m = refRe.exec(text)) !== null) {
+        const rel = m[1].trim();
+        const ext = path.extname(rel).toLowerCase();
+        const mime = MIME[ext];
+        if (!mime) continue;
+        const abs = path.resolve(root, rel);
+        if (abs !== root && !abs.startsWith(root + path.sep)) continue; // traversal guard
+        if (seen.has(abs) || !fs.existsSync(abs)) continue;
+        seen.add(abs);
+        const b64 = fs.readFileSync(abs).toString("base64");
+        images.push({ type: "image", image: `data:${mime};base64,${b64}`, mimeType: mime });
+      }
+      if (!images.length) return text;
+      return [{ type: "text", text }, ...images];
+    } catch {
+      return text;
+    }
   }
 
   private async createPlaceholderFile(relPath: string) {

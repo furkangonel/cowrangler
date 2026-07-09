@@ -9,16 +9,10 @@ import { getConfig } from '@cowrangler/core/init.js'
 import { getSystemPrompt } from '@cowrangler/core/prompts/index.js'
 import { Agent } from '@cowrangler/core/agent.js'
 import { setAskUserListener, resolveAskUser } from '@cowrangler/core/tools/ask_user.js'
+import { getCodeWorkdir, setCodeWorkdir } from './code_workdir.js'
 
 /** Code sekmesi için sabit projectId. Renderer'daki CODE_PROJECT_ID ile aynı. */
 const CODE_PROJECT_ID = '__code__'
-
-/**
- * Code sekmesinde kullanıcının seçtiği çalışma klasörü (agent bu dizinde çalışır).
- * Renderer klasör seçince `agent:setCodeWorkdir` ile buraya yazar. Code proje
- * kaydı yoktur; workdir'i başka türlü çözemeyiz.
- */
-let codeWorkdir: string | undefined
 
 /** Plan events core'dan yalnız sessionId ile gelir; UI filtresi için proje eşlemesi. */
 const sessionProjectMap = new Map<string, string>()
@@ -26,7 +20,7 @@ const sessionProjectMap = new Map<string, string>()
 /** Verilen projeId + proje kaydı için agent çalışma dizinini çözer. */
 function resolveWorkdir(projectId: string, project: { workdir?: string } | undefined): string | undefined {
   if (project?.workdir) return project.workdir
-  if (projectId === CODE_PROJECT_ID) return codeWorkdir ?? getGlobalWorkdir()
+  if (projectId === CODE_PROJECT_ID) return getCodeWorkdir() ?? getGlobalWorkdir()
   return undefined
 }
 
@@ -363,8 +357,8 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
   // mevcut Code agent'ını düşür ki bir sonraki mesaj yeni workdir'e bağlansın.
   ipcMain.handle('agent:setCodeWorkdir', async (_, dir: string | null) => {
     const next = dir || undefined
-    if (next === codeWorkdir) return { ok: true }
-    codeWorkdir = next
+    if (next === getCodeWorkdir()) return { ok: true }
+    setCodeWorkdir(next)
     agentManager.destroy(CODE_PROJECT_ID)
     return { ok: true }
   })

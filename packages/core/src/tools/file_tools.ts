@@ -145,7 +145,7 @@ registerTool(
 // ─────────────────────────────────────────────────────────────────────────────
 registerTool(
   "read_file",
-  "Read a file and return its content. Supports plain text, .docx, .pdf, .xlsx. Optionally specify line range.",
+  "Read a file and return its content. Supports plain text/code, .docx, .pdf, .xlsx/.xls, .pptx, .rtf, .html, .csv. Optionally specify line range.",
   z.object({
     path: z.string(),
     start_line: z.number().optional().describe("First line to read (1-indexed)"),
@@ -171,6 +171,41 @@ registerTool(
         return workbook.SheetNames.map((name) => {
           return `=== Sheet: ${name} ===\n${xlsx.utils.sheet_to_csv(workbook.Sheets[name])}`;
         }).join("\n\n");
+      }
+      if (ext === ".pptx") {
+        const JSZip = (await import("jszip")).default;
+        const zip = await JSZip.loadAsync(await fs.readFile(target));
+        const slides = Object.keys(zip.files)
+          .filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n))
+          .sort((a, b) => {
+            const na = parseInt(a.match(/slide(\d+)\.xml$/)![1], 10);
+            const nb = parseInt(b.match(/slide(\d+)\.xml$/)![1], 10);
+            return na - nb;
+          });
+        const out: string[] = [];
+        for (let i = 0; i < slides.length; i++) {
+          const xml = await zip.files[slides[i]].async("string");
+          const texts = Array.from(xml.matchAll(/<a:t>([^<]*)<\/a:t>/g)).map((m) => m[1]);
+          out.push(`=== Slide ${i + 1} ===\n${texts.join("\n")}`);
+        }
+        return out.join("\n\n");
+      }
+      if (ext === ".rtf") {
+        const rtf = await fs.readFile(target, "utf-8");
+        return rtf
+          .replace(/\\'[0-9a-fA-F]{2}/g, " ")
+          .replace(/\\[a-zA-Z]+-?\d* ?/g, "")
+          .replace(/[{}]/g, "")
+          .replace(/[ \t]{2,}/g, " ")
+          .trim();
+      }
+      if (ext === ".html" || ext === ".htm") {
+        const html = await fs.readFile(target, "utf-8");
+        const { load } = await import("cheerio");
+        const $ = load(html);
+        $("script, style, noscript").remove();
+        const text = ($("body").text() || $.root().text()).replace(/\n{3,}/g, "\n\n").trim();
+        return text;
       }
 
       const raw = await fs.readFile(target, "utf-8");

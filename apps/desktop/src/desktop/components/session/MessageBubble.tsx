@@ -3,6 +3,7 @@ import { AssistantMessage } from "./AssistantMessage";
 import { ToolGroup } from "./ToolGroup";
 import { RobotLoader } from "../shared/RobotLoader";
 import { CopyButton } from "../shared/CopyButton";
+import { ClampText } from "../ClampText";
 import { TimelineSegment } from "../../stores/agent.store";
 import { Brain, ChevronDown, ChevronRight } from "lucide-react";
 
@@ -122,10 +123,12 @@ export function MessageBubble({ message, timeline, isLast = false }: Props) {
     return (
       <div className="flex justify-end animate-fade-in group">
         <div className="flex flex-col items-end max-w-[80%]">
-          <div className="px-4 py-2.5 rounded-2xl rounded-tr-md text-md selectable bg-user-bubble border border-user-bubble-border text-text-primary w-full">
-            <p className="whitespace-pre-wrap break-words leading-relaxed">
-              {message.content}
-            </p>
+          <div className="px-4 py-2.5 rounded-2xl rounded-tr-md text-md selectable bg-user-bubble border border-user-bubble-border text-[#F3F1EC] w-full">
+            <ClampText
+              text={message.content}
+              className="whitespace-pre-wrap break-words leading-relaxed"
+              toggleClassName="mt-1.5 text-xs font-medium text-[#F3F1EC]/70 hover:text-[#F3F1EC] hover:underline"
+            />
           </div>
           <div className="mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
             <CopyButton text={message.content} className="text-xs flex items-center gap-1 bg-transparent hover:bg-black/5 dark:hover:bg-white/10" />

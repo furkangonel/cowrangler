@@ -3,9 +3,12 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { getProjectDB } from '../project_db.js'
+import { getCodeWorkdir } from './code_workdir.js'
 
 /** Renderer'daki GLOBAL_PROJECT_ID ile aynı — projesiz genel sohbet. */
 const GLOBAL_PROJECT_ID = '__global__'
+/** Code sekmesi sabit projectId — agent.ipc ile aynı. */
+const CODE_PROJECT_ID = '__code__'
 
 function globalWorkdir(): string {
   const dir = path.join(os.homedir(), '.cowrangler', 'global-workspace')
@@ -16,6 +19,13 @@ function globalWorkdir(): string {
 /** projectId → çalışma dizini (proje workdir'i ya da global çalışma alanı). */
 function workdirFor(projectId: string): string | null {
   if (projectId === GLOBAL_PROJECT_ID) return globalWorkdir()
+  // Code sekmesi: DB kaydı yok. Kullanıcının seçtiği klasör, yoksa global alan.
+  // agent.ipc ile aynı çözüm → drop dosyası agent'ın çalıştığı dizine düşer.
+  if (projectId === CODE_PROJECT_ID) {
+    const cw = getCodeWorkdir()
+    if (cw && fs.existsSync(cw)) return cw
+    return globalWorkdir()
+  }
   const wd = getProjectDB().get(projectId)?.workdir
   return wd && fs.existsSync(wd) ? wd : null
 }
@@ -125,6 +135,27 @@ export function registerFSIPC(ipcMain: IpcMain): void {
         if (stat.size > 50 * 1024 * 1024) continue    // 50MB üstünü atla
         const name = uniqueName(dest, path.basename(src))
         fs.copyFileSync(src, path.join(dest, name))
+        out.push({ name, relPath: path.posix.join('uploads', name) })
+      } catch { /* tek dosya hatası tüm işlemi bozmasın */ }
+    }
+    return { ok: out.length > 0, files: out }
+  })
+
+  // Disk yolu olmayan sürüklemeler (tarayıcı/canvas görselleri) için: base64
+  // byte'ları uploads/ altına yaz. addFiles ile aynı sözleşmeyi döndürür.
+  ipcMain.handle('fs:addFileBytes', async (_, payload: { projectId: string; files: { name: string; dataBase64: string }[] }) => {
+    const wd = workdirFor(payload?.projectId)
+    if (!wd) return { ok: false, error: 'No workdir for project', files: [] as { name: string; relPath: string }[] }
+    const dest = path.join(wd, 'uploads')
+    try { fs.mkdirSync(dest, { recursive: true }) } catch { /* yoksay */ }
+    const out: { name: string; relPath: string }[] = []
+    for (const f of payload?.files ?? []) {
+      try {
+        if (!f?.name || !f?.dataBase64) continue
+        const buf = Buffer.from(f.dataBase64, 'base64')
+        if (buf.length === 0 || buf.length > 50 * 1024 * 1024) continue
+        const name = uniqueName(dest, f.name)
+        fs.writeFileSync(path.join(dest, name), buf)
         out.push({ name, relPath: path.posix.join('uploads', name) })
       } catch { /* tek dosya hatası tüm işlemi bozmasın */ }
     }

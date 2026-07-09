@@ -95,6 +95,8 @@ function toGeminiPart(p: ContentPart): unknown {
     case "text":
     case "reasoning":
       return { text: p.text };
+    case "image":
+      return { inlineData: { mimeType: p.mimeType, data: p.data } };
     case "tool_call":
       return { functionCall: { name: p.name, args: p.args ?? {} } };
     case "tool_result":

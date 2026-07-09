@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react'
-import { Pin, MoreHorizontal, Plus, ArrowRight, Folder, Clock, ExternalLink, MessageSquare, BookOpen, CornerDownLeft, X, Play, ChevronUp } from 'lucide-react'
+import { Pin, MoreHorizontal, Plus, ArrowRight, Folder, Clock, ExternalLink, MessageSquare, BookOpen, CornerDownLeft, X, Play, ChevronUp, Paperclip, FileText } from 'lucide-react'
+import { useFileDrop } from '../../lib/useFileDrop'
 import { useProjectsStore } from '../../stores/projects.store'
 import { useSessionsStore } from '../../stores/sessions.store'
 import { useAgentStore } from '../../stores/agent.store'
@@ -176,7 +177,8 @@ function InlineNewTask({ projectId, projectName, projectIcon }: { projectId: str
   const { getModel, setModel, savedModels } = useSettingsStore()
 
   const [message, setMessage] = useState('')
-  
+  const drop = useFileDrop(projectId)
+
   const [skills, setSkills] = useState<SkillDef[]>([])
   const [slashOpen, setSlashOpen] = useState(false)
   const [slashQuery, setSlashQuery] = useState('')
@@ -239,7 +241,7 @@ function InlineNewTask({ projectId, projectName, projectIcon }: { projectId: str
     ipc.skills.list().then(s => setSkills(Array.isArray(s) ? s : [])).catch(() => {})
   }, [])
 
-  const hasContent = !!message.trim() || confirmedSkills.length > 0
+  const hasContent = !!message.trim() || confirmedSkills.length > 0 || drop.files.length > 0
 
   const filtered = skills
     .filter(s => {
@@ -302,10 +304,12 @@ function InlineNewTask({ projectId, projectName, projectIcon }: { projectId: str
 
     const skillPart = confirmedSkills.map(s => `/${s.id}`).join(' ')
     const textPart = message.trim()
-    const msg = [skillPart, textPart].filter(Boolean).join(skillPart && textPart ? '\n\n' : '')
+    const attachPart = drop.refText()
+    const msg = [skillPart, textPart, attachPart].filter(Boolean).join('\n\n')
 
     // Store pending message for SessionView to pick up
     sessionStorage.setItem(`pendingMessage_${projectId}`, msg)
+    drop.clear()
 
     setActiveProject(projectId)
     setActiveSession('__new__')
@@ -353,7 +357,33 @@ function InlineNewTask({ projectId, projectName, projectIcon }: { projectId: str
       )}
 
       {/* Composer card */}
-      <div className="bg-bg-secondary border border-border rounded-2xl shadow-sm focus-within:border-accent/50 transition-colors mb-2">
+      <div
+        {...drop.dropBind}
+        className={`relative bg-bg-secondary border rounded-2xl shadow-sm focus-within:border-accent/50 transition-colors mb-2 ${drop.isDragging ? 'border-accent border-dashed' : 'border-border'}`}
+      >
+        {drop.isDragging && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center rounded-2xl bg-accent/8 backdrop-blur-[1px] pointer-events-none">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-accent">
+              <Paperclip size={15} /> Drop files to attach
+            </div>
+          </div>
+        )}
+        {drop.files.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">
+            {drop.files.map(f => (
+              <div key={f.relPath} className="flex items-center gap-1 pl-1 pr-2 py-0.5 rounded-md bg-bg-hover border border-border-subtle text-2xs text-text-secondary">
+                {f.previewUrl
+                  ? <img src={f.previewUrl} alt={f.name} className="w-5 h-5 rounded object-cover flex-shrink-0" />
+                  : <FileText size={10} className="flex-shrink-0 text-text-muted" />}
+                <span className="truncate max-w-[160px]">{f.name}</span>
+                <button onClick={() => drop.remove(f.relPath)} className="ml-0.5 hover:text-text-primary transition-colors" title="Remove"><X size={10} /></button>
+              </div>
+            ))}
+          </div>
+        )}
+        {drop.error && (
+          <div className="px-3 pt-1 text-2xs text-red-400">{drop.error}</div>
+        )}
         {confirmedSkills.length > 0 && (
           <div className="flex flex-wrap gap-1.5 px-3 pt-2.5 pb-1">
             {confirmedSkills.map(skill => (

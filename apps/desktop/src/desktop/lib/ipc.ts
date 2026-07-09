@@ -638,7 +638,9 @@ interface ElectronAPI {
   fs: {
     pickFolder: () => Promise<string | null>
     pickFile: () => Promise<string | null>
+    pathForFile: (file: File) => string
     addFiles: (payload: { projectId: string; paths: string[] }) => Promise<{ ok: boolean; error?: string; files: { name: string; relPath: string }[] }>
+    addFileBytes: (payload: { projectId: string; files: { name: string; dataBase64: string }[] }) => Promise<{ ok: boolean; error?: string; files: { name: string; relPath: string }[] }>
     fileTree: (dirPath: string, depth?: number) => Promise<FileNode[]>
     readFile: (filePath: string) => Promise<{ content?: string; error?: string }>
     writeFile: (filePath: string, content: string) => Promise<{ ok: boolean; error?: string }>
