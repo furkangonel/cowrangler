@@ -116,11 +116,7 @@ export function AppShell() {
             <button
               onClick={toggleRightPanel}
               title="Toggle side panel"
-              className={`p-1.5 rounded-md transition-colors ${
-                rightPanelOpen
-                  ? "text-accent bg-accent/10"
-                  : "text-text-muted hover:text-text-secondary hover:bg-bg-hover"
-              }`}
+              className="p-1.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-bg-hover transition-colors"
             >
               <PanelRight size={15} />
             </button>
