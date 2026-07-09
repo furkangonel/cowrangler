@@ -19,7 +19,7 @@ const CODE_PROJECT_ID = '__code__'
 const sessionProjectMap = new Map<string, string>()
 
 /** Verilen projeId + proje kaydı için agent çalışma dizinini çözer. */
-function resolveWorkdir(projectId: string, project: { workdir?: string } | undefined): string | undefined {
+function resolveWorkdir(projectId: string, project: { workdir?: string | null } | null | undefined): string | undefined {
   if (project?.workdir) return project.workdir
   if (projectId === CODE_PROJECT_ID) return getCodeWorkdir() ?? getGlobalWorkdir()
   return undefined
