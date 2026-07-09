@@ -323,8 +323,21 @@ textarea:focus, input:focus { outline: none; }
   font-weight: 600;
   animation: shimmer 2s linear infinite;
 }
+
+.reasoning-gradient-button {
+  background: linear-gradient(90deg,
+    rgb(var(--text-muted))  0%,
+    rgb(var(--accent))     45%,
+    rgb(var(--text-muted)) 90%);
+  background-size: 200% 100%;
+  color: rgb(var(--accent-fg));
+  box-shadow: 0 2px 8px rgb(var(--accent) / 0.28);
+  animation: shimmer 2s linear infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .shimmer-text { animation: none; }
+  .shimmer-text,
+  .reasoning-gradient-button { animation: none; }
 }
 
 /* ── Brand wordmark ──────────────────────────────────────────────────────── */
