@@ -1,6 +1,6 @@
 {
   "name": "@cowrangler/cli",
-  "version": "2.1.2",
+  "version": "2.1.3",
   "private": true,
   "description": "Cowrangler CLI — terminal arayüzü (ink) + gateway/cron/lsp/batch.",
   "type": "module",
