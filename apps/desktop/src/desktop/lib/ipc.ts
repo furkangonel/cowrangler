@@ -498,6 +498,7 @@ interface ElectronAPI {
     update: (id: string, data: any) => Promise<ProjectRecord>
     delete: (id: string) => Promise<{ ok: boolean }>
     get: (id: string) => Promise<ProjectRecord | null>
+    ensureWorkdir: (id: string) => Promise<ProjectRecord | null>
     addFolder: (id: string, folderPath: string) => Promise<ProjectFolder>
     removeFolder: (id: string, folderPath: string) => Promise<{ ok: boolean }>
     getFolders: (id: string) => Promise<ProjectFolder[]>

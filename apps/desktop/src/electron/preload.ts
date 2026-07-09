@@ -88,6 +88,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     update: (id: string, data: any) => ipcRenderer.invoke('projects:update', id, data),
     delete: (id: string) => ipcRenderer.invoke('projects:delete', id),
     get: (id: string) => ipcRenderer.invoke('projects:get', id),
+    ensureWorkdir: (id: string) => ipcRenderer.invoke('projects:ensureWorkdir', id),
     addFolder: (id: string, folderPath: string) => ipcRenderer.invoke('projects:addFolder', id, folderPath),
     removeFolder: (id: string, folderPath: string) => ipcRenderer.invoke('projects:removeFolder', id, folderPath),
     getFolders: (id: string) => ipcRenderer.invoke('projects:getFolders', id),

@@ -23,8 +23,10 @@ export function ProjectHome({ projectId }: Props) {
   useEffect(() => {
     if (projectId) {
       loadSessions(projectId)
-      loadFolders(projectId)
       loadInstructions(projectId)
+      // Workdir'siz projeye managed klasör ata (<root>/Cowrangler/<ad>/), sonra
+      // Working Folders'ı yükle ki klasör hemen görünsün.
+      ipc.projects.ensureWorkdir(projectId).finally(() => loadFolders(projectId))
     }
   }, [projectId])
 

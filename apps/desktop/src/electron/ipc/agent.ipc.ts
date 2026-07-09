@@ -10,6 +10,7 @@ import { getSystemPrompt } from '@cowrangler/core/prompts/index.js'
 import { Agent } from '@cowrangler/core/agent.js'
 import { setAskUserListener, resolveAskUser } from '@cowrangler/core/tools/ask_user.js'
 import { getCodeWorkdir, setCodeWorkdir } from './code_workdir.js'
+import { ensureProjectWorkdir } from './managed_workspace.js'
 
 /** Code sekmesi için sabit projectId. Renderer'daki CODE_PROJECT_ID ile aynı. */
 const CODE_PROJECT_ID = '__code__'
@@ -106,6 +107,15 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
     const allowedTools =
       contextType === 'desktop_design' ? DESIGN_TOOLS
       : undefined
+
+    // Cowork projesi (global/code değil) workdir'siz ise managed klasör ata:
+    // <root>/Cowrangler/<proje adı>/ — model çıktıları Desktop'a değil buraya gider.
+    if (!projectId.startsWith('__') && project && !project.workdir) {
+      try {
+        const wd = ensureProjectWorkdir(projectId)
+        if (wd) project.workdir = wd
+      } catch { /* best-effort */ }
+    }
 
     // Çalışma dizini: proje varsa onun workdir'i; global sohbette adanmış global
     // klasör; Code sekmesinde oturuma kayıtlı workdir (varsa) veya kullanıcının seçtiği klasör.

@@ -1,5 +1,6 @@
 import React from 'react'
 import { useSettingsStore } from '../../stores/settings.store'
+import { ipc } from '../../lib/ipc'
 
 /**
  * AdvancedTab — WP-5 gelişmiş ayarlar.
@@ -25,8 +26,38 @@ export function AdvancedTab() {
   const cacheHitTarget = config['cache.hitTarget'] ?? 0.7
   const telemetry = config['telemetry.enabled'] === true // VARSAYILAN KAPALI
 
+  const workspaceRoot = (config.workspace_root as string | undefined) || ''
+
+  async function pickWorkspaceRoot() {
+    const dir = await ipc.fs.pickFolder()
+    if (dir) setConfig('workspace_root', dir)
+  }
+
   return (
     <div className="p-6 space-y-8 max-w-xl">
+      {/* ── Workspace ── */}
+      <section>
+        <h4 className="text-sm font-semibold text-text-primary mb-1">Workspace folder</h4>
+        <p className="text-xs text-text-muted mb-4">
+          New projects get their own folder under <span className="font-mono">Cowrangler/</span> inside this
+          directory. Files Cowrangler creates are saved there.
+        </p>
+        <div className="flex items-center gap-2">
+          <div className="flex-1 min-w-0 text-xs font-mono px-3 py-2 rounded-lg bg-bg-tertiary border border-border text-text-secondary truncate">
+            {(workspaceRoot || '~/Documents')}/Cowrangler
+          </div>
+          <button
+            onClick={pickWorkspaceRoot}
+            className="px-3 py-2 rounded-lg text-xs font-medium bg-bg-hover hover:bg-bg-tertiary border border-border text-text-primary transition-colors flex-shrink-0"
+          >
+            Change…
+          </button>
+        </div>
+        {!workspaceRoot && (
+          <p className="text-2xs text-text-muted mt-1.5">Not set — defaulting to your Documents folder.</p>
+        )}
+      </section>
+
       {/* ── Auto Mode ── */}
       <section>
         <h4 className="text-sm font-semibold text-text-primary mb-1">Auto Mode</h4>
