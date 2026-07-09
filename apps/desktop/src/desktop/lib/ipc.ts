@@ -63,6 +63,12 @@ export interface TaskProgress {
   status: 'pending' | 'in_progress' | 'completed'
 }
 
+export interface AgentProgressEvent {
+  projectId?: string
+  sessionId?: string | null
+  tasks: TaskProgress[]
+}
+
 export type UpdateStatus =
   | { state: 'checking' }
   | { state: 'available'; version: string; notes?: string }
@@ -72,6 +78,8 @@ export type UpdateStatus =
   | { state: 'error'; message: string }
 
 export interface ToolCallEvent {
+  projectId?: string
+  sessionId?: string | null
   id?: string
   name: string
   args: Record<string, any>
@@ -83,6 +91,7 @@ export interface ToolCallEvent {
 }
 
 export interface AgentDoneResult {
+  projectId?: string
   text: string
   inputTokens: number
   outputTokens: number
@@ -448,6 +457,7 @@ export interface PlanStep {
 }
 
 export interface PlanPayload {
+  projectId?: string
   title: string
   summary: string
   steps: PlanStep[]
@@ -475,7 +485,7 @@ interface ElectronAPI {
     onQaPrompt: (cb: (payload: any) => void) => () => void
     onPlan: (cb: (payload: PlanPayload) => void) => () => void
     answerQuestion: (answer: string) => Promise<{ ok: boolean }>
-    onProgress: (cb: (tasks: TaskProgress[]) => void) => () => void
+    onProgress: (cb: (payload: AgentProgressEvent | TaskProgress[]) => void) => () => void
     onDone: (cb: (result: AgentDoneResult) => void) => () => void
     onError: (cb: (err: string) => void) => () => void
     onInterrupted: (cb: () => void) => () => void

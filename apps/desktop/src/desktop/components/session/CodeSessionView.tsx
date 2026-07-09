@@ -59,6 +59,7 @@ export function CodeSessionView() {
   // Agent olaylarını code project için dinle.
   useEffect(() => {
     agentStore.startListening(CODE_PROJECT_ID, {
+      getActiveSessionId: () => useUIStore.getState().activeCodeSessionId,
       onUserMessage: addUserMessage,
       onAssistantStart: addAssistantStreaming,
       onUpdateStreaming: updateStreamingMessage,
@@ -75,6 +76,9 @@ export function CodeSessionView() {
   // Aktif session değişince mesajları yükle / temizle + session'ın workdir'ini geri yükle.
   useEffect(() => {
     agentStore.clearTimelines()
+    agentStore.clearToolCalls()
+    agentStore.setProgress([])
+    agentStore.setCurrentPlan(null)
     if (activeCodeSessionId && activeCodeSessionId !== NEW_CODE_SESSION) {
       loadMessages(activeCodeSessionId)
       ipc.sessions.get(activeCodeSessionId).then(sess => {
@@ -173,6 +177,8 @@ export function CodeSessionView() {
       agentStore.setStatus('idle')
       agentStore.clearToolCalls()
       agentStore.clearTimelines()
+      agentStore.setProgress([])
+      agentStore.setCurrentPlan(null)
       clearUIMessages()
 
       sessionStorage.setItem('pendingCodePrompt', message)

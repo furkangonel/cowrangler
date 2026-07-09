@@ -20,6 +20,9 @@ const CODE_PROJECT_ID = '__code__'
  */
 let codeWorkdir: string | undefined
 
+/** Plan events core'dan yalnız sessionId ile gelir; UI filtresi için proje eşlemesi. */
+const sessionProjectMap = new Map<string, string>()
+
 /** Verilen projeId + proje kaydı için agent çalışma dizinini çözer. */
 function resolveWorkdir(projectId: string, project: { workdir?: string } | undefined): string | undefined {
   if (project?.workdir) return project.workdir
@@ -185,6 +188,7 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
     // Session'ı projeye bağla + başlığı ilk promptun ilk 20 karakterinden ata
     const currentSessionId = agent.currentSessionId
     if (currentSessionId) {
+      sessionProjectMap.set(currentSessionId, projectId)
       const { setActiveSessionId } = await import('@cowrangler/core/project_context.js')
       setActiveSessionId(currentSessionId)
       projectDB.linkSession(projectId, currentSessionId)
@@ -199,8 +203,12 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
 
     // TODO izlemeyi başlat — workdir'i doğrudan geçir ki agent instance'a bağımlı olmasın
     if (workdir) {
-      agentManager.watchTodo(projectId, workdir, sessionId || '__new__', (tasks) => {
-        sender.send('agent:progress', tasks)
+      agentManager.watchTodo(projectId, workdir, currentSessionId || sessionId || '__new__', (tasks) => {
+        sender.send('agent:progress', {
+          projectId,
+          sessionId: agent.currentSessionId ?? currentSessionId ?? sessionId ?? null,
+          tasks,
+        })
       })
     }
 
@@ -239,6 +247,8 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       }
       if (e.name === 'ask_user' || e.name === 'write_plan') askedUser = true
       sender.send('agent:toolCall', {
+        projectId,
+        sessionId: agent.currentSessionId ?? currentSessionId ?? sessionId ?? null,
         id: e.id,
         name: e.name,
         args: e.args ?? {},
@@ -305,12 +315,13 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
 
 
       sender.send('agent:done', {
+        projectId,
         text: result.text,
         inputTokens: result.inputTokens,
         outputTokens: result.outputTokens,
         toolCallCount: result.toolCallCount,
         durationMs: result.durationMs,
-        sessionId: currentSessionId,
+        sessionId: agent.currentSessionId ?? currentSessionId,
       })
     } catch (err: any) {
       // AbortError means user pressed Stop — not an error, just interrupted
@@ -398,8 +409,10 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
   // write_plan planı üretince sağ paneldeki Plan bölümüne canlı yayınla.
   import('@cowrangler/core/tools/plan_events.js').then(({ setPlanListener }) => {
     setPlanListener((payload: any) => {
+      const projectId = payload?.sessionId ? sessionProjectMap.get(payload.sessionId) : undefined
+      const scopedPayload = projectId ? { ...payload, projectId } : payload
       for (const w of BrowserWindow.getAllWindows()) {
-        try { w.webContents.send('agent:plan', payload) } catch { /* window gone */ }
+        try { w.webContents.send('agent:plan', scopedPayload) } catch { /* window gone */ }
       }
     })
   }).catch(() => { /* plan köprüsü opsiyonel */ })

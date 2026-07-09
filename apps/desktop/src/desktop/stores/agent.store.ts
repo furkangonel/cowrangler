@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { ipc, TaskProgress, ToolCallEvent, ContextSnapshot, AgentDoneResult, PlanPayload } from '../lib/ipc'
+import { ipc, TaskProgress, ToolCallEvent, ContextSnapshot, AgentDoneResult, PlanPayload, AgentProgressEvent } from '../lib/ipc'
 
 export interface ActiveToolCall {
   id: string
@@ -64,6 +64,7 @@ interface AgentState {
   clearTimelines: () => void
 
   startListening: (projectId: string, callbacks: {
+    getActiveSessionId: () => string | null
     onUserMessage: (content: string) => string
     onAssistantStart: () => string
     onUpdateStreaming: (id: string, content: string) => void
@@ -351,7 +352,23 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       return assistantMsgId
     }
 
+    const matchesScope = (payload?: { projectId?: string; sessionId?: string | null }): boolean => {
+      if (!payload) return true
+      if (payload.projectId && payload.projectId !== projectId) return false
+      const activeSessionId = callbacks.getActiveSessionId()
+      if (
+        payload.sessionId &&
+        activeSessionId &&
+        activeSessionId !== '__new__' &&
+        payload.sessionId !== activeSessionId
+      ) {
+        return false
+      }
+      return true
+    }
+
     const unsubToolCall = ipc.agent.onToolCall((data: ToolCallEvent) => {
+      if (!matchesScope(data)) return
       const id = ensure()
       // send_message: agent'ın kullanıcıya yönelik asıl mesajı. Küçük, kırpılmış
       // bir 💬 tool satırı olarak gömmek yerine normal bir asistan balonu (markdown)
@@ -393,12 +410,15 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     })
     cleanups.push(unsubReasoningText)
 
-    const unsubProgress = ipc.agent.onProgress((tasks: TaskProgress[]) => {
-      set({ progress: tasks })
+    const unsubProgress = ipc.agent.onProgress((payload: AgentProgressEvent | TaskProgress[]) => {
+      const event = Array.isArray(payload) ? { tasks: payload } : payload
+      if (!matchesScope(event)) return
+      set({ progress: event.tasks ?? [] })
     })
     cleanups.push(unsubProgress)
 
     const unsubPlan = ipc.agent.onPlan((plan: PlanPayload) => {
+      if (!matchesScope(plan)) return
       set({ currentPlan: plan })
     })
     cleanups.push(unsubPlan)
@@ -425,6 +445,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     cleanups.push(unsubQa)
 
     const unsubDone = ipc.agent.onDone((result: AgentDoneResult) => {
+      if (!matchesScope(result)) return
       const finalText = result.text || accText
       // send_message zaten bu metni balon olarak gösterdiyse tekrar ekleme.
       const alreadyShown = !!finalText && finalText.trim() === lastSentText.trim()
