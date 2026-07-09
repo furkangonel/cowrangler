@@ -361,10 +361,10 @@ function InlineNewTask({ projectId, projectName, projectIcon }: { projectId: str
       {/* Composer card */}
       <div
         {...drop.dropBind}
-        className={`relative bg-bg-secondary border rounded-2xl shadow-sm focus-within:border-accent/50 transition-colors mb-2 ${drop.isDragging ? 'border-accent border-dashed' : 'border-border'}`}
+        className={`relative bg-bg-secondary border rounded-3xl focus-within:border-accent/40 transition-colors mb-2 ${drop.isDragging ? 'border-accent border-dashed' : 'border-border-subtle'}`}
       >
         {drop.isDragging && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center rounded-2xl bg-accent/8 backdrop-blur-[1px] pointer-events-none">
+          <div className="absolute inset-0 z-20 flex items-center justify-center rounded-3xl bg-accent/8 backdrop-blur-[1px] pointer-events-none">
             <div className="flex items-center gap-1.5 text-xs font-medium text-accent">
               <Paperclip size={15} /> Drop files to attach
             </div>
@@ -417,19 +417,17 @@ function InlineNewTask({ projectId, projectName, projectIcon }: { projectId: str
         />
 
         {/* Footer row */}
-        <div className="flex items-center gap-2.5 px-3 py-2 border-t border-border-subtle bg-bg-tertiary rounded-b-2xl">
-          <select
-            disabled
-            className="flex-1 bg-bg-secondary/50 border border-border-subtle rounded-lg text-xs text-text-muted px-2.5 py-1.5 outline-none cursor-not-allowed appearance-none opacity-80"
-          >
-            <option>{projectIcon} {projectName}</option>
-          </select>
+        <div className="flex items-center gap-2.5 px-3.5 py-2.5">
+          <span className="flex-1 min-w-0 flex items-center gap-1.5 text-xs text-text-muted truncate">
+            <span className="flex-shrink-0">{projectIcon}</span>
+            <span className="truncate">{projectName}</span>
+          </span>
 
           {/* Model Selection */}
           <div className="relative" ref={modelPickerRef}>
             <button
               onClick={() => setModelPickerOpen(o => !o)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-text-secondary hover:text-text-primary rounded-lg border border-border-subtle hover:bg-bg-hover transition-all bg-bg-secondary/30"
+              className="flex items-center gap-1.5 px-2 py-1 text-xs text-text-secondary hover:text-text-primary rounded-lg hover:bg-bg-hover transition-all"
             >
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                    strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
