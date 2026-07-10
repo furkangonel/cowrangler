@@ -5,7 +5,11 @@ import { RobotLoader } from "../shared/RobotLoader";
 import { CopyButton } from "../shared/CopyButton";
 import { ClampText } from "../ClampText";
 import { TimelineSegment } from "../../stores/agent.store";
-import { Brain, ChevronDown, ChevronRight } from "lucide-react";
+import { Brain, ChevronDown, ChevronRight, ArchiveRestore } from "lucide-react";
+
+// context_engine.ts'in ürettiği sıkıştırma özet mesajlarının önek imzası.
+// Kaynak: packages/core/src/context_engine.ts → compress()
+const COMPACTION_MARKER = /^\[CONVERSATION SUMMARY — (\d+) earlier messages compressed\]/;
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return "<1s";
@@ -118,8 +122,41 @@ function ReasoningBlock({ text, isLive = false }: { text: string; isLive?: boole
   );
 }
 
+/** Bağlam sıkıştırmasının olduğu noktayı gösteren ince ayraç (normal bubble yerine). */
+function CompactionDivider({ compressedCount, summary }: { compressedCount: number; summary: string }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="flex flex-wrap items-center gap-3 my-3 select-none">
+      <div className="flex-1 h-px bg-border-subtle" />
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="flex items-center gap-1.5 text-[11px] font-medium text-text-muted hover:text-text-secondary transition-colors whitespace-nowrap"
+        title="Eski mesajlar bağlamı sığdırmak için özetlendi"
+      >
+        <ArchiveRestore className="w-3.5 h-3.5" />
+        {compressedCount} earlier message{compressedCount === 1 ? "" : "s"} compressed
+      </button>
+      <div className="flex-1 h-px bg-border-subtle" />
+      {expanded && (
+        <div className="basis-full order-last px-4 py-2 mt-1 text-[12px] text-text-muted whitespace-pre-wrap rounded-lg bg-bg-tertiary/40 border border-border-subtle max-h-64 overflow-y-auto">
+          {summary}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function MessageBubble({ message, timeline, isLast = false }: Props) {
   if (message.role === "user") {
+    const compactionMatch = message.content.match(COMPACTION_MARKER);
+    if (compactionMatch) {
+      return (
+        <CompactionDivider
+          compressedCount={Number(compactionMatch[1])}
+          summary={message.content.slice(compactionMatch[0].length).trim()}
+        />
+      );
+    }
     return (
       <div className="flex justify-end animate-fade-in group">
         <div className="flex flex-col items-end max-w-[80%]">
