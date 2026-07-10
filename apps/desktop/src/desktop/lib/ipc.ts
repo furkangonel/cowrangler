@@ -489,7 +489,6 @@ interface ElectronAPI {
     onDone: (cb: (result: AgentDoneResult) => void) => () => void
     onError: (cb: (err: string) => void) => () => void
     onInterrupted: (cb: () => void) => () => void
-    onApprovalRequest: (cb: (data: any) => void) => () => void
     syncActivePorts: (ports: number[]) => void
   }
   projects: {

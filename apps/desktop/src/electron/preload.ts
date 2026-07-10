@@ -69,13 +69,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('agent:interrupted', listener)
       return () => ipcRenderer.removeListener('agent:interrupted', listener)
     },
-    onApprovalRequest: (cb: (data: any) => void) => {
-      const listener = (_: IpcRendererEvent, data: any) => cb(data)
-      ipcRenderer.on('agent:approvalRequest', listener)
-      return () => ipcRenderer.removeListener('agent:approvalRequest', listener)
-    },
     removeAllListeners: () => {
-      ;['agent:toolCall', 'agent:stepText', 'agent:qaPrompt', 'agent:progress', 'agent:plan', 'agent:done', 'agent:error', 'agent:interrupted', 'agent:approvalRequest', 'agent:reasoningText']
+      ;['agent:toolCall', 'agent:stepText', 'agent:qaPrompt', 'agent:progress', 'agent:plan', 'agent:done', 'agent:error', 'agent:interrupted', 'agent:reasoningText']
         .forEach(ch => ipcRenderer.removeAllListeners(ch))
     },
   },
