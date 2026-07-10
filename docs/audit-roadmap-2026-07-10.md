@@ -32,8 +32,8 @@ Source: `COWRANGLER_KAPSAMLI_DENETIM_RAPORU_2026-07-10.md`
 - [ ] 2.3 Start reducing `any` usage, beginning with `packages/core/src/model`.
 - [x] 2.4 Tighten unsandboxed mode by requiring approval for `moderate` and higher risk commands.
 - [x] 2.4 Add a persistent UI indicator when running without sandbox protection.
-- [ ] 2.5 Replace search-engine HTML scraping with Brave Search API, Tavily, or SearXNG support.
-- [ ] 2.5 Keep scraping only as a detectable fallback that reports degraded search.
+- [x] 2.5 Replace search-engine HTML scraping with Brave Search API, Tavily, or SearXNG support.
+- [x] 2.5 Keep scraping only as a detectable fallback that reports degraded search.
 - [ ] 2.6 Complete macOS Developer ID signing and notarization in release workflow.
 - [ ] 2.7 Add IPC contract tests.
 - [ ] 2.7 Add Playwright E2E tests for app launch, chat start, file drop, and export.

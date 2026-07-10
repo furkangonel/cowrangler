@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { assertPublicHttpUrl, isBlockedNetworkAddress } from "@cowrangler/core/tools/web_tools.js";
+import {
+  assertPublicHttpUrl,
+  formatSearchResults,
+  isBlockedNetworkAddress,
+  normalizeBraveApiResults,
+} from "@cowrangler/core/tools/web_tools.js";
 
 describe("web tool network guard", () => {
   it("blocks private and local network addresses", () => {
@@ -24,5 +29,47 @@ describe("web tool network guard", () => {
 
   it("rejects loopback URL literals before DNS lookup", async () => {
     await expect(assertPublicHttpUrl("http://127.0.0.1:3000")).rejects.toThrow(/private network/);
+  });
+});
+
+describe("web search helpers", () => {
+  it("normalizes Brave Search API web results", () => {
+    const results = normalizeBraveApiResults(
+      {
+        web: {
+          results: [
+            {
+              title: " First result ",
+              url: "https://example.com/one",
+              description: " Summary ",
+            },
+            { title: "Ignored", url: "javascript:void(0)", description: "Bad URL" },
+            {
+              title: "Second result",
+              url: "https://example.com/two",
+              description: "",
+            },
+          ],
+        },
+      },
+      2,
+    );
+
+    expect(results).toEqual([
+      { title: "First result", url: "https://example.com/one", snippet: "Summary" },
+      { title: "Second result", url: "https://example.com/two", snippet: "" },
+    ]);
+  });
+
+  it("marks HTML search output as degraded fallback", () => {
+    const output = formatSearchResults(
+      "cow milk prices",
+      [{ title: "Market report", url: "https://example.com/report", snippet: "Daily prices" }],
+      "HTML fallback: Google Search",
+      "BRAVE_SEARCH_API_KEY is not configured; used degraded HTML fallback",
+    );
+
+    expect(output).toContain("Source: HTML fallback: Google Search");
+    expect(output).toContain("degraded HTML fallback");
   });
 });
