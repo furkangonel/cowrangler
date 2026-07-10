@@ -4,6 +4,7 @@
 
 # 0. Internal planning docs (not committed)
 REFACTOR_PLAN.md
+/docs/
 
 # 1. Dependencies
 node_modules/

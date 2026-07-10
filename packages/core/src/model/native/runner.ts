@@ -13,6 +13,7 @@
  */
 
 import { resolveEndpoint } from "../driver.js";
+import { rotateCredentialPoolKey } from "../../credential_pool.js";
 import { makeNativeModel } from "./index.js";
 import { bindRegistry, type RegistryToolDef } from "./tooling.js";
 import { fromCoreMessages, toCoreMessages } from "./coremsg.js";
@@ -50,6 +51,7 @@ export interface NativeTurnOptions {
   onStep?(usage: NativeTurnUsage): void;
   /** Tool çalışmadan ÖNCE (plugins pre_tool_call vb.). */
   preToolCall?(name: string, args: unknown): Promise<void> | void;
+  onRetry?(err: Error, attempt: number, delayMs: number): void;
 }
 
 export interface NativeTurnUsage {
@@ -76,8 +78,17 @@ export async function runNativeAgentTurn(opts: NativeTurnOptions): Promise<Nativ
   let model = opts.model;
   if (!model) {
     if (!opts.providerId) throw new Error("runNativeAgentTurn: providerId veya model gerekli");
-    const ep = resolveEndpoint(opts.modelId, opts.providerId, opts.env ?? process.env, opts.customProviders ?? {});
-    model = makeNativeModel(ep, opts.modelId);
+    const buildModel = (): ChatModel => {
+      const ep = resolveEndpoint(opts.modelId, opts.providerId!, opts.env ?? process.env, opts.customProviders ?? {});
+      return makeNativeModel(ep, opts.modelId);
+    };
+    const initial = buildModel();
+    model = {
+      providerId: initial.providerId,
+      wire: initial.wire,
+      modelId: initial.modelId,
+      streamChat: (req) => buildModel().streamChat(req),
+    };
   }
   const { specs, executeTool } = bindRegistry(opts.tools);
 
@@ -117,6 +128,12 @@ export async function runNativeAgentTurn(opts: NativeTurnOptions): Promise<Nativ
           cacheReadTokens: usage.cacheReadTokens ?? 0,
           cacheWriteTokens: usage.cacheWriteTokens ?? 0,
         }),
+      onRetry: (err, attempt, delayMs) => {
+        if (!opts.model && isRateLimitError(err)) {
+          rotateCredentialPoolKey(opts.modelId);
+        }
+        opts.onRetry?.(err, attempt, delayMs);
+      },
     },
   });
 
@@ -138,4 +155,12 @@ export async function runNativeAgentTurn(opts: NativeTurnOptions): Promise<Nativ
     toolCalls,
     finishReason: res.finishReason,
   };
+}
+
+function isRateLimitError(error: Error): boolean {
+  const e = error as any;
+  const code = e.statusCode ?? e.status ?? e.code;
+  if (Number(code) === 429) return true;
+  const msg = error.message.toLowerCase();
+  return msg.includes("rate limit") || msg.includes("too many requests");
 }

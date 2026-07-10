@@ -13,7 +13,7 @@ Source: `COWRANGLER_KAPSAMLI_DENETIM_RAPORU_2026-07-10.md`
 - [x] 1.4 Replace `xlsx` with `exceljs`.
 - [ ] 1.4 Upgrade `vite`, `electron-builder`, and `electron-rebuild`.
 - [x] 1.4 Add `npm audit --omit=dev --audit-level=high` as a CI gate.
-- [ ] 1.4 Add Dependabot or Renovate.
+- [x] 1.4 Add Dependabot or Renovate.
 - [ ] 1.5 Finish the Vercel AI SDK to native client migration.
 - [ ] 1.5 Remove `ai` and `@ai-sdk/*` dependencies after migration.
 - [ ] 1.6 Add first-use trust approval for new MCP servers.
@@ -22,16 +22,16 @@ Source: `COWRANGLER_KAPSAMLI_DENETIM_RAPORU_2026-07-10.md`
 
 ## Phase 2: Near-Term Reliability And Quality
 
-- [ ] 2.1 Move 429/5xx retry, exponential backoff, and credential pool rotation into `model/native/runner.ts`.
-- [ ] 2.1 Standardize partial-message recovery in the native runner.
+- [x] 2.1 Move 429/5xx retry, exponential backoff, and credential pool rotation into `model/native/runner.ts`.
+- [x] 2.1 Standardize partial-message recovery in the native runner.
 - [x] 2.2 Add renderer ErrorBoundary coverage around routes and major panels.
 - [x] 2.2 Add reload fallback UI for renderer crashes.
 - [x] 2.2 Add main-process `uncaughtException` and `unhandledRejection` logging and user-facing dialog behavior.
 - [ ] 2.3 Add Biome or equivalent lint/format tooling to the main repo.
 - [ ] 2.3 Add lint CI with zero-warning enforcement.
 - [ ] 2.3 Start reducing `any` usage, beginning with `packages/core/src/model`.
-- [ ] 2.4 Tighten unsandboxed mode by requiring approval for `moderate` and higher risk commands.
-- [ ] 2.4 Add a persistent UI indicator when running without sandbox protection.
+- [x] 2.4 Tighten unsandboxed mode by requiring approval for `moderate` and higher risk commands.
+- [x] 2.4 Add a persistent UI indicator when running without sandbox protection.
 - [ ] 2.5 Replace search-engine HTML scraping with Brave Search API, Tavily, or SearXNG support.
 - [ ] 2.5 Keep scraping only as a detectable fallback that reports degraded search.
 - [ ] 2.6 Complete macOS Developer ID signing and notarization in release workflow.

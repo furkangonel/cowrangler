@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
   PanelRight, PanelLeft, Plus, Terminal, LayoutGrid, Play,
-  MoreHorizontal, ListChecks, ListTodo,
+  MoreHorizontal, ListChecks, ListTodo, ShieldAlert,
 } from "lucide-react";
 import { useAgentStore } from "../../stores/agent.store";
 import { Octopus } from "../shared/Octopus";
@@ -16,11 +16,13 @@ import { NewProjectModal } from "../project/NewProjectModal";
 
 import { useProjectsStore } from "../../stores/projects.store";
 import { useSessionsStore } from "../../stores/sessions.store";
+import { useSettingsStore } from "../../stores/settings.store";
 import { useUIStore, CodeRightTab } from "../../stores/ui.store";
 
 export function AppShell() {
   const { activeProjectId, projects } = useProjectsStore();
   const { activeSessionId } = useSessionsStore();
+  const sandbox = useSettingsStore((s) => s.config.sandbox ?? {});
   const {
     newProjectModalOpen,
     rightPanelOpen,
@@ -41,6 +43,10 @@ export function AppShell() {
     activeTab === "projects" && !!activeProjectId && !activeSessionId;
   const showEmptyProjects = activeTab === "projects" && !activeProjectId;
   const showCode = FEATURES.code && activeTab === "code";
+  const sandboxLowTrust =
+    sandbox.enabled === false ||
+    sandbox.provider === "fallback" ||
+    sandbox.allowUnsandboxed === true;
 
   return (
     <div className="flex flex-col h-screen bg-bg-primary overflow-hidden">
@@ -84,6 +90,16 @@ export function AppShell() {
 
         {/* Right controls */}
         <div className="ml-auto flex items-center gap-0.5 no-drag">
+          {sandboxLowTrust && (
+            <div
+              className="mr-2 flex items-center gap-1 rounded-md border border-orange-500/40 bg-orange-500/10 px-2 py-1 text-[11px] font-medium text-orange-600 dark:text-orange-400"
+              title="Sandbox isolation is disabled or unavailable. Moderate and higher risk actions require approval."
+            >
+              <ShieldAlert size={13} />
+              <span>Low-trust</span>
+            </div>
+          )}
+
           {/* Code tab: right tab toggle buttons */}
           {showCode && (
             <div className="flex items-center gap-0.5 mr-1 pr-2">
