@@ -31,6 +31,9 @@ jobs:
       - name: Install bubblewrap (real Linux sandbox backend coverage)
         run: sudo apt-get update && sudo apt-get install -y bubblewrap
 
+      - name: Allow unprivileged user namespaces (needed by bwrap on Ubuntu 23.10+)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
       - name: Production dependency audit
         run: npm audit --omit=dev --audit-level=high
 
@@ -52,6 +55,24 @@ jobs:
           name: coverage
           path: coverage/
           retention-days: 7
+
+  # Branch protection'da hâlâ "Type Check" adıyla zorunlu tutulan eski kontrolü
+  # karşılar — bu job "Lint" olarak yeniden adlandırıldığında (bkz. git tarihi)
+  # o zorunlu kontrol adı hiçbir job tarafından üretilmez olmuş ve PR'lar
+  # sonsuza dek "Expected — Waiting for status to be reported" durumunda
+  # takılı kalmıştı. "Lint" job'ına dokunmadan, sadece adı eşleştiren minimal
+  # bir job eklemek en güvenli düzeltme.
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: "npm"
+      - run: npm ci
+      - run: npm run typecheck
 
   lint:
     name: Lint
