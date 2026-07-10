@@ -101,13 +101,18 @@ describe("Sandbox Engine", () => {
 
       // /etc salt-okunur bağlanır — buraya yazma OS seviyesinde reddedilmeli.
       // Bu, sadece uygulama mantığının değil gerçek bwrap izolasyonunun
-      // çalıştığını kanıtlar.
+      // çalıştığını kanıtlar. Komut, Node exec → runner.sh → bwrap içi bash
+      // olmak üzere üç iç içe shell katmanından geçiyor; bu katmanlar arasında
+      // `$?` gibi kabuk-özel durum değişkenleri güvenilir şekilde taşınmaz
+      // (görüldüğü gibi dış katman "EXIT:0" yakalayabiliyor, işlemin gerçek
+      // sonucunu değil) — bu yüzden çıkış koduna değil, touch'ın kendi hata
+      // mesajına bakıyoruz; bu, hangi shell'in yakaladığından bağımsız her
+      // zaman çıktıda görünür.
       const writeEtc = await runInSandbox(
-        `touch /etc/cowrangler_sandbox_test_should_fail; echo "EXIT:$?"`,
+        `touch /etc/cowrangler_sandbox_test_should_fail`,
         workdir,
       );
-      expect(writeEtc.output).toContain("EXIT:");
-      expect(writeEtc.output).not.toContain("EXIT:0");
+      expect(writeEtc.output).toMatch(/read-only file system|permission denied|cannot touch/i);
     } finally {
       fs.rmSync(workdir, { recursive: true, force: true });
     }
