@@ -5,6 +5,7 @@ import path from 'path'
 import { getProjectDB } from '../project_db.js'
 import { getCodeWorkdir } from './code_workdir.js'
 import { openAllowedExternalUrl } from './security.js'
+import { MAX_UPLOAD_BYTES, UPLOADS_DIR_NAME, uniqueUploadName, uploadRelPath } from './upload_hygiene.js'
 
 /** Renderer'daki GLOBAL_PROJECT_ID ile aynı — projesiz genel sohbet. */
 const GLOBAL_PROJECT_ID = '__global__'
@@ -29,16 +30,6 @@ function workdirFor(projectId: string): string | null {
   }
   const wd = getProjectDB().get(projectId)?.workdir
   return wd && fs.existsSync(wd) ? wd : null
-}
-
-/** İsim çakışmasında "ad-1.ext", "ad-2.ext" … üretir. */
-function uniqueName(dir: string, name: string): string {
-  const ext = path.extname(name)
-  const base = path.basename(name, ext).replace(/[^\w.\- ]+/g, '_') || 'file'
-  let candidate = base + ext
-  let i = 1
-  while (fs.existsSync(path.join(dir, candidate))) candidate = `${base}-${i++}${ext}`
-  return candidate
 }
 
 export interface FileNode {
@@ -125,7 +116,7 @@ export function registerFSIPC(ipcMain: IpcMain): void {
   ipcMain.handle('fs:addFiles', async (_, payload: { projectId: string; paths: string[] }) => {
     const wd = workdirFor(payload?.projectId)
     if (!wd) return { ok: false, error: 'No workdir for project', files: [] as { name: string; relPath: string }[] }
-    const dest = path.join(wd, 'uploads')
+    const dest = path.join(wd, UPLOADS_DIR_NAME)
     try { fs.mkdirSync(dest, { recursive: true }) } catch { /* yoksay */ }
     const out: { name: string; relPath: string }[] = []
     for (const src of payload?.paths ?? []) {
@@ -133,10 +124,10 @@ export function registerFSIPC(ipcMain: IpcMain): void {
         if (!src || !fs.existsSync(src)) continue
         const stat = fs.statSync(src)
         if (!stat.isFile()) continue                 // klasör sürüklemeyi atla
-        if (stat.size > 50 * 1024 * 1024) continue    // 50MB üstünü atla
-        const name = uniqueName(dest, path.basename(src))
+        if (stat.size > MAX_UPLOAD_BYTES) continue    // 50MB üstünü atla
+        const name = uniqueUploadName(dest, path.basename(src))
         fs.copyFileSync(src, path.join(dest, name))
-        out.push({ name, relPath: path.posix.join('uploads', name) })
+        out.push({ name, relPath: uploadRelPath(name) })
       } catch { /* tek dosya hatası tüm işlemi bozmasın */ }
     }
     return { ok: out.length > 0, files: out }
@@ -147,17 +138,17 @@ export function registerFSIPC(ipcMain: IpcMain): void {
   ipcMain.handle('fs:addFileBytes', async (_, payload: { projectId: string; files: { name: string; dataBase64: string }[] }) => {
     const wd = workdirFor(payload?.projectId)
     if (!wd) return { ok: false, error: 'No workdir for project', files: [] as { name: string; relPath: string }[] }
-    const dest = path.join(wd, 'uploads')
+    const dest = path.join(wd, UPLOADS_DIR_NAME)
     try { fs.mkdirSync(dest, { recursive: true }) } catch { /* yoksay */ }
     const out: { name: string; relPath: string }[] = []
     for (const f of payload?.files ?? []) {
       try {
         if (!f?.name || !f?.dataBase64) continue
         const buf = Buffer.from(f.dataBase64, 'base64')
-        if (buf.length === 0 || buf.length > 50 * 1024 * 1024) continue
-        const name = uniqueName(dest, f.name)
+        if (buf.length === 0 || buf.length > MAX_UPLOAD_BYTES) continue
+        const name = uniqueUploadName(dest, f.name)
         fs.writeFileSync(path.join(dest, name), buf)
-        out.push({ name, relPath: path.posix.join('uploads', name) })
+        out.push({ name, relPath: uploadRelPath(name) })
       } catch { /* tek dosya hatası tüm işlemi bozmasın */ }
     }
     return { ok: out.length > 0, files: out }

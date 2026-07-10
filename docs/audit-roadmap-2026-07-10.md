@@ -47,7 +47,7 @@ Source: `COWRANGLER_KAPSAMLI_DENETIM_RAPORU_2026-07-10.md`
 - [x] 3.2 Either extract UI strings into the i18n system or document i18n as limited to core messages.
 - [ ] 3.3 Split large files: `commands.ts`, `DesignHome.tsx`, `agent.ts`, and `DesignEditor.tsx`.
 - [x] 3.4 Confirm `.DS_Store` is ignored and not tracked by git.
-- [ ] 3.4 Clean web `uploads/` hygiene.
+- [x] 3.4 Clean web `uploads/` hygiene.
 - [ ] 3.4 Rename the web package from `cowrangler-temp`.
 - [ ] 3.5 Expand `trajectory.ts` into replayable model/tool/context audit records.
 - [x] 3.6 Define and log precedence between static model catalog data and discovery results.

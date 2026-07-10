@@ -47,6 +47,9 @@ PROGRESS.md
 # Audit log (can contain user prompt data)
 audit.log
 
+# User-attached files copied into project workdirs by the desktop app.
+uploads/
+
 # 5. OS & editor artifacts
 .DS_Store
 Thumbs.db
