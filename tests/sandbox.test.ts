@@ -67,7 +67,11 @@ describe("Sandbox Engine", () => {
         workspaceRoot: workdir,
         maxOutputBytes: 512 * 1024,
         maxTimeoutMs: 15000,
-        networkRestricted: true,
+        // Ağ izolasyonu (--unshare-net) ayrı bir endişe ve bazı CI runner'larında
+        // (ör. GitHub Actions'ın iç içe konteynerlerinde) loopback arayüzü
+        // kurulumu izin reddiyle başarısız olabilir — bu test dosya sistemi
+        // izolasyonunu kanıtlamaya odaklanıyor, ağı devre dışı bırakmıyor.
+        networkRestricted: false,
         allowedPaths: [workdir],
         blockedBinaries: [],
         provider: "linux_bwrap",
