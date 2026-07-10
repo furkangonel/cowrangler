@@ -16,8 +16,8 @@ Source: `COWRANGLER_KAPSAMLI_DENETIM_RAPORU_2026-07-10.md`
 - [x] 1.4 Add Dependabot or Renovate.
 - [ ] 1.5 Finish the Vercel AI SDK to native client migration.
 - [ ] 1.5 Remove `ai` and `@ai-sdk/*` dependencies after migration.
-- [ ] 1.6 Add first-use trust approval for new MCP servers.
-- [ ] 1.6 Persist MCP server fingerprints and require re-approval when tool lists change.
+- [x] 1.6 Add first-use trust approval for new MCP servers. (Core plumbing in mcp_trust.ts/mcp_client.ts; desktop still needs to wire an `approve` callback through mcp.ipc.ts to a real confirmation dialog — currently auto-trusts when no callback is passed, same as before.)
+- [x] 1.6 Persist MCP server fingerprints and require re-approval when tool lists change.
 - [ ] 1.6 Run prompt-injection scanning on MCP tool descriptions and tool results.
 
 ## Phase 2: Near-Term Reliability And Quality
@@ -64,8 +64,8 @@ Source: `COWRANGLER_KAPSAMLI_DENETIM_RAPORU_2026-07-10.md`
 - [ ] 4.3 Store permission decisions as machine-readable audit records.
 - [ ] 4.3 Show "why this was requested" explanations in the permission UI.
 - [x] 4.4 Add provider-level circuit breakers after repeated failures.
-- [ ] 4.5 Add periodic session DB `VACUUM`, size limits, and archiving.
+- [x] 4.5 Add periodic session DB `VACUUM`, size limits, and archiving.
 - [ ] 4.6 Prune low-information tool results before user messages during compaction.
-- [ ] 4.6 Show compaction points in the UI.
+- [x] 4.6 Show compaction points in the UI.
 - [ ] 4.7 Research and prototype embedding-based semantic code search on top of repomap.
 - [ ] 4.8 Add delta updates and in-app release notes.

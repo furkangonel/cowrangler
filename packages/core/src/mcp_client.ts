@@ -41,6 +41,13 @@ import { getSecrets } from "./credential_vault.js";
 import { LoopbackOAuthProvider } from "./oauth_provider.js";
 import { jsonSchema } from "ai";
 import { z } from "zod";
+import {
+  checkConfigTrust,
+  checkToolsTrust,
+  trustServerConfig,
+  trustServerTools,
+  type TrustStatus,
+} from "./mcp_trust.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -76,7 +83,21 @@ export interface MCPServerStatus {
   connected: boolean;
   toolCount: number;
   error?: string;
+  /** İlk-kullanım güven durumu — bkz. mcp_trust.ts. */
+  trust: TrustStatus;
 }
+
+/**
+ * Yeni ya da config/araç listesi değişmiş bir sunucu bağlanmadan/tool'ları
+ * kaydetmeden önce çağrılır. `true` dönerse mevcut parmak izi güvenilir
+ * olarak kaydedilir. Callback verilmezse (headless/CLI) otomatik güvenilir
+ * sayılır — geriye dönük uyumluluk için.
+ */
+export type MCPTrustApprover = (
+  serverName: string,
+  status: TrustStatus,
+  config: MCPServerConfig,
+) => boolean | Promise<boolean>;
 
 // API anahtarları subprocess'e sızmasın — engel listesi
 const BLOCKED_ENV_PATTERNS = [
@@ -125,15 +146,29 @@ class MCPServerConnection {
   private toolCount = 0;
   private lastError: string | undefined;
   private reconnectAttempts = 0;
+  private trust: TrustStatus = "new";
   // Bu sunucu için registry'ye eklenen araç adları — disconnect/reload'da temizlenir.
   private registeredToolNames: string[] = [];
 
   constructor(
     private name: string,
     private config: MCPServerConfig,
+    private approve?: MCPTrustApprover,
   ) {}
 
   async connect(): Promise<boolean> {
+    // Config parmak izini kontrol et — onay reddedilirse hiç bağlanma.
+    const configStatus = checkConfigTrust(this.name, this.config);
+    if (configStatus !== "trusted") {
+      const approved = this.approve ? await this.approve(this.name, configStatus, this.config) : true;
+      if (!approved) {
+        this.trust = configStatus;
+        this.lastError = `MCP server '${this.name}' not approved (${configStatus})`;
+        return false;
+      }
+      trustServerConfig(this.name, this.config);
+    }
+
     for (let attempt = 0; attempt < MAX_RECONNECT_ATTEMPTS; attempt++) {
       if (attempt > 0) {
         const delay = BASE_RECONNECT_DELAY_MS * Math.pow(2, attempt - 1);
@@ -143,10 +178,14 @@ class MCPServerConnection {
       try {
         await this._doConnect();
         this.reconnectAttempts = 0;
+        this.trust = "trusted";
         return true;
       } catch (err: any) {
         this.lastError = err.message ?? String(err);
         this.reconnectAttempts = attempt + 1;
+        // Araç listesi onaylanmadıysa yeniden denemek kullanıcıya aynı onayı
+        // tekrar tekrar sormaktan başka bir şey yapmaz — hemen vazgeç.
+        if (this.trust !== "trusted" && this.trust !== "new") break;
       }
     }
 
@@ -228,6 +267,20 @@ class MCPServerConnection {
 
       const result = await this.client.listTools();
       const tools = result.tools ?? [];
+
+      // Araç listesi ilk kez görülüyorsa veya önceki onaydan beri değiştiyse
+      // yeniden onay gerekir — sunucu bağlantı kurulduktan sonra araç setini
+      // sessizce genişletip modele yeni yetenekler enjekte edemesin.
+      const toolsStatus = checkToolsTrust(this.name, tools.map((t) => t.name));
+      if (toolsStatus !== "trusted") {
+        const approved = this.approve ? await this.approve(this.name, toolsStatus, this.config) : true;
+        this.trust = approved ? "trusted" : toolsStatus;
+        if (!approved) {
+          this.toolCount = 0;
+          throw new Error(`MCP server '${this.name}' tool list not approved (${toolsStatus})`);
+        }
+        trustServerTools(this.name, tools.map((t) => t.name));
+      }
 
       for (const tool of tools) {
         const toolName = `mcp_${this.name}_${tool.name}`;
@@ -386,6 +439,7 @@ class MCPServerConnection {
       connected: this.connected,
       toolCount: this.toolCount,
       error: this.lastError,
+      trust: this.trust,
     };
   }
 }
@@ -398,13 +452,13 @@ export class MCPManager {
   private servers = new Map<string, MCPServerConnection>();
   private initialized = false;
 
-  async init(serverConfigs: Record<string, MCPServerConfig>): Promise<void> {
+  async init(serverConfigs: Record<string, MCPServerConfig>, approve?: MCPTrustApprover): Promise<void> {
     if (this.initialized) return;
     this.initialized = true;
 
     const connectPromises = Object.entries(serverConfigs).map(
       async ([name, config]) => {
-        const conn = new MCPServerConnection(name, config);
+        const conn = new MCPServerConnection(name, config, approve);
         this.servers.set(name, conn);
         await conn.connect();
       },
@@ -420,10 +474,10 @@ export class MCPManager {
    * Mevcut bağlantılar kapatılır, araçları registry'den temizlenir ve
    * yeni config ile sıfırdan bağlanılır.
    */
-  async reload(serverConfigs: Record<string, MCPServerConfig>): Promise<void> {
+  async reload(serverConfigs: Record<string, MCPServerConfig>, approve?: MCPTrustApprover): Promise<void> {
     await this.shutdown();
     this.initialized = false;
-    await this.init(serverConfigs);
+    await this.init(serverConfigs, approve);
   }
 
   isInitialized(): boolean {
@@ -521,14 +575,14 @@ function loadClaudeStyleMcpServers(): Record<string, MCPServerConfig> {
 /**
  * Boot the MCP manager using Claude's extension directory structure.
  */
-export async function bootMcp(): Promise<string> {
+export async function bootMcp(approve?: MCPTrustApprover): Promise<string> {
   const { getConfig } = await import("./init.js");
   const cfg = getConfig();
-  
+
   // Merge traditional config.yaml servers with Claude-style config
   const legacyServers: Record<string, MCPServerConfig> = cfg.mcp_servers || {};
   const claudeStyleServers = loadClaudeStyleMcpServers();
-  
+
   const servers = { ...legacyServers, ...claudeStyleServers };
   const mgr = getMCPManager();
 
@@ -536,23 +590,23 @@ export async function bootMcp(): Promise<string> {
     return "0 MCP servers configured";
   }
 
-  await mgr.init(servers);
+  await mgr.init(servers, approve);
   return mgr.summary();
 }
 
 /**
  * Reloads MCP servers using Claude's directory structure.
  */
-export async function reloadMcp(): Promise<string> {
+export async function reloadMcp(approve?: MCPTrustApprover): Promise<string> {
   const { getConfig } = await import("./init.js");
   const cfg = getConfig();
-  
+
   const legacyServers: Record<string, MCPServerConfig> = cfg.mcp_servers || {};
   const claudeStyleServers = loadClaudeStyleMcpServers();
-  
+
   const servers = { ...legacyServers, ...claudeStyleServers };
   const mgr = getMCPManager();
 
-  await mgr.reload(servers);
+  await mgr.reload(servers, approve);
   return mgr.summary();
 }
