@@ -9,6 +9,7 @@ import ExcelJS from "exceljs";
 import fg from "fast-glob";
 import { registerTool } from "./registry.js";
 import { beforeMutation, setCheckpointBase } from "../checkpoints.js";
+import { protectUntrustedContent } from "../context_security.js";
 
 let _WORKSPACE = path.resolve("./workspace");
 
@@ -35,6 +36,10 @@ function markdownToPlainText(markdown: string): string {
     .replace(/\*([^*]+)\*/g, "$1")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+}
+
+function protectFileReadResult(content: string, relPath: string): string {
+  return protectUntrustedContent(content, `file ${relPath}`);
 }
 
 function wrapText(line: string, font: any, fontSize: number, maxWidth: number): string[] {
@@ -225,17 +230,17 @@ registerTool(
       const ext = path.extname(target).toLowerCase();
       if (ext === ".docx") {
         const result = await mammoth.extractRawText({ path: target });
-        return result.value;
+        return protectFileReadResult(result.value, relPath);
       }
       if (ext === ".pdf") {
         const dataBuffer = await fs.readFile(target);
         const data = await pdfParse(dataBuffer);
-        return data.text;
+        return protectFileReadResult(data.text, relPath);
       }
       if (ext === ".xlsx") {
         const workbook = new ExcelJS.Workbook();
         await workbook.xlsx.readFile(target);
-        return workbook.worksheets.map((sheet) => {
+        const text = workbook.worksheets.map((sheet) => {
           const rows: string[] = [];
           sheet.eachRow((row) => {
             const values = Array.isArray(row.values) ? row.values.slice(1) : [];
@@ -248,6 +253,7 @@ registerTool(
           });
           return `=== Sheet: ${sheet.name} ===\n${rows.join("\n")}`;
         }).join("\n\n");
+        return protectFileReadResult(text, relPath);
       }
       if (ext === ".xls") {
         return "ERROR reading file: legacy .xls files are not supported. Please convert the workbook to .xlsx.";
@@ -268,16 +274,17 @@ registerTool(
           const texts = Array.from(xml.matchAll(/<a:t>([^<]*)<\/a:t>/g)).map((m) => m[1]);
           out.push(`=== Slide ${i + 1} ===\n${texts.join("\n")}`);
         }
-        return out.join("\n\n");
+        return protectFileReadResult(out.join("\n\n"), relPath);
       }
       if (ext === ".rtf") {
         const rtf = await fs.readFile(target, "utf-8");
-        return rtf
+        const text = rtf
           .replace(/\\'[0-9a-fA-F]{2}/g, " ")
           .replace(/\\[a-zA-Z]+-?\d* ?/g, "")
           .replace(/[{}]/g, "")
           .replace(/[ \t]{2,}/g, " ")
           .trim();
+        return protectFileReadResult(text, relPath);
       }
       if (ext === ".html" || ext === ".htm") {
         const html = await fs.readFile(target, "utf-8");
@@ -285,7 +292,7 @@ registerTool(
         const $ = load(html);
         $("script, style, noscript").remove();
         const text = ($("body").text() || $.root().text()).replace(/\n{3,}/g, "\n\n").trim();
-        return text;
+        return protectFileReadResult(text, relPath);
       }
 
       const raw = await fs.readFile(target, "utf-8");
@@ -293,9 +300,12 @@ registerTool(
         const lines = raw.split("\n");
         const from = (start_line ?? 1) - 1;
         const to = end_line ?? lines.length;
-        return lines.slice(from, to).map((l, i) => `${from + i + 1}: ${l}`).join("\n");
+        return protectFileReadResult(
+          lines.slice(from, to).map((l, i) => `${from + i + 1}: ${l}`).join("\n"),
+          relPath,
+        );
       }
-      return raw;
+      return protectFileReadResult(raw, relPath);
     } catch (e: any) {
       return `ERROR reading file: ${e.message}`;
     }

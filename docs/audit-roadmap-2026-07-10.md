@@ -59,7 +59,7 @@ Source: `COWRANGLER_KAPSAMLI_DENETIM_RAPORU_2026-07-10.md`
 ## Phase 4: Strengths To Extend
 
 - [ ] 4.1 Add sandbox backend tests to the CI matrix, including real Linux Bubblewrap coverage.
-- [ ] 4.2 Extend prompt-injection scanning to web page content and file read results.
+- [x] 4.2 Extend prompt-injection scanning to web page content and file read results.
 - [ ] 4.2 Add language-broader prompt-injection patterns.
 - [ ] 4.3 Store permission decisions as machine-readable audit records.
 - [ ] 4.3 Show "why this was requested" explanations in the permission UI.

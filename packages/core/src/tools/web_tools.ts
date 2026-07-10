@@ -5,6 +5,7 @@ import TurndownService from "turndown";
 import { registerTool } from "./registry.js";
 import dns from "node:dns/promises";
 import net from "node:net";
+import { protectUntrustedContent } from "../context_security.js";
 
 const turndown = new TurndownService({
   headingStyle: "atx",
@@ -205,8 +206,9 @@ registerTool(
       const target = selector ? $(selector) : $("body");
       const markdownContent = turndown.turndown(target.html() || $.html());
       const trimmed = markdownContent.trim().slice(0, max_length);
+      const protectedContent = protectUntrustedContent(trimmed, `web page ${url}`);
 
-      return `--- [${url}] ---\n${trimmed}${markdownContent.length > max_length ? "\n\n[Content truncated...]" : ""}\n--- END ---`;
+      return `--- [${url}] ---\n${protectedContent}${markdownContent.length > max_length ? "\n\n[Content truncated...]" : ""}\n--- END ---`;
     } catch (e: any) {
       return `ERROR fetching ${url}: ${e.message}`;
     }

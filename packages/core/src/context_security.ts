@@ -56,3 +56,7 @@ export function scanContext(raw: string, source: string): ScanResult {
 
   return { content, warnings, suspicious };
 }
+
+export function protectUntrustedContent(raw: string, source: string): string {
+  return scanContext(raw, source).content;
+}
