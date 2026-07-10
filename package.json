@@ -19,6 +19,8 @@
     "start": "npm run start -w @cowrangler/cli",
     "setup": "npm install && npm run build && npm link --workspace apps/cli",
     "clean": "rm -rf packages/core/dist packages/adapters/*/dist apps/cli/dist apps/desktop/dist apps/desktop/out",
+    "typecheck": "tsc --noEmit",
+    "lint": "npm run typecheck && node scripts/check-any-budget.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "bench": "node scripts/microbench/run.mjs",

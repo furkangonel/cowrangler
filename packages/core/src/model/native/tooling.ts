@@ -12,6 +12,7 @@
  */
 
 import { zodToJsonSchema } from "zod-to-json-schema";
+import type { ZodType } from "zod";
 import type { JSONSchema, ToolSpec } from "./types.js";
 import type { ToolInvocation, ToolOutcome } from "./loop.js";
 
@@ -21,8 +22,12 @@ export interface RegistryToolDef {
   execute?: (args: unknown, options: { toolCallId: string; messages: unknown[] }) => Promise<unknown> | unknown;
 }
 
-function isZodSchema(p: any): boolean {
-  return !!p && typeof p === "object" && "_def" in p && typeof p.safeParse === "function";
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object";
+}
+
+function isZodSchema(value: unknown): value is ZodType {
+  return isRecord(value) && "_def" in value && typeof value.safeParse === "function";
 }
 
 /** parameters → JSON Schema. Üç şekli de handle eder. */
@@ -30,11 +35,11 @@ export function toJSONSchema(parameters: unknown): JSONSchema {
   if (!parameters || typeof parameters !== "object") {
     return { type: "object", properties: {} };
   }
-  const p: any = parameters;
+  const p = parameters as Record<string, unknown>;
 
   // 2) ai jsonSchema() nesnesi
   if (p.jsonSchema && typeof p.jsonSchema === "object") {
-    return strip(p.jsonSchema);
+    return strip(p.jsonSchema as Record<string, unknown>);
   }
   // 1) zod şeması
   if (isZodSchema(p)) {
@@ -46,7 +51,7 @@ export function toJSONSchema(parameters: unknown): JSONSchema {
 
 /** JSON Schema temizliği: $schema/definitions köklerini kaldır (tool API'leri istemez). */
 function strip(schema: Record<string, unknown>): JSONSchema {
-  const { $schema, ...rest } = schema as any;
+  const { $schema: _schema, ...rest } = schema;
   return rest;
 }
 

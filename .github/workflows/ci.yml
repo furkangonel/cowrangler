@@ -51,7 +51,7 @@ jobs:
           retention-days: 7
 
   lint:
-    name: Type Check
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -60,5 +60,5 @@ jobs:
           node-version: "20.x"
           cache: "npm"
       - run: npm ci
-      - name: TypeScript type check (no emit)
-        run: npx tsc --noEmit
+      - name: Lint
+        run: npm run lint

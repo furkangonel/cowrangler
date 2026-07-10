@@ -37,7 +37,7 @@ export type { NativeTurnOptions, NativeTurnResult, NativeTurnUsage } from "./run
  * Varsayılan AÇIK (native). Kaçış kapağı: COWRANGLER_LEGACY_SDK=1 → vercel `ai`.
  * Öncelik: LEGACY_SDK=1 > NATIVE_PROVIDERS=0/1 > config.native_providers > default(true).
  */
-export function nativeProvidersEnabled(cfg?: { native_providers?: boolean } | any): boolean {
+export function nativeProvidersEnabled(cfg?: { native_providers?: unknown }): boolean {
   if (process.env.COWRANGLER_LEGACY_SDK === "1") return false;
   if (process.env.COWRANGLER_NATIVE_PROVIDERS === "0") return false;
   if (process.env.COWRANGLER_NATIVE_PROVIDERS === "1") return true;

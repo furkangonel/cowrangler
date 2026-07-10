@@ -28,8 +28,8 @@ Source: `COWRANGLER_KAPSAMLI_DENETIM_RAPORU_2026-07-10.md`
 - [x] 2.2 Add reload fallback UI for renderer crashes.
 - [x] 2.2 Add main-process `uncaughtException` and `unhandledRejection` logging and user-facing dialog behavior.
 - [ ] 2.3 Add Biome or equivalent lint/format tooling to the main repo.
-- [ ] 2.3 Add lint CI with zero-warning enforcement.
-- [ ] 2.3 Start reducing `any` usage, beginning with `packages/core/src/model`.
+- [x] 2.3 Add lint CI with zero-warning enforcement.
+- [x] 2.3 Start reducing `any` usage, beginning with `packages/core/src/model`.
 - [x] 2.4 Tighten unsandboxed mode by requiring approval for `moderate` and higher risk commands.
 - [x] 2.4 Add a persistent UI indicator when running without sandbox protection.
 - [x] 2.5 Replace search-engine HTML scraping with Brave Search API, Tavily, or SearXNG support.
@@ -44,13 +44,13 @@ Source: `COWRANGLER_KAPSAMLI_DENETIM_RAPORU_2026-07-10.md`
 
 - [ ] 3.1 Evaluate `sandbox: true` for windows that do not need Node in preload.
 - [ ] 3.1 Use a separate sandboxed profile for preview or third-party-rendering windows.
-- [ ] 3.2 Either extract UI strings into the i18n system or document i18n as limited to core messages.
+- [x] 3.2 Either extract UI strings into the i18n system or document i18n as limited to core messages.
 - [ ] 3.3 Split large files: `commands.ts`, `DesignHome.tsx`, `agent.ts`, and `DesignEditor.tsx`.
 - [x] 3.4 Confirm `.DS_Store` is ignored and not tracked by git.
 - [ ] 3.4 Clean web `uploads/` hygiene.
 - [ ] 3.4 Rename the web package from `cowrangler-temp`.
 - [ ] 3.5 Expand `trajectory.ts` into replayable model/tool/context audit records.
-- [ ] 3.6 Define and log precedence between static model catalog data and discovery results.
+- [x] 3.6 Define and log precedence between static model catalog data and discovery results.
 - [x] 3.7 Add `SECURITY.md`.
 - [x] 3.7 Add issue templates.
 - [x] 3.7 Add `"engines": { "node": ">=20" }`.

@@ -2,12 +2,40 @@ import { PROVIDERS, ProviderRow, resolveProviderToken } from "./driver.js";
 
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
+export interface CustomProviderConfig {
+  base_url: string;
+  api_key_env?: string;
+  headers?: Record<string, string>;
+}
+
 interface DiscoverCacheEntry {
   fetchedAt: number;
   models: string[];
 }
 
 const discoverCache: Record<string, DiscoverCacheEntry> = {};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object";
+}
+
+function modelIdFromUnknown(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (!isRecord(value)) return undefined;
+
+  const id = value.id;
+  if (typeof id === "string") return id;
+
+  const name = value.name;
+  if (typeof name === "string") return name;
+
+  return undefined;
+}
+
+function normalizeModelList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map(modelIdFromUnknown).filter((id): id is string => !!id);
+}
 
 // We can clear the cache when a new key is added
 export function clearDiscoverCache(providerId?: string) {
@@ -27,7 +55,7 @@ export function clearDiscoverCache(providerId?: string) {
 export async function discover(
   providerId: string,
   env: NodeJS.ProcessEnv,
-  customProviders: Record<string, { base_url: string; api_key_env?: string; headers?: Record<string, string> }> = {}
+  customProviders: Record<string, CustomProviderConfig> = {}
 ): Promise<string[]> {
   // Check cache
   const cached = discoverCache[providerId];
@@ -86,16 +114,16 @@ export async function discover(
     if (!res.ok) {
       return [];
     }
-    const json = await res.json();
+    const json = await res.json() as unknown;
     let models: string[] = [];
 
     // Most follow { data: [{ id: "model-name" }] }
-    if (json && Array.isArray(json.data)) {
-      models = json.data.map((m: any) => m.id).filter(Boolean);
-    } else if (json && Array.isArray(json.models)) {
-      models = json.models.map((m: any) => m.name || m.id).filter(Boolean);
+    if (isRecord(json) && Array.isArray(json.data)) {
+      models = normalizeModelList(json.data);
+    } else if (isRecord(json) && Array.isArray(json.models)) {
+      models = normalizeModelList(json.models);
     } else if (Array.isArray(json)) {
-      models = json.map((m: any) => m.id || m.name || m).filter(Boolean);
+      models = normalizeModelList(json);
     }
 
     // Special case handling for providers that return different structures can be added here
@@ -119,7 +147,7 @@ export async function discover(
  */
 export async function discoverAll(
   env: NodeJS.ProcessEnv,
-  customProviders: Record<string, { base_url: string; api_key_env?: string; headers?: Record<string, string> }> = {}
+  customProviders: Record<string, CustomProviderConfig> = {}
 ): Promise<Record<string, string[]>> {
   const allProviders = [
     ...PROVIDERS.map(p => p.id),
