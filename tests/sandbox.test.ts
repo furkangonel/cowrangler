@@ -53,6 +53,50 @@ describe("Sandbox Engine", () => {
     expect(result.output).toContain("SANDBOX BLOCKED");
   });
 
+  it("[linux/bwrap only] provides real OS-level filesystem isolation", async () => {
+    // Backend seçim mantığı `selectBackend` testlerinde zaten sahte probe'larla
+    // doğrulanıyor — bu test gerçek bwrap binary'sinin gerçekten dosya sistemi
+    // izolasyonu sağladığını kanıtlar. bwrap kurulu değilse (ör. macOS CI, veya
+    // Linux runner'da paket eksikse) sessizce atlanır.
+    if (process.platform !== "linux" || !binaryExists("bwrap")) return;
+
+    const workdir = fs.mkdtempSync(path.join(os.tmpdir(), "cowrangler-bwrap-"));
+    try {
+      configureSandbox({
+        enabled: true,
+        workspaceRoot: workdir,
+        maxOutputBytes: 512 * 1024,
+        maxTimeoutMs: 15000,
+        networkRestricted: true,
+        allowedPaths: [workdir],
+        blockedBinaries: [],
+        provider: "linux_bwrap",
+        allowUnsandboxed: false,
+      });
+
+      // cwd içine yazma başarılı olmalı — bwrap bunu rw bind eder.
+      const writeOk = await runInSandbox(
+        `echo hello-from-bwrap > ok.txt && cat ok.txt`,
+        workdir,
+      );
+      expect(writeOk.backend).toBe("linux_bwrap");
+      expect(writeOk.isolated).toBe(true);
+      expect(writeOk.output).toContain("hello-from-bwrap");
+
+      // /etc salt-okunur bağlanır — buraya yazma OS seviyesinde reddedilmeli.
+      // Bu, sadece uygulama mantığının değil gerçek bwrap izolasyonunun
+      // çalıştığını kanıtlar.
+      const writeEtc = await runInSandbox(
+        `touch /etc/cowrangler_sandbox_test_should_fail; echo "EXIT:$?"`,
+        workdir,
+      );
+      expect(writeEtc.output).toContain("EXIT:");
+      expect(writeEtc.output).not.toContain("EXIT:0");
+    } finally {
+      fs.rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
   it("respects path restrictions", async () => {
     configureSandbox({ 
       enabled: true, 
