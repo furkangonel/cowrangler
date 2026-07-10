@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Download, RefreshCw, X, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react'
+import { Download, RefreshCw, X, CheckCircle2, AlertTriangle, Loader2, ChevronDown, ChevronRight } from 'lucide-react'
 import { ipc } from '../lib/ipc'
 import type { UpdateStatus } from '../lib/ipc'
 
@@ -7,6 +7,7 @@ export function UpdateBanner({ collapsed = false }: { collapsed?: boolean }) {
   const [status, setStatus] = useState<UpdateStatus | null>(null)
   const [dismissed, setDismissed] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [notesOpen, setNotesOpen] = useState(false)
 
   useEffect(() => {
     const off = ipc.updates.onStatus((s) => {
@@ -78,6 +79,22 @@ export function UpdateBanner({ collapsed = false }: { collapsed?: boolean }) {
         <p className="text-2xs text-text-muted leading-tight">
           Version {status.version} is ready to download.
         </p>
+        {status.notes && (
+          <div>
+            <button
+              onClick={() => setNotesOpen(o => !o)}
+              className="flex items-center gap-1 text-2xs text-text-muted hover:text-text-secondary transition-colors"
+            >
+              {notesOpen ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+              What's new
+            </button>
+            {notesOpen && (
+              <p className="mt-1 text-2xs text-text-muted whitespace-pre-wrap leading-relaxed max-h-40 overflow-y-auto selectable">
+                {status.notes}
+              </p>
+            )}
+          </div>
+        )}
         <button
           onClick={download}
           disabled={busy}
