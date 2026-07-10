@@ -18,7 +18,7 @@ Source: `COWRANGLER_KAPSAMLI_DENETIM_RAPORU_2026-07-10.md`
 - [ ] 1.5 Remove `ai` and `@ai-sdk/*` dependencies after migration.
 - [x] 1.6 Add first-use trust approval for new MCP servers. (Core plumbing in mcp_trust.ts/mcp_client.ts; desktop still needs to wire an `approve` callback through mcp.ipc.ts to a real confirmation dialog — currently auto-trusts when no callback is passed, same as before.)
 - [x] 1.6 Persist MCP server fingerprints and require re-approval when tool lists change.
-- [ ] 1.6 Run prompt-injection scanning on MCP tool descriptions and tool results.
+- [x] 1.6 Run prompt-injection scanning on MCP tool descriptions and tool results.
 
 ## Phase 2: Near-Term Reliability And Quality
 
@@ -61,7 +61,7 @@ Source: `COWRANGLER_KAPSAMLI_DENETIM_RAPORU_2026-07-10.md`
 - [ ] 4.1 Add sandbox backend tests to the CI matrix, including real Linux Bubblewrap coverage.
 - [x] 4.2 Extend prompt-injection scanning to web page content and file read results.
 - [x] 4.2 Add language-broader prompt-injection patterns.
-- [ ] 4.3 Store permission decisions as machine-readable audit records.
+- [x] 4.3 Store permission decisions as machine-readable audit records.
 - [ ] 4.3 Show "why this was requested" explanations in the permission UI.
 - [x] 4.4 Add provider-level circuit breakers after repeated failures.
 - [x] 4.5 Add periodic session DB `VACUUM`, size limits, and archiving.

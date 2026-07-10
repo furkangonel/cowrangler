@@ -48,6 +48,7 @@ import {
   trustServerTools,
   type TrustStatus,
 } from "./mcp_trust.js";
+import { protectUntrustedContent } from "./context_security.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -284,7 +285,10 @@ class MCPServerConnection {
 
       for (const tool of tools) {
         const toolName = `mcp_${this.name}_${tool.name}`;
-        const description = `[MCP:${this.name}] ${tool.description ?? tool.name}`;
+        // Sunucu tanımı bizim kontrolümüzde değil — açıklama içine gömülü bir
+        // prompt-injection denemesi olabilir (bkz. context_security.ts).
+        const rawDescription = tool.description ?? tool.name;
+        const description = `[MCP:${this.name}] ${protectUntrustedContent(rawDescription, `mcp:${this.name} tool "${tool.name}" description`)}`;
 
         // KRİTİK: MCP aracının GERÇEK inputSchema'sını modele ilet. Önceden
         // z.object({}).passthrough() kullanılıyordu — bu, modele aracın hiçbir
@@ -395,7 +399,9 @@ class MCPServerConnection {
       if (!out) out = JSON.stringify(result);
       // Araç hata bayrağını modele görünür kıl — sessizce "başarılı" sanmasın.
       if (result.isError) out = `[tool error] ${out}`;
-      return out;
+      // Sonuç uzak sunucudan geldi — dosya okuma/web sonuçlarıyla aynı şekilde
+      // enjeksiyon kalıplarına karşı taransın.
+      return protectUntrustedContent(out, `mcp:${this.name} tool "${toolName}" result`);
     } catch (err: any) {
       // Credential bilgilerini hata mesajından temizle
       const cleanMsg = this._scrubCredentials(err.message ?? String(err));

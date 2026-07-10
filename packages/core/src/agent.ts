@@ -365,9 +365,25 @@ export class Agent {
               };
 
               const permResult = checkPermission(name, permissionMode, extraInfo, policy);
+              const recordPermDecision = (decision: "allowed" | "denied", source: "auto" | "user", reason?: string) => {
+                try {
+                  getSessionDB().recordPermissionDecision({
+                    sessionId: this.sessionId ?? null,
+                    toolName: name,
+                    riskLevel: permResult.riskLevel,
+                    decision,
+                    source,
+                    reason,
+                    extraInfo,
+                  });
+                } catch {
+                  // Denetim kaydı best-effort — hata araç yürütmesini engellemesin.
+                }
+              };
 
               if (!permResult.allowed && !permResult.requiresApproval) {
                 const blockMsg = `${riskBadge(permResult.riskLevel)} BLOCKED: ${permResult.reason}`;
+                recordPermDecision("denied", "auto", permResult.reason);
                 this._onToolEvent?.({ id, name, phase: "done", durationMs: Date.now() - startedAt, result: blockMsg });
                 return blockMsg;
               }
@@ -406,14 +422,19 @@ export class Agent {
 
                   if (!isOptionSelected(approval, "Allow")) {
                     const blockMsg = `${riskBadge("dangerous")} BLOCKED: User denied permission.`;
+                    recordPermDecision("denied", "user", "User denied permission.");
                     this._onToolEvent?.({ id, name, phase: "done", durationMs: Date.now() - startedAt, result: blockMsg });
                     return blockMsg;
                   }
+
+                  recordPermDecision("allowed", "user");
 
                   if (permissionMode === "plan") {
                     this.approvedPlanActions.add(planKey);
                   }
                 }
+              } else {
+                recordPermDecision("allowed", "auto");
               }
             }
 

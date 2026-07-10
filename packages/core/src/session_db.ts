@@ -224,6 +224,24 @@ export class SessionDB {
         value TEXT NOT NULL
       );
     `);
+
+    // İzin kararlarının makine tarafından okunabilir denetim kaydı.
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS permission_decisions (
+        id          TEXT PRIMARY KEY,
+        session_id  TEXT REFERENCES sessions(id) ON DELETE CASCADE,
+        tool_name   TEXT NOT NULL,
+        risk_level  TEXT NOT NULL,
+        decision    TEXT NOT NULL, -- 'allowed' | 'denied'
+        source      TEXT NOT NULL, -- 'auto' | 'user' | 'bypass'
+        reason      TEXT,
+        extra_info  TEXT,
+        timestamp   INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_permission_decisions_session ON permission_decisions(session_id, timestamp);
+      CREATE INDEX IF NOT EXISTS idx_permission_decisions_tool ON permission_decisions(tool_name);
+    `);
   }
 
   // ── Session CRUD ────────────────────────────────────────────────────────────
@@ -423,6 +441,65 @@ export class SessionDB {
     const last = Number(this._getMeta("last_maintenance_at") ?? 0);
     if (Date.now() - last < minIntervalMs) return null;
     return this.runMaintenance(opts);
+  }
+
+  // ── İzin kararı denetim kayıtları ───────────────────────────────────────────
+
+  recordPermissionDecision(opts: {
+    sessionId: string | null;
+    toolName: string;
+    riskLevel: string;
+    decision: "allowed" | "denied";
+    source: "auto" | "user" | "bypass";
+    reason?: string;
+    extraInfo?: string;
+  }): void {
+    const id = crypto.randomUUID();
+    this.db
+      .prepare(
+        `INSERT INTO permission_decisions
+           (id, session_id, tool_name, risk_level, decision, source, reason, extra_info, timestamp)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        opts.sessionId,
+        opts.toolName,
+        opts.riskLevel,
+        opts.decision,
+        opts.source,
+        opts.reason ?? null,
+        opts.extraInfo ?? null,
+        Date.now(),
+      );
+  }
+
+  listPermissionDecisions(
+    opts: { sessionId?: string; toolName?: string; limit?: number; offset?: number } = {},
+  ): Array<{
+    id: string;
+    session_id: string | null;
+    tool_name: string;
+    risk_level: string;
+    decision: string;
+    source: string;
+    reason: string | null;
+    extra_info: string | null;
+    timestamp: number;
+  }> {
+    let query = `SELECT * FROM permission_decisions WHERE 1=1`;
+    const params: any[] = [];
+    if (opts.sessionId) {
+      query += ` AND session_id = ?`;
+      params.push(opts.sessionId);
+    }
+    if (opts.toolName) {
+      query += ` AND tool_name = ?`;
+      params.push(opts.toolName);
+    }
+    query += ` ORDER BY timestamp DESC LIMIT ? OFFSET ?`;
+    params.push(opts.limit ?? 100, opts.offset ?? 0);
+    return this.db.prepare(query).all(...params) as any;
   }
 
   getLastActiveAt(sessionId: string): number {
