@@ -21,6 +21,7 @@
     "clean": "rm -rf packages/core/dist packages/adapters/*/dist apps/cli/dist apps/desktop/dist apps/desktop/out",
     "typecheck": "tsc --noEmit",
     "lint": "npm run typecheck && node scripts/check-any-budget.mjs",
+    "lint:biome": "biome lint . --max-diagnostics=none",
     "test": "vitest run",
     "test:watch": "vitest",
     "bench": "node scripts/microbench/run.mjs",
@@ -201,6 +202,7 @@
     "zustand": "^4.5.2"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.3",
     "@types/js-yaml": "^4.0.9",
     "@types/marked-terminal": "^6.1.0",
     "@types/node": "^20.11.0",

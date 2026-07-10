@@ -27,7 +27,7 @@ Source: `COWRANGLER_KAPSAMLI_DENETIM_RAPORU_2026-07-10.md`
 - [x] 2.2 Add renderer ErrorBoundary coverage around routes and major panels.
 - [x] 2.2 Add reload fallback UI for renderer crashes.
 - [x] 2.2 Add main-process `uncaughtException` and `unhandledRejection` logging and user-facing dialog behavior.
-- [ ] 2.3 Add Biome or equivalent lint/format tooling to the main repo.
+- [x] 2.3 Add Biome or equivalent lint/format tooling to the main repo. (Linter only, formatter disabled — repo has ~2000 pre-existing diagnostics under Biome's recommended preset, too many/risky to auto-fix or reformat in one pass. Wired as a non-blocking `continue-on-error` CI step so it's visible without breaking builds; tightening/fixing is follow-up work.)
 - [x] 2.3 Add lint CI with zero-warning enforcement.
 - [x] 2.3 Start reducing `any` usage, beginning with `packages/core/src/model`.
 - [x] 2.4 Tighten unsandboxed mode by requiring approval for `moderate` and higher risk commands.
