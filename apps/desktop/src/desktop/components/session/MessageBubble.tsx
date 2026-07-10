@@ -158,7 +158,7 @@ export function MessageBubble({ message, timeline, isLast = false }: Props) {
       );
     }
     return (
-      <div className="flex justify-end animate-fade-in group">
+      <div className="flex justify-end animate-fade-in group" data-testid="user-message">
         <div className="flex flex-col items-end max-w-[80%]">
           <div className="px-4 py-2.5 rounded-2xl rounded-tr-md text-md selectable bg-user-bubble border border-user-bubble-border text-[#F3F1EC] w-full">
             <ClampText

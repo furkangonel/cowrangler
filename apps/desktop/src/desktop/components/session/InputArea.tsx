@@ -333,6 +333,7 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelP
         {/* ── Composer ── */}
         <div
           {...drop.dropBind}
+          data-testid="composer-drop-zone"
           className={`relative flex flex-col bg-bg-elevated border rounded-2xl composer-shadow focus-within:border-accent/45 focus-within:composer-shadow-focus transition-all ${drop.isDragging ? 'border-accent border-dashed' : 'border-border'}`}
         >
           {/* Sürükle-bırak kaplaması */}
@@ -347,7 +348,7 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelP
           {drop.files.length > 0 && (
             <div className="flex flex-wrap gap-1.5 px-3 pt-2.5 pb-1">
               {drop.files.map(f => (
-                <div key={f.relPath} className="flex items-center gap-1 pl-1 pr-2 py-0.5 rounded-md bg-bg-hover border border-border text-text-secondary text-xs font-medium max-w-[220px]">
+                <div key={f.relPath} data-testid="attached-file-chip" className="flex items-center gap-1 pl-1 pr-2 py-0.5 rounded-md bg-bg-hover border border-border text-text-secondary text-xs font-medium max-w-[220px]">
                   {f.previewUrl
                     ? <img src={f.previewUrl} alt={f.name} className="w-5 h-5 rounded object-cover flex-shrink-0" />
                     : <FileText size={10} className="flex-shrink-0 text-text-muted" />}
@@ -430,6 +431,7 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelP
 
             <textarea
               ref={textareaRef}
+              data-testid="chat-input"
               value={value}
               onChange={handleInput}
               onKeyDown={handleKeyDown}
@@ -453,6 +455,7 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelP
               <button
                 onClick={handleSend}
                 disabled={!hasContent}
+                data-testid="chat-send-button"
                 title="Send (Enter)"
                 className="flex items-center justify-center w-9 h-9 rounded-xl text-accent-fg
                            disabled:opacity-25 disabled:cursor-not-allowed transition-all active:scale-95 flex-shrink-0"

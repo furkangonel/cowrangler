@@ -68,3 +68,43 @@ jobs:
       - name: Biome lint (report-only — pre-existing violations not yet triaged)
         run: npm run lint:biome
         continue-on-error: true
+
+  e2e:
+    name: E2E (Playwright + Electron)
+    runs-on: ubuntu-latest
+    # Yeni eklendi — henüz gerçek GitHub Actions ortamında doğrulanmadı
+    # (yalnızca yerelde macOS'ta doğrulandı). Kararlılığı kanıtlanana kadar
+    # rapor amaçlı; bir sonraki adım bunu zorunlu kapıya çevirmek.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: "npm"
+      - run: npm ci
+
+      - name: Rebuild native modules for Electron's ABI
+        run: npm run desktop:rebuild
+
+      - name: Install OS deps for running Electron/Chromium headlessly
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          npx playwright install-deps chromium
+
+      - name: Build desktop app
+        run: npm run desktop:build
+
+      - name: Run Electron E2E tests
+        run: xvfb-run --auto-servernum npx playwright test --config=e2e/playwright.config.ts
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

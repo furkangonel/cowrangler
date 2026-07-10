@@ -31,7 +31,9 @@
     "desktop:preview": "npm run preview -w @cowrangler/desktop",
     "desktop:pack": "npm run desktop:build && electron-builder",
     "desktop:rebuild": "electron-rebuild -f -w better-sqlite3,node-pty && chmod +x node_modules/node-pty/build/Release/spawn-helper 2>/dev/null || true && chmod +x node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true",
-    "desktop:release": "bash scripts/release-desktop.sh"
+    "desktop:release": "bash scripts/release-desktop.sh",
+    "pretest:e2e": "npm run desktop:build",
+    "test:e2e": "playwright test --config=e2e/playwright.config.ts"
   },
   "build": {
     "appId": "co.cowrangler.desktop",
@@ -203,6 +205,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.3",
+    "@playwright/test": "^1.61.1",
     "@types/js-yaml": "^4.0.9",
     "@types/marked-terminal": "^6.1.0",
     "@types/node": "^20.11.0",

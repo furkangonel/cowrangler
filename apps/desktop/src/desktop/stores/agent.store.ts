@@ -488,12 +488,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     cleanups.push(unsubInterrupted)
 
     const unsubError = ipc.agent.onError((err: string) => {
-      const id = assistantMsgId
-      if (id) {
-        get().timelineCloseRunning(id)
-        get().timelinePushText(id, `${accText ? '\n\n' : ''}❌ Error: ${err}`)
-        callbacks.onFinalize(id, `${accText ? accText + '\n\n' : ''}❌ Error: ${err}`)
-      }
+      // Bazı hatalar (ör. model başlatma hatası) akış hiç başlamadan oluşur —
+      // bu durumda assistantMsgId henüz yoktur. `ensure()` ile bir balon
+      // oluşturmazsak hata sessizce yutulur ve kullanıcı hiçbir şey görmez.
+      const id = ensure()
+      get().timelineCloseRunning(id)
+      get().timelinePushText(id, `${accText ? '\n\n' : ''}❌ Error: ${err}`)
+      callbacks.onFinalize(id, `${accText ? accText + '\n\n' : ''}❌ Error: ${err}`)
       set({ status: 'error', lastError: err, streamingText: '', streamingMessageId: null })
       assistantMsgId = null
       accText = ''

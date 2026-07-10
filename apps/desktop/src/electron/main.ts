@@ -77,7 +77,7 @@ function createWindow(): void {
     vibrancy: undefined,
     show: false,
     webPreferences: {
-      preload: path.join(__dirname, '../preload/index.mjs'),
+      preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
       // preload.ts yalnızca 'electron' modülünü kullanır (contextBridge/
@@ -119,7 +119,7 @@ function createWindow(): void {
         backgroundColor: '#0f0f0f',
         show: false,
         webPreferences: {
-          preload: path.join(__dirname, '../preload/index.mjs'),
+          preload: path.join(__dirname, '../preload/index.js'),
           contextIsolation: true,
           nodeIntegration: false,
           sandbox: true,
@@ -157,7 +157,11 @@ function createWindow(): void {
     mainWindow = null
   })
 
-  if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
+  // E2E (Playwright), unpackaged bir dev-server olmadan çalışır — her zaman
+  // derlenmiş statik renderer'ı yükle, localhost:5173'e bağımlı olma.
+  if (process.env.COWRANGLER_E2E === '1') {
+    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
+  } else if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
     const devPort = process.env.VITE_DEV_SERVER_URL
     if (devPort) {
       mainWindow.loadURL(devPort)

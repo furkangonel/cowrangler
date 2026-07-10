@@ -38,6 +38,10 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: { index: 'src/electron/preload.ts' },
+        // CommonJS'e sabitlenmiş çıktı — Electron'un sandbox'lı preload
+        // yükleyicisi ESM `import` sözdizimini desteklemiyor (sandbox: true
+        // ile "Cannot use import statement outside a module" hatası verir).
+        output: { format: 'cjs', entryFileNames: '[name].js' },
       },
     },
   },

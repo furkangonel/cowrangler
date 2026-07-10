@@ -361,6 +361,7 @@ function InlineNewTask({ projectId, projectName, projectIcon }: { projectId: str
       {/* Composer card */}
       <div
         {...drop.dropBind}
+        data-testid="composer-drop-zone"
         className={`relative bg-bg-secondary border rounded-3xl focus-within:border-accent/40 transition-colors mb-2 ${drop.isDragging ? 'border-accent border-dashed' : 'border-border-subtle'}`}
       >
         {drop.isDragging && (
@@ -373,7 +374,7 @@ function InlineNewTask({ projectId, projectName, projectIcon }: { projectId: str
         {drop.files.length > 0 && (
           <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">
             {drop.files.map(f => (
-              <div key={f.relPath} className="flex items-center gap-1 pl-1 pr-2 py-0.5 rounded-md bg-bg-hover border border-border-subtle text-2xs text-text-secondary">
+              <div key={f.relPath} data-testid="attached-file-chip" className="flex items-center gap-1 pl-1 pr-2 py-0.5 rounded-md bg-bg-hover border border-border-subtle text-2xs text-text-secondary">
                 {f.previewUrl
                   ? <img src={f.previewUrl} alt={f.name} className="w-5 h-5 rounded object-cover flex-shrink-0" />
                   : <FileText size={10} className="flex-shrink-0 text-text-muted" />}
@@ -408,6 +409,7 @@ function InlineNewTask({ projectId, projectName, projectIcon }: { projectId: str
         )}
         <textarea
           ref={textareaRef}
+          data-testid="chat-input"
           value={message}
           onChange={handleInput}
           onKeyDown={handleKeyDown}
@@ -499,6 +501,7 @@ function InlineNewTask({ projectId, projectName, projectIcon }: { projectId: str
           <button
             onClick={handleStart}
             disabled={!hasContent}
+            data-testid="chat-send-button"
             className="flex items-center gap-1.5 px-3 py-1.5 bg-accent text-accent-fg text-xs font-medium rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:hover:bg-accent"
           >
             <Play size={12} className="fill-current" />

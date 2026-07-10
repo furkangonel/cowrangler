@@ -22,9 +22,9 @@ function mdDoc(html: string): string {
   return `<!doctype html><meta charset="utf-8"><style>body{font-family:Georgia,'Times New Roman',serif;max-width:760px;margin:40px auto;padding:0 28px;line-height:1.7;color:#1a1a1a}h1,h2,h3{line-height:1.3}pre{background:#f4f4f4;padding:12px 14px;border-radius:8px;overflow:auto;font-size:13px}code{font-family:ui-monospace,SFMono-Regular,monospace}img{max-width:100%}a{color:#9a4b2e}table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:6px 10px}</style>${html}`
 }
 
-function DlRow({ label, onClick }: { label: string; onClick: () => void }) {
+function DlRow({ label, onClick, testId }: { label: string; onClick: () => void; testId?: string }) {
   return (
-    <button onClick={onClick} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary hover:bg-bg-hover text-left transition-colors">
+    <button onClick={onClick} data-testid={testId} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary hover:bg-bg-hover text-left transition-colors">
       <Download size={12} className="text-text-muted" />{label}
     </button>
   )
@@ -105,7 +105,7 @@ export function FilePreviewModal() {
                   {isHtml && <DlRow label="Export as PDF" onClick={() => { ipc.exporter.toPdf({ srcPath: previewFile }); setDlOpen(false) }} />}
                   {isHtml && <DlRow label="Export as PNG" onClick={() => { ipc.exporter.toImage({ srcPath: previewFile }); setDlOpen(false) }} />}
                   {isMd && <DlRow label="Export as PDF" onClick={() => { ipc.exporter.toPdf({ html: mdDoc(htmlContent), name: getFileName(previewFile).replace(/\.[^.]+$/, '') }); setDlOpen(false) }} />}
-                  <DlRow label={`Save a copy (${ext || 'file'})`} onClick={() => { ipc.exporter.saveCopy({ srcPath: previewFile }); setDlOpen(false) }} />
+                  <DlRow testId="export-save-copy" label={`Save a copy (${ext || 'file'})`} onClick={() => { ipc.exporter.saveCopy({ srcPath: previewFile }); setDlOpen(false) }} />
                 </div>
               </>
             )}
