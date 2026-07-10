@@ -20,6 +20,7 @@ import { fromCoreMessages, toCoreMessages } from "./coremsg.js";
 import { runAgentLoop } from "./loop.js";
 import type { ToolInvocation, ToolOutcome } from "./loop.js";
 import type { ChatModel, ThinkingConfig } from "./types.js";
+import { isCircuitOpen, circuitOpenUntil, recordFailure, recordSuccess } from "./circuit_breaker.js";
 
 export interface NativeTurnOptions {
   modelId: string;
@@ -78,6 +79,12 @@ export async function runNativeAgentTurn(opts: NativeTurnOptions): Promise<Nativ
   let model = opts.model;
   if (!model) {
     if (!opts.providerId) throw new Error("runNativeAgentTurn: providerId veya model gerekli");
+    if (isCircuitOpen(opts.providerId)) {
+      const retryInMs = circuitOpenUntil(opts.providerId) - Date.now();
+      throw new Error(
+        `circuit breaker open for provider "${opts.providerId}" (ardışık hatalar sonrası) — ${Math.max(retryInMs, 0)}ms sonra tekrar denenecek`,
+      );
+    }
     const buildModel = (): ChatModel => {
       const ep = resolveEndpoint(opts.modelId, opts.providerId!, opts.env ?? process.env, opts.customProviders ?? {});
       return makeNativeModel(ep, opts.modelId);
@@ -136,6 +143,11 @@ export async function runNativeAgentTurn(opts: NativeTurnOptions): Promise<Nativ
       },
     },
   });
+
+  if (!opts.model && opts.providerId) {
+    if (res.finishReason === "error") recordFailure(opts.providerId);
+    else if (res.finishReason === "stop" || res.finishReason === "max_steps") recordSuccess(opts.providerId);
+  }
 
   // Yalnızca bu turda ÜRETİLEN mesajlar (girdi geçmişini çıkar).
   const produced = res.messages.slice(history.length);
