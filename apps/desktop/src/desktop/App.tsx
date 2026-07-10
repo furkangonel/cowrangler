@@ -4,6 +4,7 @@ import { SettingsPage } from './components/settings/SettingsPage'
 import { DirectoryPage } from './components/extensions/DirectoryPage'
 import { NewTaskModal } from './components/project/NewTaskModal'
 import { FilePreviewModal } from './components/shared/FilePreviewModal'
+import { ErrorBoundary } from './components/shared/ErrorBoundary'
 import { DesignApp } from './components/design/DesignApp'
 import { useProjectsStore } from './stores/projects.store'
 import { useSettingsStore } from './stores/settings.store'
@@ -25,16 +26,32 @@ export default function App() {
   }, [])
 
   if (isDesignWindow) {
-    return <DesignApp />
+    return (
+      <ErrorBoundary label="Design">
+        <DesignApp />
+      </ErrorBoundary>
+    )
   }
 
   return (
     <>
-      <AppShell />
-      {settingsPage !== null && <SettingsPage />}
-      <DirectoryPage />
-      <NewTaskModal />
-      <FilePreviewModal />
+      <ErrorBoundary label="Workspace">
+        <AppShell />
+      </ErrorBoundary>
+      {settingsPage !== null && (
+        <ErrorBoundary label="Settings">
+          <SettingsPage />
+        </ErrorBoundary>
+      )}
+      <ErrorBoundary label="Directory">
+        <DirectoryPage />
+      </ErrorBoundary>
+      <ErrorBoundary label="New task modal">
+        <NewTaskModal />
+      </ErrorBoundary>
+      <ErrorBoundary label="File preview">
+        <FilePreviewModal />
+      </ErrorBoundary>
     </>
   )
 }

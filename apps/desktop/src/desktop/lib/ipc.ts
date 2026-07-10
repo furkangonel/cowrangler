@@ -489,7 +489,6 @@ interface ElectronAPI {
     onDone: (cb: (result: AgentDoneResult) => void) => () => void
     onError: (cb: (err: string) => void) => () => void
     onInterrupted: (cb: () => void) => () => void
-    onApprovalRequest: (cb: (data: any) => void) => () => void
     syncActivePorts: (ports: number[]) => void
   }
   projects: {
@@ -498,6 +497,7 @@ interface ElectronAPI {
     update: (id: string, data: any) => Promise<ProjectRecord>
     delete: (id: string) => Promise<{ ok: boolean }>
     get: (id: string) => Promise<ProjectRecord | null>
+    ensureWorkdir: (id: string) => Promise<ProjectRecord | null>
     addFolder: (id: string, folderPath: string) => Promise<ProjectFolder>
     removeFolder: (id: string, folderPath: string) => Promise<{ ok: boolean }>
     getFolders: (id: string) => Promise<ProjectFolder[]>
@@ -595,7 +595,9 @@ interface ElectronAPI {
   exporter: {
     saveCopy: (payload: { srcPath: string }) => Promise<{ ok: boolean; path?: string; error?: string }>
     toPdf: (payload: { srcPath?: string; html?: string; name?: string; landscape?: boolean; document?: boolean }) => Promise<{ ok: boolean; path?: string; count?: number; error?: string }>
-    toImage: (payload: { srcPath?: string; html?: string; name?: string; width?: number; height?: number }) => Promise<{ ok: boolean; path?: string; error?: string }>
+    toImage: (payload: { srcPath?: string; html?: string; name?: string; width?: number; height?: number; format?: 'png' | 'jpeg'; scale?: number; quality?: number }) => Promise<{ ok: boolean; path?: string; error?: string }>
+    copyImage: (payload: { srcPath?: string; html?: string; width?: number; height?: number }) => Promise<{ ok: boolean; error?: string }>
+    toPdfAdvanced: (payload: { files: string[]; name?: string; pageSize?: 'fit' | 'a4' | 'letter'; landscape?: boolean; marginIn?: number; scale?: number; fitW?: number; fitH?: number }) => Promise<{ ok: boolean; path?: string; count?: number; error?: string }>
     fileToPptx: (payload: { srcPath: string; name?: string; width?: number; height?: number }) => Promise<{ ok: boolean; path?: string; count?: number; error?: string }>
     deckToPdf: (payload: { files: string[]; name?: string; slideW?: number; slideH?: number; document?: boolean }) => Promise<{ ok: boolean; path?: string; count?: number; error?: string }>
     deckToPptx: (payload: { files: string[]; name?: string; slideW?: number; slideH?: number }) => Promise<{ ok: boolean; path?: string; count?: number; error?: string }>
@@ -638,7 +640,9 @@ interface ElectronAPI {
   fs: {
     pickFolder: () => Promise<string | null>
     pickFile: () => Promise<string | null>
+    pathForFile: (file: File) => string
     addFiles: (payload: { projectId: string; paths: string[] }) => Promise<{ ok: boolean; error?: string; files: { name: string; relPath: string }[] }>
+    addFileBytes: (payload: { projectId: string; files: { name: string; dataBase64: string }[] }) => Promise<{ ok: boolean; error?: string; files: { name: string; relPath: string }[] }>
     fileTree: (dirPath: string, depth?: number) => Promise<FileNode[]>
     readFile: (filePath: string) => Promise<{ content?: string; error?: string }>
     writeFile: (filePath: string, content: string) => Promise<{ ok: boolean; error?: string }>

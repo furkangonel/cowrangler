@@ -153,6 +153,19 @@ The build uses `tsc` only — no bundler. ESM native output.
 
 ---
 
+## Localization Scope
+
+Cowrangler does not currently provide full UI string localization. The
+`language` configuration and locale helpers are limited to core messages,
+timestamps, number formatting, and model-facing text where those helpers are
+explicitly used.
+
+When adding new CLI or Desktop UI text, write clear English strings inline
+unless the surrounding module already uses a localization helper. Do not assume
+new visible strings are automatically translated across the app.
+
+---
+
 ## Pull Request Process
 
 1. Fork the repo and create a feature branch: `git checkout -b feature/my-feature`

@@ -2,16 +2,19 @@ import { describe, it, expect } from "vitest";
 import { runAgentLoop } from "@cowrangler/core/model/native/loop.js";
 import type { ChatModel, ChatRequest, StreamEvent, Message } from "@cowrangler/core/model/native/types.js";
 
+type Script = StreamEvent[] | Error;
+
 /** Scripted fake model: her streamChat çağrısında sıradaki olay dizisini akıtır. */
 class FakeModel implements ChatModel {
   readonly providerId = "fake";
   readonly wire = "fake";
   readonly modelId = "fake-1";
   calls: ChatRequest[] = [];
-  constructor(private scripts: StreamEvent[][]) {}
+  constructor(private scripts: Script[]) {}
   async *streamChat(req: ChatRequest): AsyncIterable<StreamEvent> {
     this.calls.push(req);
     const script = this.scripts.shift() ?? [{ type: "finish", reason: "stop" }];
+    if (script instanceof Error) throw script;
     for (const ev of script) yield ev;
   }
 }
@@ -117,8 +120,72 @@ describe("runAgentLoop", () => {
     const res = await runAgentLoop({
       model,
       messages: [{ role: "user", content: "x" }],
+      maxRetries: 0,
       executeTool: async () => ({ result: "" }),
     });
     expect(res.finishReason).toBe("error");
+  });
+
+  it("retryable model hatasını aynı step içinde backoff ile tekrar dener", async () => {
+    const firstError = new Error("rate limit");
+    (firstError as any).statusCode = 429;
+    const model = new FakeModel([
+      firstError,
+      [
+        { type: "text_delta", text: "tamam" },
+        { type: "finish", reason: "stop", usage: { inputTokens: 2, outputTokens: 3 } },
+      ],
+    ]);
+    const retries: Array<{ attempt: number; delayMs: number; message: string }> = [];
+
+    const res = await runAgentLoop({
+      model,
+      messages: [{ role: "user", content: "x" }],
+      maxRetries: 1,
+      baseBackoffMs: 0,
+      executeTool: async () => ({ result: "" }),
+      handlers: {
+        onRetry: (err, attempt, delayMs) => retries.push({ attempt, delayMs, message: err.message }),
+      },
+    });
+
+    expect(res.finishReason).toBe("stop");
+    expect(res.steps).toBe(1);
+    expect(model.calls.length).toBe(2);
+    expect(retries).toEqual([{ attempt: 1, delayMs: 0, message: "rate limit" }]);
+    expect(res.usage.inputTokens).toBe(2);
+    expect(res.usage.outputTokens).toBe(3);
+    expect(res.messages).toEqual([
+      { role: "user", content: "x" },
+      { role: "assistant", content: [{ type: "text", text: "tamam" }] },
+    ]);
+  });
+
+  it("başarısız denemedeki partial assistant mesajını history'ye yazmaz", async () => {
+    const stalled = new Error("stream stalled");
+    const model = new FakeModel([
+      [
+        { type: "text_delta", text: "yarım" },
+        { type: "error", error: stalled },
+      ],
+      [
+        { type: "text_delta", text: "tam cevap" },
+        { type: "finish", reason: "stop" },
+      ],
+    ]);
+
+    const res = await runAgentLoop({
+      model,
+      messages: [{ role: "user", content: "x" }],
+      maxRetries: 1,
+      baseBackoffMs: 0,
+      executeTool: async () => ({ result: "" }),
+    });
+
+    expect(res.finishReason).toBe("stop");
+    expect(res.messages).toEqual([
+      { role: "user", content: "x" },
+      { role: "assistant", content: [{ type: "text", text: "tam cevap" }] },
+    ]);
   });
 });

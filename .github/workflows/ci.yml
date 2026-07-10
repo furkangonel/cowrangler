@@ -28,11 +28,25 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install bubblewrap (real Linux sandbox backend coverage)
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+
+      - name: Allow unprivileged user namespaces (needed by bwrap on Ubuntu 23.10+)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
+      - name: Production dependency audit
+        run: npm audit --omit=dev --audit-level=high
+
       - name: TypeScript build
         run: npm run build
 
       - name: Run tests
+        if: matrix.node-version != '20.x'
         run: npm test
+
+      - name: Run tests with coverage gate
+        if: matrix.node-version == '20.x'
+        run: npm run test:coverage
 
       - name: Upload coverage
         if: matrix.node-version == '20.x'
@@ -42,7 +56,13 @@ jobs:
           path: coverage/
           retention-days: 7
 
-  lint:
+  # Branch protection'da hâlâ "Type Check" adıyla zorunlu tutulan eski kontrolü
+  # karşılar — bu job "Lint" olarak yeniden adlandırıldığında (bkz. git tarihi)
+  # o zorunlu kontrol adı hiçbir job tarafından üretilmez olmuş ve PR'lar
+  # sonsuza dek "Expected — Waiting for status to be reported" durumunda
+  # takılı kalmıştı. "Lint" job'ına dokunmadan, sadece adı eşleştiren minimal
+  # bir job eklemek en güvenli düzeltme.
+  typecheck:
     name: Type Check
     runs-on: ubuntu-latest
     steps:
@@ -52,5 +72,60 @@ jobs:
           node-version: "20.x"
           cache: "npm"
       - run: npm ci
-      - name: TypeScript type check (no emit)
-        run: npx tsc --noEmit
+      - run: npm run typecheck
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: "npm"
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Biome lint (report-only — pre-existing violations not yet triaged)
+        run: npm run lint:biome
+        continue-on-error: true
+
+  e2e:
+    name: E2E (Playwright + Electron)
+    runs-on: ubuntu-latest
+    # Yeni eklendi — henüz gerçek GitHub Actions ortamında doğrulanmadı
+    # (yalnızca yerelde macOS'ta doğrulandı). Kararlılığı kanıtlanana kadar
+    # rapor amaçlı; bir sonraki adım bunu zorunlu kapıya çevirmek.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: "npm"
+      - run: npm ci
+
+      - name: Rebuild native modules for Electron's ABI
+        run: npm run desktop:rebuild
+
+      - name: Install OS deps for running Electron/Chromium headlessly
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+          npx playwright install-deps chromium
+
+      - name: Build desktop app
+        run: npm run desktop:build
+
+      - name: Run Electron E2E tests
+        run: xvfb-run --auto-servernum npx playwright test --config=e2e/playwright.config.ts
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

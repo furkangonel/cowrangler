@@ -2,6 +2,7 @@ import { IpcMain, dialog } from 'electron'
 import fs from 'fs'
 import path from 'path'
 import { getProjectDB, CreateProjectInput } from '../project_db.js'
+import { ensureProjectWorkdir } from './managed_workspace.js'
 
 export function registerProjectsIPC(ipcMain: IpcMain): void {
   const db = getProjectDB()
@@ -11,7 +12,18 @@ export function registerProjectsIPC(ipcMain: IpcMain): void {
   ipcMain.handle('projects:get', async (_, id: string) => db.get(id))
 
   ipcMain.handle('projects:create', async (_, input: CreateProjectInput) => {
-    return db.create(input)
+    const project = db.create(input)
+    // workdir verilmediyse managed klasör oluştur (<root>/Cowrangler/<ad>/).
+    if (!project.workdir) {
+      try { ensureProjectWorkdir(project.id) } catch { /* best-effort */ }
+    }
+    return db.get(project.id) ?? project
+  })
+
+  // Var olan (workdir'siz) projelere açılışta managed klasör ata.
+  ipcMain.handle('projects:ensureWorkdir', async (_, id: string) => {
+    try { ensureProjectWorkdir(id) } catch { /* best-effort */ }
+    return db.get(id)
   })
 
   ipcMain.handle('projects:update', async (_, id: string, data: any) => {

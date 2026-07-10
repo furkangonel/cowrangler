@@ -1,7 +1,16 @@
 import { fetchModelsDev, ModelDevMeta } from "./models_dev.js";
-import { discoverAll, discover } from "./discover.js";
+import { discoverAll, discover, type CustomProviderConfig } from "./discover.js";
 import { PROVIDERS } from "./driver.js";
 import { getConfig } from "../init.js";
+import { getLogger } from "../logger.js";
+
+export const MODEL_CATALOG_PRECEDENCE = [
+  "discovery-availability",
+  "models.dev-metadata",
+  "synthesized-defaults",
+] as const;
+
+export type ModelMetadataSource = "models.dev" | "synthesized";
 
 export interface ModelInfo {
   id: string; // the fully qualified id, e.g. "openai/gpt-4o" or just "gpt-4o" if we prefer. 
@@ -19,12 +28,23 @@ export interface ModelInfo {
   supportsVision: boolean;
   supportsCaching: boolean;
   nativeToolCalling: boolean;
+  metadataSource: ModelMetadataSource;
 }
 
-function getCustomProviders() {
+function isCustomProviderMap(value: unknown): value is Record<string, CustomProviderConfig> {
+  if (!value || typeof value !== "object") return false;
+  return Object.values(value).every((entry) => {
+    if (!entry || typeof entry !== "object") return false;
+    const provider = entry as Partial<CustomProviderConfig>;
+    return typeof provider.base_url === "string";
+  });
+}
+
+function getCustomProviders(): Record<string, CustomProviderConfig> {
   try {
-    const cp = (getConfig() as any)?.custom_providers;
-    return cp && typeof cp === "object" ? cp : {};
+    const config = getConfig() as { custom_providers?: unknown };
+    const cp = config.custom_providers;
+    return isCustomProviderMap(cp) ? cp : {};
   } catch {
     return {};
   }
@@ -57,6 +77,7 @@ function synthesizeDefaultMeta(bareId: string, provider: string): ModelInfo {
     supportsVision: isVision,
     supportsCaching: false,
     nativeToolCalling: !isLocal, // Local usually doesn't have reliable tools
+    metadataSource: "synthesized",
   };
 }
 
@@ -80,6 +101,8 @@ export async function buildCatalog(env: NodeJS.ProcessEnv = process.env, forceRe
   }
 
   const result: ModelInfo[] = [];
+  let modelsDevMetadataCount = 0;
+  let synthesizedMetadataCount = 0;
 
   for (const [provider, modelIds] of Object.entries(discoveredMap)) {
     for (const bareId of modelIds) {
@@ -89,6 +112,7 @@ export async function buildCatalog(env: NodeJS.ProcessEnv = process.env, forceRe
       const devMeta = devMetaMap.get(cleanId) || devMetaMap.get(bareId);
 
       if (devMeta) {
+        modelsDevMetadataCount += 1;
         // We found metadata!
         const inputPrice = parseFloat(String(devMeta.pricing?.prompt || "0")) * 1_000_000;
         const outputPrice = parseFloat(String(devMeta.pricing?.completion || "0")) * 1_000_000;
@@ -111,10 +135,12 @@ export async function buildCatalog(env: NodeJS.ProcessEnv = process.env, forceRe
           supportsThinking,
           supportsVision,
           supportsCaching: false, // We can't reliably know caching from standard models.dev schema yet
-          nativeToolCalling
+          nativeToolCalling,
+          metadataSource: "models.dev",
         });
       } else {
         // Discovered but no metadata -> synthesize
+        synthesizedMetadataCount += 1;
         result.push(synthesizeDefaultMeta(cleanId, provider));
       }
     }
@@ -125,6 +151,14 @@ export async function buildCatalog(env: NodeJS.ProcessEnv = process.env, forceRe
 
   // Hardcode some known antigravity specials if needed, but the plan says everything data-driven.
   // We'll trust discovery.
+
+  getLogger().debug("agent", "Built model catalog", {
+    precedence: MODEL_CATALOG_PRECEDENCE.join(" > "),
+    discoveredProviders: Object.keys(discoveredMap).length,
+    discoveredModels: result.length,
+    modelsDevMetadata: modelsDevMetadataCount,
+    synthesizedMetadata: synthesizedMetadataCount,
+  });
 
   catalogCache = result;
   catalogCacheTime = Date.now();

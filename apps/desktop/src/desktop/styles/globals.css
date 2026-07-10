@@ -32,8 +32,8 @@
   --accent-press: 190 55 10;    /* #BE370A */
   --accent-fg:    255 255 255;
 
-  --user-bubble-bg:     242 240 237; /* #F2F0ED */
-  --user-bubble-border: 228 226 222; /* #E4E2DE */
+  --user-bubble-bg:     33 29 24;   /* #211D18 koyu sıcak balon (design görseli) */
+  --user-bubble-border: 33 29 24;   /* kenarlıksız görünüm */
 
   --success: 40 118 82;   /* #287652 */
   --warning: 168 114 22;  /* #A87216 */
@@ -45,12 +45,12 @@
 }
 
 [data-theme='dark'] {
-  /* Yüzeyler */
-  --bg-primary:   31 31 30;    /* #1F1F1E ana tuval */
-  --bg-secondary: 38 38 37;    /* #262625 sidebar / panel */
-  --bg-tertiary:  46 46 44;    /* #2E2E2C input / kod */
-  --bg-hover:     54 54 52;    /* #363634 hover */
-  --bg-elevated:  42 42 41;    /* #2A2A29 modal / popover */
+  /* Yüzeyler — daha derin taban, soluk/sütlü görünümü kaldırır */
+  --bg-primary:   22 22 21;    /* #161615 ana tuval */
+  --bg-secondary: 29 29 28;    /* #1D1D1C sidebar / panel */
+  --bg-tertiary:  37 37 35;    /* #252523 input / kod */
+  --bg-hover:     47 47 45;    /* #2F2F2D hover */
+  --bg-elevated:  33 33 32;    /* #212120 modal / popover */
 
   --border:        61 61 59;   /* #3D3D3B */
   --border-subtle: 46 46 44;   /* #2E2E2C */
@@ -67,8 +67,8 @@
   --accent-press: 195 85 45;   /* #C3552D */
   --accent-fg:    255 255 255;
 
-  --user-bubble-bg:     42 42 41;  /* #2A2A29 */
-  --user-bubble-border: 61 61 59;  /* #3D3D3B */
+  --user-bubble-bg:     18 18 18;  /* #121212 koyu tema balon */
+  --user-bubble-border: 30 30 30;  /* #1E1E1E hafif kenar */
 
   --success: 88 186 134;  /* #58BA86 */
   --warning: 220 165 55;  /* #DCA537 */
@@ -275,6 +275,12 @@ textarea:focus, input:focus { outline: none; }
 @keyframes pulse     { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 @keyframes blink     { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
 @keyframes shimmer   { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+/* Uzun süre sabit dur, sonra kısa bir süzülme yapıp aynı yere dön. */
+@keyframes shimmerIdle {
+  0%, 74%  { background-position: 50% 0; }
+  87%      { background-position: 120% 0; }
+  100%     { background-position: 50% 0; }
+}
 @keyframes popIn     { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: scale(1); } }
 
 .animate-fade-in    { animation: fadeIn 0.16s ease-out; }
@@ -330,9 +336,11 @@ textarea:focus, input:focus { outline: none; }
     rgb(var(--accent))     45%,
     rgb(var(--text-muted)) 90%);
   background-size: 200% 100%;
+  background-position: 50% 0;         /* durağan: accent ortada, sabit gradient */
   color: rgb(var(--accent-fg));
   box-shadow: 0 2px 8px rgb(var(--accent) / 0.28);
-  animation: shimmer 2s linear infinite;
+  /* Çoğunlukla sabit; ~7s'de bir kısa süzülme geçişi yapar. */
+  animation: shimmerIdle 7s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

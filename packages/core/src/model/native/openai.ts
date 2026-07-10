@@ -67,6 +67,23 @@ export function toOpenAIBody(req: ChatRequest): Record<string, unknown> {
     }
 
     // system (mesaj içi) / user
+    if (typeof m.content !== "string" && m.role === "user") {
+      const parts = normalizeParts(m.content);
+      const hasImage = parts.some((p) => p.type === "image");
+      if (hasImage) {
+        // Vision: metin + görselleri OpenAI çok-parçalı content dizisine map et.
+        const content = parts
+          .map((p) => {
+            if (p.type === "image")
+              return { type: "image_url", image_url: { url: `data:${p.mimeType};base64,${p.data}` } };
+            if ("text" in p && p.text) return { type: "text", text: p.text };
+            return null;
+          })
+          .filter(Boolean);
+        messages.push({ role: m.role, content });
+        continue;
+      }
+    }
     messages.push({
       role: m.role,
       content: typeof m.content === "string" ? m.content : partsToText(normalizeParts(m.content)),

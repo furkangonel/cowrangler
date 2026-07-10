@@ -17,6 +17,7 @@ import "./web_tools.js";
 import "./skill_tools.js";
 import "./dev_tools.js";
 import "./repomap_tool.js";
+import "./semantic_search.js";
 import "./media_tools.js";
 import "./brief_tool.js";
 import "./computer_use.js";

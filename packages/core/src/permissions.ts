@@ -337,6 +337,7 @@ export interface PermissionPolicy {
   allow?: string[];
   deny?: string[];
   alwaysAskDestructive?: boolean;
+  sandboxLowTrust?: boolean;
 }
 
 export function checkPermission(
@@ -374,6 +375,12 @@ export function checkPermission(
   const externalEffect = isExternalEffect(toolName, extraInfo);
   // Katman 2: readonly dışı her şey izole çalışır.
   const useSandbox = actionClass !== "readonly";
+  const sandboxConfig = config.sandbox ?? {};
+  const sandboxLowTrust = policy?.sandboxLowTrust ?? (
+    sandboxConfig.enabled === false ||
+    sandboxConfig.provider === "fallback" ||
+    sandboxConfig.allowUnsandboxed === true
+  );
 
   // 1. Deny list check first
   if (toolName === "execute_bash" && extraInfo && matchesPattern(extraInfo, denyPatterns)) {
@@ -413,7 +420,7 @@ export function checkPermission(
   // 3. Allow list check - only for non-critical, reversible/readonly actions
   const isNonCriticalReversible = actionClass !== "irreversible" && !externalEffect;
   if (toolName === "execute_bash" && extraInfo && matchesPattern(extraInfo, allowPatterns)) {
-    if (isNonCriticalReversible) {
+    if (isNonCriticalReversible && !(sandboxLowTrust && riskLevel !== "safe")) {
       return {
         allowed: true,
         reason: `Allowed by allow pattern: "${extraInfo}" matches allowlist.`,
@@ -424,6 +431,19 @@ export function checkPermission(
         useSandbox,
       };
     }
+  }
+
+  if (sandboxLowTrust && riskLevel !== "safe") {
+    return {
+      allowed: false,
+      requiresApproval: true,
+      reason: `[LOW-TRUST SANDBOX] ${toolName} is ${riskLevel} risk and requires approval because sandbox isolation is disabled or unavailable.`,
+      mode,
+      riskLevel,
+      actionClass,
+      externalEffect,
+      useSandbox: false,
+    };
   }
 
   // ── WP-7 Auto mode — üç katman ──────────────────────────────────────────

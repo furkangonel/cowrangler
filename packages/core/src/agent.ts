@@ -27,7 +27,7 @@ import { getSessionDB } from "./session_db.js";
 import { modelSupportsThinking, estimateCost } from "./model_metadata.js";
 import { getLogger } from "./logger.js";
 import { rotateCredentialPoolKey } from "./credential_pool.js";
-import { TrajectoryRecorder } from "./trajectory.js";
+import { TrajectoryRecorder, TRAJECTORY_RESULT_MAX_CHARS } from "./trajectory.js";
 import { cancelPendingAskUser } from "./tools/ask_user.js";
 
 /** Extended thinking destekleyen modeller için hızlı kontrol */
@@ -127,6 +127,13 @@ export class Agent {
 
   /** Trajectory recorder — null ise kayıt yapılmaz */
   public trajectoryRecorder: TrajectoryRecorder | null = null;
+  /**
+   * Bu turda tamamlanan araç çağrılarının sonuçları — execute sarmalayıcısı
+   * (getTools) tarafından toolCallId'ye göre doldurulur, recordTurn'den önce
+   * roundToolCalls'a eşlenip temizlenir. Sadece trajectoryRecorder aktifken
+   * anlamlıdır (opt-in kayıt — kullanıcı /trajectory start ile açar).
+   */
+  private _pendingToolResults = new Map<string, { result: unknown; isError: boolean }>();
 
   public approvedPlanActions = new Set<string>();
 
@@ -365,10 +372,27 @@ export class Agent {
               };
 
               const permResult = checkPermission(name, permissionMode, extraInfo, policy);
+              const recordPermDecision = (decision: "allowed" | "denied", source: "auto" | "user", reason?: string) => {
+                try {
+                  getSessionDB().recordPermissionDecision({
+                    sessionId: this.sessionId ?? null,
+                    toolName: name,
+                    riskLevel: permResult.riskLevel,
+                    decision,
+                    source,
+                    reason,
+                    extraInfo,
+                  });
+                } catch {
+                  // Denetim kaydı best-effort — hata araç yürütmesini engellemesin.
+                }
+              };
 
               if (!permResult.allowed && !permResult.requiresApproval) {
                 const blockMsg = `${riskBadge(permResult.riskLevel)} BLOCKED: ${permResult.reason}`;
+                recordPermDecision("denied", "auto", permResult.reason);
                 this._onToolEvent?.({ id, name, phase: "done", durationMs: Date.now() - startedAt, result: blockMsg });
+                if (this.trajectoryRecorder) this._pendingToolResults.set(id, { result: blockMsg, isError: true });
                 return blockMsg;
               }
 
@@ -378,9 +402,13 @@ export class Agent {
                   // Already approved in this plan context, proceed
                 } else {
                   const { executeAskUser } = await import("./tools/ask_user.js");
-                  const questionText = name === "execute_bash"
+                  const baseQuestion = name === "execute_bash"
                     ? `Do you want to run this command: "${args.command}"?`
                     : `Do you want to run tool: ${name}${extraInfo ? ` on "${extraInfo}"` : ""}?`;
+                  // Kullanıcı SADECE "izin ver mi" değil, NEDEN sorulduğunu da görsün.
+                  const questionText = permResult.reason
+                    ? `${baseQuestion}\n\n${riskBadge(permResult.riskLevel)} ${permResult.reason}`
+                    : baseQuestion;
 
                   // Onay istemi cevapsız kalırsa sonsuza dek asılı kalma:
                   // 10 dk sonra güvenli varsayılan olan Deny ile devam et.
@@ -406,14 +434,20 @@ export class Agent {
 
                   if (!isOptionSelected(approval, "Allow")) {
                     const blockMsg = `${riskBadge("dangerous")} BLOCKED: User denied permission.`;
+                    recordPermDecision("denied", "user", "User denied permission.");
                     this._onToolEvent?.({ id, name, phase: "done", durationMs: Date.now() - startedAt, result: blockMsg });
+                    if (this.trajectoryRecorder) this._pendingToolResults.set(id, { result: blockMsg, isError: true });
                     return blockMsg;
                   }
+
+                  recordPermDecision("allowed", "user");
 
                   if (permissionMode === "plan") {
                     this.approvedPlanActions.add(planKey);
                   }
                 }
+              } else {
+                recordPermDecision("allowed", "auto");
               }
             }
 
@@ -447,9 +481,12 @@ export class Agent {
               }
             }
             this._onToolEvent?.({ id, name, phase: "done", durationMs: Date.now() - startedAt, result: r });
+            if (this.trajectoryRecorder) this._pendingToolResults.set(id, { result: r, isError: false });
             return r;
           } catch (err) {
-            this._onToolEvent?.({ id, name, phase: "error", durationMs: Date.now() - startedAt, error: (err as any)?.message ?? String(err) });
+            const errMsg = (err as any)?.message ?? String(err);
+            this._onToolEvent?.({ id, name, phase: "error", durationMs: Date.now() - startedAt, error: errMsg });
+            if (this.trajectoryRecorder) this._pendingToolResults.set(id, { result: errMsg, isError: true });
             throw err;
           }
         },
@@ -561,8 +598,8 @@ export class Agent {
       }
     } catch { /* hafıza best-effort */ }
 
-    // Kullanıcı mesajını ekle
-    this.messages.push({ role: "user", content: finalUserMessage });
+    // Kullanıcı mesajını ekle — ekli görseller varsa native vision içeriği kur.
+    this.messages.push({ role: "user", content: this._buildUserContent(finalUserMessage) });
 
     // Session DB'ye yaz
     if (this.sessionId) {
@@ -583,7 +620,7 @@ export class Agent {
     let finalText = "";
     let responseMessages: CoreMessage[] = [];
     let roundToolCallCount = 0;
-    const roundToolCalls: { name: string; args: Record<string, unknown> }[] = [];
+    const roundToolCalls: { id?: string; name: string; args: Record<string, unknown> }[] = [];
 
     try {
       let lastError: unknown;
@@ -707,6 +744,7 @@ export class Agent {
                 for (const call of toolCalls) {
                   roundToolCallCount++;
                   roundToolCalls.push({
+                    id: call.toolCallId,
                     name: call.toolName,
                     args: (call.args ?? {}) as Record<string, unknown>,
                   });
@@ -994,10 +1032,25 @@ export class Agent {
 
       // Trajectory kaydı
       if (this.trajectoryRecorder) {
+        const toolCallsWithResults = roundToolCalls.map(({ id, ...rest }) => {
+          const pending = id ? this._pendingToolResults.get(id) : undefined;
+          if (!pending) return rest;
+          const resultStr =
+            typeof pending.result === "string" ? pending.result : JSON.stringify(pending.result);
+          const truncated = resultStr.length > TRAJECTORY_RESULT_MAX_CHARS;
+          return {
+            ...rest,
+            result: truncated ? resultStr.slice(0, TRAJECTORY_RESULT_MAX_CHARS) : resultStr,
+            isError: pending.isError,
+            resultTruncated: truncated,
+          };
+        });
+        this._pendingToolResults.clear();
+
         this.trajectoryRecorder.recordTurn({
           userMessage,
           assistantResponse: finalText,
-          toolCalls: roundToolCalls,
+          toolCalls: toolCallsWithResults,
           inputTokens: totalInputTokens,
           outputTokens: totalOutputTokens,
           tokenCount: totalTokens,
@@ -1171,6 +1224,47 @@ export class Agent {
 
   get contextLength(): number {
     return this.messages.length;
+  }
+
+  /**
+   * Ekli görselleri native vision içeriğine dönüştürür.
+   * Mesajdaki "- <path>.png/jpg/webp/gif" referanslarını tarar, proje
+   * workdir'inden base64 okur ve metin + image parçalı içerik döndürür.
+   * Görsel yoksa metni aynen döndürür (prompt caching korunur).
+   */
+  private _buildUserContent(text: string): string | any[] {
+    try {
+      const MIME: Record<string, string> = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+      };
+      const workdir = getProjectWorkdir();
+      if (!workdir) return text;
+      const root = path.resolve(workdir);
+      const refRe = /^-\s+(.+\.(?:png|jpe?g|webp|gif))\s*$/gim;
+      const images: any[] = [];
+      const seen = new Set<string>();
+      let m: RegExpExecArray | null;
+      while ((m = refRe.exec(text)) !== null) {
+        const rel = m[1].trim();
+        const ext = path.extname(rel).toLowerCase();
+        const mime = MIME[ext];
+        if (!mime) continue;
+        const abs = path.resolve(root, rel);
+        if (abs !== root && !abs.startsWith(root + path.sep)) continue; // traversal guard
+        if (seen.has(abs) || !fs.existsSync(abs)) continue;
+        seen.add(abs);
+        const b64 = fs.readFileSync(abs).toString("base64");
+        images.push({ type: "image", image: `data:${mime};base64,${b64}`, mimeType: mime });
+      }
+      if (!images.length) return text;
+      return [{ type: "text", text }, ...images];
+    } catch {
+      return text;
+    }
   }
 
   private async createPlaceholderFile(relPath: string) {

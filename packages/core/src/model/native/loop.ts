@@ -45,6 +45,7 @@ export interface AgentLoopHandlers {
   /** Her model turundan sonra (streamText onStepFinish karşılığı). */
   onStepFinish?(step: number, usage: Usage): void;
   onError?(err: Error): void;
+  onRetry?(err: Error, attempt: number, delayMs: number): void;
 }
 
 export interface AgentLoopOptions {
@@ -60,6 +61,10 @@ export interface AgentLoopOptions {
   abortSignal?: AbortSignal;
   /** Vercel maxSteps karşılığı — toplam model turu üst sınırı. */
   maxSteps?: number;
+  /** Geçici model hataları için step başına retry sayısı. */
+  maxRetries?: number;
+  /** Exponential backoff başlangıcı. Testlerde 0 verilebilir. */
+  baseBackoffMs?: number;
   /**
    * Aynı turdaki tool_call'ları paralel çalıştır. Varsayılan false (deterministik,
    * sıralı). Tool'lar birbirine bağımlı değilse true hız kazandırır.
@@ -79,10 +84,15 @@ export interface AgentLoopResult {
 }
 
 const DEFAULT_MAX_STEPS = 25;
+const DEFAULT_MAX_RETRIES = 3;
+const DEFAULT_BASE_BACKOFF_MS = 1_000;
+const RETRYABLE_CODES = new Set([429, 500, 502, 503, 504]);
 
 export async function runAgentLoop(opts: AgentLoopOptions): Promise<AgentLoopResult> {
   const messages = [...opts.messages];
   const maxSteps = opts.maxSteps ?? DEFAULT_MAX_STEPS;
+  const maxRetries = opts.maxRetries ?? DEFAULT_MAX_RETRIES;
+  const baseBackoffMs = opts.baseBackoffMs ?? DEFAULT_BASE_BACKOFF_MS;
   const total: Usage = {};
   let steps = 0;
 
@@ -94,42 +104,63 @@ export async function runAgentLoop(opts: AgentLoopOptions): Promise<AgentLoopRes
 
     // ── 1) Model turu — akışı tüket ────────────────────────────────────────
     let text = "";
-    const toolCalls: ToolInvocation[] = [];
+    let toolCalls: ToolInvocation[] = [];
     let stepUsage: Usage = {};
     let errored: Error | undefined;
 
-    const stream = opts.model.streamChat({
-      model: opts.model.modelId,
-      // Kopya: çağıran, sonraki turlardaki mutasyonları gözlemleyemez.
-      messages: [...messages],
-      tools: opts.tools,
-      system: opts.system,
-      temperature: opts.temperature,
-      maxTokens: opts.maxTokens,
-      abortSignal: opts.abortSignal,
-      cache: opts.cacheSystemAndTools ? { cacheSystemAndTools: true } : undefined,
-      thinking: opts.thinking,
-    });
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      text = "";
+      toolCalls = [];
+      stepUsage = {};
+      errored = undefined;
 
-    try {
-      for await (const ev of stream) {
-        dispatch(ev, opts.handlers);
-        if (ev.type === "text_delta") text += ev.text;
-        else if (ev.type === "tool_call") toolCalls.push({ id: ev.id, name: ev.name, args: ev.args });
-        else if (ev.type === "finish" && ev.usage) stepUsage = ev.usage;
-        else if (ev.type === "error") errored = ev.error;
+      const stream = opts.model.streamChat({
+        model: opts.model.modelId,
+        // Kopya: çağıran, sonraki turlardaki mutasyonları gözlemleyemez.
+        messages: [...messages],
+        tools: opts.tools,
+        system: opts.system,
+        temperature: opts.temperature,
+        maxTokens: opts.maxTokens,
+        abortSignal: opts.abortSignal,
+        cache: opts.cacheSystemAndTools ? { cacheSystemAndTools: true } : undefined,
+        thinking: opts.thinking,
+      });
+
+      try {
+        for await (const ev of stream) {
+          dispatch(ev, opts.handlers);
+          if (ev.type === "text_delta") text += ev.text;
+          else if (ev.type === "tool_call") toolCalls.push({ id: ev.id, name: ev.name, args: ev.args });
+          else if (ev.type === "finish" && ev.usage) stepUsage = ev.usage;
+          else if (ev.type === "error") errored = ev.error;
+        }
+      } catch (e) {
+        errored = e instanceof Error ? e : new Error(String(e));
       }
-    } catch (e) {
-      errored = e instanceof Error ? e : new Error(String(e));
-    }
 
-    accumulate(total, stepUsage);
-    opts.handlers?.onStepFinish?.(steps, stepUsage);
+      if (!errored) break;
+      if (opts.abortSignal?.aborted || isAbortError(errored)) {
+        opts.handlers?.onError?.(errored);
+        return { messages, usage: total, steps, finishReason: "aborted" };
+      }
+      if (attempt >= maxRetries || !isRetryable(errored)) {
+        opts.handlers?.onError?.(errored);
+        return { messages, usage: total, steps, finishReason: "error" };
+      }
+
+      const delayMs = backoffDelay(baseBackoffMs, attempt);
+      opts.handlers?.onRetry?.(errored, attempt + 1, delayMs);
+      await sleep(delayMs, opts.abortSignal);
+    }
 
     if (errored) {
       opts.handlers?.onError?.(errored);
       return { messages, usage: total, steps, finishReason: "error" };
     }
+
+    accumulate(total, stepUsage);
+    opts.handlers?.onStepFinish?.(steps, stepUsage);
 
     // ── 2) Assistant mesajını geçmişe ekle ─────────────────────────────────
     const assistantParts: ContentPart[] = [];
@@ -199,4 +230,41 @@ function accumulate(total: Usage, add: Usage): void {
   total.outputTokens = (total.outputTokens ?? 0) + (add.outputTokens ?? 0);
   if (add.cacheReadTokens != null) total.cacheReadTokens = (total.cacheReadTokens ?? 0) + add.cacheReadTokens;
   if (add.cacheWriteTokens != null) total.cacheWriteTokens = (total.cacheWriteTokens ?? 0) + add.cacheWriteTokens;
+}
+
+function isRetryable(error: Error): boolean {
+  const e = error as any;
+  const code = e.statusCode ?? e.status ?? e.code;
+  if (typeof code === "number" && RETRYABLE_CODES.has(code)) return true;
+  if (typeof code === "string" && RETRYABLE_CODES.has(Number(code))) return true;
+  const msg = (error.message ?? "").toLowerCase();
+  return (
+    msg.includes("rate limit") ||
+    msg.includes("too many requests") ||
+    msg.includes("service unavailable") ||
+    msg.includes("bad gateway") ||
+    msg.includes("gateway timeout") ||
+    msg.includes("stream stalled")
+  );
+}
+
+function isAbortError(error: Error): boolean {
+  return error.name === "AbortError" || error.message.toLowerCase().includes("aborted");
+}
+
+function backoffDelay(baseMs: number, attempt: number): number {
+  if (baseMs <= 0) return 0;
+  return baseMs * 2 ** attempt;
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  if (signal?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => {
+      clearTimeout(timer);
+      resolve();
+    }, { once: true });
+  });
 }

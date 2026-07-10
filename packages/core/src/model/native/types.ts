@@ -22,6 +22,8 @@ export type Role = "system" | "user" | "assistant" | "tool";
 export type ContentPart =
   | { type: "text"; text: string }
   | { type: "reasoning"; text: string }
+  /** Görsel eki — base64 (data: öneki YOK) + MIME. Native vision yolu. */
+  | { type: "image"; mimeType: string; data: string }
   | { type: "tool_call"; id: string; name: string; args: unknown }
   | { type: "tool_result"; id: string; name: string; result: unknown; isError?: boolean };
 

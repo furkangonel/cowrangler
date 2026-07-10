@@ -1,4 +1,4 @@
-import { IpcMain, shell } from 'electron'
+import { IpcMain } from 'electron'
 import path from 'path'
 import os from 'os'
 import fs from 'fs'
@@ -7,6 +7,7 @@ import { getCatalogSorted, getCatalogEntry, buildMcpServerConfig } from '@cowran
 import { getMCPManager, reloadMcp } from '@cowrangler/core/mcp_client.js'
 import { setSecrets, deleteSecrets, isEncrypted } from '@cowrangler/core/credential_vault.js'
 import { authorizeConnector, hasOAuthTokens } from '@cowrangler/core/oauth_provider.js'
+import { openAllowedExternalUrl } from './security.js'
 
 /** UI'a iletilecek canlı bağlantı durumu haritası: name → {connected, toolCount, error}. */
 function liveStatusMap(): Record<string, { connected: boolean; toolCount: number; error?: string }> {
@@ -165,7 +166,7 @@ export function registerMCPIPC(ipcMain: IpcMain): void {
       entry.id,
       entry.url,
       kind,
-      (url) => { shell.openExternal(url).catch(() => {}) },
+      (url) => { openAllowedExternalUrl(url).catch(() => {}) },
     )
     if (result.ok) {
       const summary = await reloadMcp().catch((e: any) => `reload failed: ${e?.message ?? e}`)

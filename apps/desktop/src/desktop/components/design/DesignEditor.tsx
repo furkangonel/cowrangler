@@ -6,12 +6,14 @@ import {
   Brain, ChevronRight, Paperclip, FileText,
 } from 'lucide-react'
 import { useFileDrop } from '../../lib/useFileDrop'
-import { useDesignStore, DesignSystemRecord, DesignFrame, DesignTweak, DesignDevice, DesignActivity } from '../../stores/design.store'
+import { useDesignStore, DesignSystemRecord, DesignFrame, DesignTweak, DesignDevice, DesignActivity, InspectorPick } from '../../stores/design.store'
 import { useSettingsStore } from '../../stores/settings.store'
 import { DesignCanvas, isDeviceTemplate } from './DesignCanvas'
 import { buildSrcDoc, kindFromName } from './renderScreen'
 
 import { CopyButton } from '../shared/CopyButton'
+import { ClampText } from '../ClampText'
+import { PdfExportModal, ExportFile, PdfExportOptions } from './PdfExportModal'
 import { RobotLoader } from '../shared/RobotLoader'
 import { DesignTopBar } from './DesignTopBar'
 import { renderMarkdown } from '../../lib/markdown'
@@ -34,7 +36,7 @@ export function DesignEditor({ onBack }: Props) {
     renameProject, deleteProject, systems, loadSystems, setPending,
     tweaksOn, setTweaksOn, tweakValues, setTweakValue, resetTweaks, persistTweaks,
     checkpoints, loadCheckpoints, saveCheckpoint, restoreCheckpoint,
-    inspectMode, setInspectMode, inspectorPick, setInspectorPick,
+    inspectMode, setInspectMode, inspectorPick, setInspectorPick, requestHighlight,
     a11yResults, a11yRunning, requestA11y, clearA11y,
   } = useDesignStore()
   const startedRef = useRef<string | null>(null)
@@ -58,6 +60,8 @@ export function DesignEditor({ onBack }: Props) {
   const [attachedFolder, setAttachedFolder] = useState<string | null>(null)
   const [dlMenu, setDlMenu] = useState<string | null>(null)
   const [deckMenu, setDeckMenu] = useState(false)
+  const [pdfModal, setPdfModal] = useState<ExportFile[] | null>(null)
+  const [pickedRefs, setPickedRefs] = useState<InspectorPick[]>([])
   const [historyMenuOpen, setHistoryMenuOpen] = useState(false)
   const [versionsMenuOpen, setVersionsMenuOpen] = useState(false)
   const [a11yPanelOpen, setA11yPanelOpen] = useState(false)
@@ -81,23 +85,19 @@ export function DesignEditor({ onBack }: Props) {
     if (!useDesignStore.getState().pendingMessage) loadHistory(activeProject.id)
   }, [activeProject?.id])
 
-  // A click in inspect mode drops a targeted reference into the composer so the
-  // next prompt is scoped to that element.
+  // A click in inspect mode adds a targeted element as a chip above the composer
+  // (not raw text). The chip is included in the prompt on send and, when clicked,
+  // re-highlights the element on the canvas.
   useEffect(() => {
     if (!inspectorPick) return
-    const label = inspectorPick.text ? `"${inspectorPick.text}"` : `<${inspectorPick.tag}>`
-    const ref = `On ${inspectorPick.selector} (${label}), `
-    setInput(prev => (prev.startsWith(ref) ? prev : ref + prev))
+    const pick = inspectorPick
+    setPickedRefs(prev =>
+      prev.some(p => p.filePath === pick.filePath && p.selector === pick.selector)
+        ? prev
+        : [...prev, pick])
     setInspectMode(false)
     setInspectorPick(null)
-    requestAnimationFrame(() => {
-      const el = textareaRef.current
-      if (!el) return
-      el.focus()
-      el.style.height = 'auto'
-      el.style.height = Math.min(el.scrollHeight, COMPOSER_MAX_H) + 'px'
-      el.style.overflowY = el.scrollHeight > COMPOSER_MAX_H ? 'auto' : 'hidden'
-    })
+    requestAnimationFrame(() => textareaRef.current?.focus())
   }, [inspectorPick])
 
   // Auto-send the prompt typed on the home screen so generation starts on open.
@@ -187,13 +187,17 @@ export function DesignEditor({ onBack }: Props) {
       else setToast(null)
     } catch (e: any) { showToast({ ok: false, msg: `Export failed — ${e?.message ?? e}` }) }
   }
-  function downloadScreen(filePath: string, name: string, fmt: 'pdf' | 'png' | 'pptx' | 'html') {
-    const { w, h, landscape } = dimsFor(activeProject?.designType)
-    const isDocument = activeProject?.designType === 'document'
+  function downloadScreen(filePath: string, name: string, fmt: 'pdf' | 'png' | 'jpg' | 'copy' | 'pptx' | 'html') {
+    const { w, h } = dimsFor(activeProject?.designType)
     const base = name.replace(/\.[^.]+$/, '')
     setDlMenu(null)
-    if (fmt === 'pdf') runExport('PDF', ipc.exporter.toPdf({ srcPath: filePath, name: base, landscape, document: isDocument }))
-    else if (fmt === 'png') runExport('PNG', ipc.exporter.toImage({ srcPath: filePath, name: base, width: w, height: h }))
+    if (fmt === 'pdf') {
+      const fr = frames.find(x => x.filePath === filePath)
+      setPdfModal([{ filePath, name, tweaks: fr?.meta?.tweaks }])   // PDF → ölçekli önizleme modalı
+    }
+    else if (fmt === 'png') runExport('PNG', ipc.exporter.toImage({ srcPath: filePath, name: base, width: w, height: h, format: 'png', scale: 2 }))
+    else if (fmt === 'jpg') runExport('JPG', ipc.exporter.toImage({ srcPath: filePath, name: base, width: w, height: h, format: 'jpeg', scale: 2 }))
+    else if (fmt === 'copy') runExport('Copied image', ipc.exporter.copyImage({ srcPath: filePath, width: w, height: h }).then(r => ({ ...r, path: undefined })))
     else if (fmt === 'pptx') runExport('PowerPoint', ipc.exporter.fileToPptx({ srcPath: filePath, name: base, width: w, height: h }))
     else runExport('HTML', ipc.exporter.saveCopy({ srcPath: filePath }))
   }
@@ -201,10 +205,19 @@ export function DesignEditor({ onBack }: Props) {
     if (!activeProject || frames.length === 0) return
     const files = frames.map(f => f.filePath)
     const { w, h } = dimsFor(activeProject.designType)
-    const isDocument = activeProject.designType === 'document'
     setDeckMenu(false)
-    if (fmt === 'pdf') runExport(`PDF (${files.length} screens)`, ipc.exporter.deckToPdf({ files, name: activeProject.name, slideW: w, slideH: h, document: isDocument }))
+    if (fmt === 'pdf') setPdfModal(frames.map(f => ({ filePath: f.filePath, name: f.name, tweaks: f.meta?.tweaks })))  // PDF → önizleme modalı
     else runExport(`PowerPoint (${files.length} slides)`, ipc.exporter.deckToPptx({ files, name: activeProject.name, slideW: w, slideH: h }))
+  }
+  /** PDF önizleme modalından onaylanınca gelişmiş PDF export'unu çalıştırır. */
+  function runPdfExport(exportFiles: ExportFile[], o: PdfExportOptions) {
+    if (!activeProject) return
+    const { w, h } = dimsFor(activeProject.designType)
+    const files = exportFiles.map(f => f.filePath)
+    const name = exportFiles.length > 1 ? activeProject.name : exportFiles[0].name.replace(/\.[^.]+$/, '')
+    setPdfModal(null)
+    runExport(files.length > 1 ? `PDF (${files.length} pages)` : 'PDF',
+      ipc.exporter.toPdfAdvanced({ files, name, fitW: w, fitH: h, ...o }))
   }
   async function exportAllHtml() {
     setDeckMenu(false)
@@ -236,13 +249,18 @@ export function DesignEditor({ onBack }: Props) {
   const handleSend = useCallback(async () => {
     const text = input.trim()
     const attach = drop.refText()
-    if ((!text && !attach) || chatLoading) return
-    const msg = [text, attach].filter(Boolean).join('\n\n')
+    if ((!text && !attach && pickedRefs.length === 0) || chatLoading) return
+    // Inspector chips → a scoped reference block prepended to the prompt.
+    const refBlock = pickedRefs.length
+      ? 'Targeted elements:\n' + pickedRefs.map(p => `- ${p.selector} (${p.text ? `"${p.text}"` : `<${p.tag}>`}) in ${p.filePath.split('/').pop()}`).join('\n')
+      : ''
+    const msg = [refBlock, text, attach].filter(Boolean).join('\n\n')
     setInput('')
     drop.clear()
+    setPickedRefs([])
     if (textareaRef.current) { textareaRef.current.style.height = 'auto'; textareaRef.current.style.overflowY = 'hidden' }
     await sendMessage(msg, effectiveModel)
-  }, [input, chatLoading, effectiveModel, sendMessage, drop])
+  }, [input, chatLoading, effectiveModel, sendMessage, drop, pickedRefs])
 
   function onKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
@@ -355,7 +373,11 @@ export function DesignEditor({ onBack }: Props) {
                         <div className="flex flex-col items-end max-w-[88%]">
                           <div className="px-3.5 py-2.5 text-sm leading-relaxed rounded-2xl w-full"
                             style={{ background: 'var(--d-ink)', color: '#fff', borderBottomRightRadius: 4 }}>
-                            <p className="whitespace-pre-wrap">{m.content}</p>
+                            <ClampText
+                              text={m.content}
+                              className="whitespace-pre-wrap"
+                              toggleClassName="mt-1.5 text-xs font-medium underline opacity-80 hover:opacity-100"
+                            />
                           </div>
                           <div className="mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             <CopyButton text={m.content} className="text-xs flex items-center gap-1 bg-transparent hover:bg-black/5 dark:hover:bg-white/10" />
@@ -413,16 +435,42 @@ export function DesignEditor({ onBack }: Props) {
                     </div>
                   </div>
                 )}
+                {pickedRefs.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 pb-2">
+                    {pickedRefs.map((p, i) => (
+                      <button
+                        key={p.filePath + p.selector}
+                        onClick={() => requestHighlight(p.filePath, p.selector)}
+                        title={`${p.selector} — click to highlight on canvas`}
+                        className="group flex items-center gap-1 pl-1.5 pr-1 py-0.5 rounded-md text-xs font-medium transition-colors"
+                        style={{ background: 'var(--d-clay-wash)', border: '1px solid var(--d-clay)', color: 'var(--d-clay)' }}
+                      >
+                        <MousePointerClick size={11} className="flex-shrink-0" />
+                        <span className="truncate max-w-[160px]">{p.text ? p.text : `<${p.tag}>`}</span>
+                        <span
+                          onClick={(e) => { e.stopPropagation(); setPickedRefs(prev => prev.filter((_, j) => j !== i)) }}
+                          className="ml-0.5 rounded hover:bg-black/10"
+                          title="Remove"
+                        ><X size={11} /></span>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {drop.files.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 pb-2">
                     {drop.files.map(f => (
-                      <div key={f.relPath} className="flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium max-w-[200px]" style={{ background: 'var(--d-cream-2)', border: '1px solid var(--d-line)', color: 'var(--d-ink-soft)' }}>
-                        <FileText size={10} className="flex-shrink-0" style={{ color: 'var(--d-ink-muted)' }} />
+                      <div key={f.relPath} className="flex items-center gap-1 pl-1 pr-2 py-0.5 rounded-md text-xs font-medium max-w-[200px]" style={{ background: 'var(--d-cream-2)', border: '1px solid var(--d-line)', color: 'var(--d-ink-soft)' }}>
+                        {f.previewUrl
+                          ? <img src={f.previewUrl} alt={f.name} className="w-5 h-5 rounded object-cover flex-shrink-0" />
+                          : <FileText size={10} className="flex-shrink-0" style={{ color: 'var(--d-ink-muted)' }} />}
                         <span className="truncate">{f.name}</span>
                         <button onClick={() => drop.remove(f.relPath)} className="ml-0.5" title="Remove" style={{ color: 'var(--d-ink-muted)' }}><X size={10} /></button>
                       </div>
                     ))}
                   </div>
+                )}
+                {drop.error && (
+                  <div className="pb-2 text-2xs" style={{ color: 'var(--d-clay)' }}>{drop.error}</div>
                 )}
                 <textarea
                   ref={textareaRef}
@@ -455,7 +503,7 @@ export function DesignEditor({ onBack }: Props) {
                     {chatLoading ? (
                       <button onClick={interruptChat} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-white" style={{ background: '#c0392b' }}><Square size={11} className="fill-current" /> Stop</button>
                     ) : (
-                      <button onClick={handleSend} disabled={!input.trim() && drop.files.length === 0} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold text-white transition-all disabled:opacity-50" style={{ background: (input.trim() || drop.files.length > 0) ? 'var(--d-clay)' : 'var(--d-clay-soft)' }}>
+                      <button onClick={handleSend} disabled={!input.trim() && drop.files.length === 0 && pickedRefs.length === 0} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold text-white transition-all disabled:opacity-50" style={{ background: (input.trim() || drop.files.length > 0 || pickedRefs.length > 0) ? 'var(--d-clay)' : 'var(--d-clay-soft)' }}>
                         <ArrowUp size={13} /> Send
                       </button>
                     )}
@@ -668,8 +716,10 @@ export function DesignEditor({ onBack }: Props) {
                     <>
                       <div className="fixed inset-0 z-30" onClick={() => setDlMenu(null)} />
                       <div className="absolute right-1 top-full mt-0.5 z-40 rounded-xl overflow-hidden py-1 design-elev-lg" style={{ minWidth: 150, background: 'var(--d-surface)', border: '1px solid var(--d-line)' }}>
-                        <DlItem label="PDF" onClick={() => downloadScreen(f.filePath, f.name, 'pdf')} />
+                        <DlItem label="PDF…" onClick={() => downloadScreen(f.filePath, f.name, 'pdf')} />
                         <DlItem label="PNG image" onClick={() => downloadScreen(f.filePath, f.name, 'png')} />
+                        <DlItem label="JPG image" onClick={() => downloadScreen(f.filePath, f.name, 'jpg')} />
+                        <DlItem label="Copy image" onClick={() => downloadScreen(f.filePath, f.name, 'copy')} />
                         <DlItem label="PowerPoint (.pptx)" onClick={() => downloadScreen(f.filePath, f.name, 'pptx')} />
                         <DlItem label="HTML (copy)" onClick={() => downloadScreen(f.filePath, f.name, 'html')} />
                       </div>
@@ -695,6 +745,18 @@ export function DesignEditor({ onBack }: Props) {
               : <div className="flex-1 flex items-center justify-center text-sm" style={{ color: 'var(--d-ink-faint)' }}>Loading…</div>}
           </div>
         </div>
+      )}
+
+      {/* PDF export preview + scale dialog */}
+      {pdfModal && activeProject && (
+        <PdfExportModal
+          open
+          files={pdfModal}
+          fitW={dimsFor(activeProject.designType).w}
+          fitH={dimsFor(activeProject.designType).h}
+          onClose={() => setPdfModal(null)}
+          onExport={(o) => runPdfExport(pdfModal, o)}
+        />
       )}
 
       {/* Export feedback toast */}
@@ -930,20 +992,58 @@ function toolGlyph(name: string): string {
   return '▸'
 }
 
+/** Biten satır bu süre sonra kaybolur (kısa bir "tamam" görünümü bırakır). */
+const ACTIVITY_EXPIRE_MS = 1400
+/** Aynı anda gösterilen azami satır — fazlası döngüyle en yeniyle değişir. */
+const ACTIVITY_MAX_ROWS = 4
+
 function ActivityFeed({ items, live }: { items: DesignActivity[]; live: boolean }) {
+  const doneAt = useRef<Map<string, number>>(new Map())
+  const [, force] = useState(0)
+
+  // Biten satırların bitiş zamanını kaydet; tekrar çalışırsa sıfırla.
+  useEffect(() => {
+    const now = Date.now()
+    for (const a of items) {
+      if (a.status === 'done' || a.status === 'error') {
+        if (!doneAt.current.has(a.id)) doneAt.current.set(a.id, now)
+      } else {
+        doneAt.current.delete(a.id)
+      }
+    }
+  }, [items])
+
+  // Bitmiş satır varken periyodik yeniden değerlendir (süre dolunca kaybolsun).
+  useEffect(() => {
+    if (!items.some(a => a.status !== 'start')) return
+    const t = setInterval(() => force(x => x + 1), 300)
+    return () => clearInterval(t)
+  }, [items])
+
+  const now = Date.now()
+  const visible = items
+    .filter(a => {
+      if (a.status === 'start') return true
+      const t = doneAt.current.get(a.id)
+      return t == null || now - t < ACTIVITY_EXPIRE_MS
+    })
+    .slice(-ACTIVITY_MAX_ROWS)
+
+  if (visible.length === 0 && !live) return null
+
   return (
     <div className="w-full flex flex-col gap-1 rounded-xl p-2" style={{ background: 'var(--d-cream-2)', border: '1px solid var(--d-line)' }}>
-      {items.map(a => {
+      {visible.map(a => {
         const running = a.status === 'start'
         const err = a.status === 'error'
         const label = TOOL_LABEL[a.name] ?? a.name.replace(/_/g, ' ')
         return (
-          <div key={a.id} className="flex items-center gap-2 px-1.5 py-0.5 text-xs">
+          <div key={a.id} className="flex items-center gap-2 px-1.5 py-0.5 text-xs animate-fade-in">
             <span className="w-4 flex-shrink-0 flex items-center justify-center" style={{ color: err ? '#c0392b' : running ? 'var(--d-clay)' : 'var(--d-ink-muted)' }}>
               {running ? <span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin inline-block" /> : err ? '✕' : <Check size={12} />}
             </span>
-            <span className="font-medium" style={{ color: 'var(--d-ink-soft)' }}>{label}</span>
-            {a.detail && <span className="truncate font-mono text-[11px]" style={{ color: 'var(--d-ink-muted)' }}>{a.detail}</span>}
+            <span className="font-medium flex-shrink-0" style={{ color: 'var(--d-ink-soft)' }}>{label}</span>
+            {a.detail && <span className="truncate font-mono text-[11px]" style={{ color: 'var(--d-ink-muted)' }} title={a.detail}>{a.detail}</span>}
             <span className="flex-1" />
             {!running && a.durationMs != null && <span className="tabular-nums text-[10px] flex-shrink-0" style={{ color: 'var(--d-ink-faint)' }}>{(a.durationMs / 1000).toFixed(1)}s</span>}
           </div>

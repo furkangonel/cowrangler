@@ -6,6 +6,31 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.1.4] — 2026-07-10
+
+### Added
+- Store MCP server config/tool-list fingerprints and gate new or changed servers behind an approval callback (`mcp_trust.ts`), auto-trusting when no callback is wired (non-breaking).
+- Scan MCP tool descriptions and tool results for prompt-injection patterns, and extend injection pattern matching to Turkish, Spanish, French, German, Russian, and Chinese.
+- Add a provider-level circuit breaker to the native model runner so a provider outage short-circuits instead of retrying from scratch on every turn.
+- Add periodic session DB archiving, a size cap, and `VACUUM` (`SessionDB.runMaintenance`), throttled to at most once a day.
+- Persist every permission decision (auto/user, allow/deny, reason) as a machine-readable audit record in a new `permission_decisions` table.
+- Show *why* a permission approval was requested (risk level + reason) in the prompt shown to the user.
+- Record full tool-call results (not just name/args) in `/trajectory` recordings, truncated and privacy-bounded.
+- Collapse duplicate tool-call results during context compaction instead of re-summarizing repeated identical calls.
+- Show a compaction-point divider in the desktop chat UI instead of rendering the summary as a normal user message.
+- Enable the Electron sandbox (`sandbox: true`) for the main and design windows.
+- Back the CLI credential vault with the real OS keychain (macOS `security`, Linux `secret-tool`) instead of base64 obfuscation, with a Windows ACL fallback.
+- Add a Playwright E2E suite (app launch, chat start, file drop, export) against the built Electron app.
+- Add static IPC contract tests that catch renderer/main channel drift and duplicate handlers without an Electron runtime.
+- Add a report-only Biome linter pass and real Bubblewrap sandbox coverage to CI.
+- Show release notes in the desktop update-available banner.
+- Prototype an embedding-based semantic code search tool (`semantic_code_search`), provider-agnostic and unit-tested against a fake embedder, with a real OpenAI embeddings implementation.
+
+### Fixed
+- Sandboxed Electron preload script failing to load (`Cannot use import statement outside a module`) by forcing the preload build to CommonJS.
+- Agent errors that occur before streaming starts (e.g. missing API key) being silently dropped instead of shown in the chat UI.
+- Removed a dead `agent:approvalRequest` IPC listener left over from before approvals were unified into `agent:qaPrompt`.
+
 ## [2.1.3] — 2026-07-09
 
 ### Changed

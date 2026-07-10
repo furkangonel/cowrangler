@@ -19,6 +19,22 @@ const INJECTION_PATTERNS: { re: RegExp; label: string }[] = [
   { re: /<\/?(system|assistant|tool_result|function_call)\b/i, label: "fake-role-tag" },
   { re: /BEGIN\s+SYSTEM\s+PROMPT|END\s+SYSTEM\s+PROMPT/i, label: "fake-system-block" },
   { re: /override\s+(the\s+)?(safety|permission|guardrail)/i, label: "guardrail-override" },
+  // Türkçe
+  { re: /önceki\s+(tüm\s+)?(talimatları|komutları|bağlamı)\s+(yok\s+say|görmezden\s+gel|unut)/i, label: "ignore-previous-instructions-tr" },
+  { re: /(sistem\s+prompt'?u?nu?|talimatlarını)\s+(göster|yazdır|tekrarla|ifşa\s+et)/i, label: "prompt-exfiltration-tr" },
+  // İspanyolca
+  { re: /ignora\s+(todas\s+las\s+)?instrucciones\s+(anteriores|previas)/i, label: "ignore-previous-instructions-es" },
+  { re: /(muestra|revela|repite)\s+(tu\s+)?(mensaje\s+de\s+sistema|instrucciones)/i, label: "prompt-exfiltration-es" },
+  // Fransızca
+  { re: /ignorez?\s+(toutes\s+les\s+)?instructions\s+(précédentes|antérieures)/i, label: "ignore-previous-instructions-fr" },
+  { re: /(montre|révèle|répète)\s+(ton\s+)?(prompt\s+système|tes\s+instructions)/i, label: "prompt-exfiltration-fr" },
+  // Almanca
+  { re: /ignoriere\s+(alle\s+)?(vorherigen|früheren)\s+anweisungen/i, label: "ignore-previous-instructions-de" },
+  { re: /(zeige|verrate|wiederhole)\s+(deine\s+)?(system\s*prompt|anweisungen)/i, label: "prompt-exfiltration-de" },
+  // Rusça
+  { re: /игнорируй\s+(все\s+)?(предыдущие|прежние)\s+(инструкции|указания)/i, label: "ignore-previous-instructions-ru" },
+  // Çince (basitleştirilmiş)
+  { re: /(忽略|无视)(之前|以上)的?(所有)?(指令|指示|提示)/, label: "ignore-previous-instructions-zh" },
 ];
 
 export interface ScanResult {
@@ -55,4 +71,8 @@ export function scanContext(raw: string, source: string): ScanResult {
   }
 
   return { content, warnings, suspicious };
+}
+
+export function protectUntrustedContent(raw: string, source: string): string {
+  return scanContext(raw, source).content;
 }

@@ -119,6 +119,8 @@ function toAnthropicBlock(p: ContentPart): unknown {
       return { type: "text", text: p.text };
     case "reasoning":
       return { type: "text", text: p.text }; // geçmişte reasoning'i text olarak taşı
+    case "image":
+      return { type: "image", source: { type: "base64", media_type: p.mimeType, data: p.data } };
     case "tool_call":
       return { type: "tool_use", id: p.id, name: p.name, input: p.args ?? {} };
     case "tool_result":

@@ -191,7 +191,18 @@ function runtimeScript(filePath: string, resize: boolean): string {
       if(d.type==='apply_tweaks'){ applyVars(d.vars||{}); requestAnimationFrame(report); }
       else if(d.type==='set_inspect'){ setInspect(!!d.on); }
       else if(d.type==='run_a11y'){ try{ runA11y(); }catch(err){ post({type:'a11y_report', issues:[], count:0, error:String(err&&err.message||err)}); } }
+      else if(d.type==='highlight_selector'){ try{ highlightSelector(d.selector); }catch(e){} }
     });
+    /* Flash the inspector overlay on an element by selector (chip → canvas link). */
+    var hlTimer=null;
+    function highlightSelector(sel){
+      if(!sel) return; var el=null; try{ el=document.querySelector(sel); }catch(e){}
+      if(!el) return;
+      el.scrollIntoView({block:'center', inline:'center', behavior:'smooth'});
+      moveOverlay(el); overlay().style.display='block';
+      if(hlTimer) clearTimeout(hlTimer);
+      hlTimer=setTimeout(function(){ if(ov && !inspecting) ov.style.display='none'; }, 1800);
+    }
     document.addEventListener('mousemove', onMove, true);
     document.addEventListener('click', onClick, true);
     window.addEventListener('scroll', function(){ if(inspecting&&lastEl) moveOverlay(lastEl); }, true);

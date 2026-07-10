@@ -53,6 +53,71 @@ describe("Sandbox Engine", () => {
     expect(result.output).toContain("SANDBOX BLOCKED");
   });
 
+  it("[linux/bwrap only] provides real OS-level filesystem isolation", async () => {
+    // Backend seçim mantığı `selectBackend` testlerinde zaten sahte probe'larla
+    // doğrulanıyor — bu test gerçek bwrap binary'sinin gerçekten dosya sistemi
+    // izolasyonu sağladığını kanıtlar. bwrap kurulu değilse (ör. macOS CI, veya
+    // Linux runner'da paket eksikse) sessizce atlanır.
+    if (process.platform !== "linux" || !binaryExists("bwrap")) return;
+
+    const workdir = fs.mkdtempSync(path.join(os.tmpdir(), "cowrangler-bwrap-"));
+    try {
+      configureSandbox({
+        enabled: true,
+        workspaceRoot: workdir,
+        maxOutputBytes: 512 * 1024,
+        maxTimeoutMs: 15000,
+        // Ağ izolasyonu (--unshare-net) ayrı bir endişe ve bazı CI runner'larında
+        // (ör. GitHub Actions'ın iç içe konteynerlerinde) loopback arayüzü
+        // kurulumu izin reddiyle başarısız olabilir — bu test dosya sistemi
+        // izolasyonunu kanıtlamaya odaklanıyor, ağı devre dışı bırakmıyor.
+        networkRestricted: false,
+        allowedPaths: [workdir],
+        blockedBinaries: [],
+        provider: "linux_bwrap",
+        allowUnsandboxed: false,
+      });
+
+      // cwd içine yazma başarılı olmalı — bwrap bunu rw bind eder.
+      const writeOk = await runInSandbox(
+        `echo hello-from-bwrap > ok.txt && cat ok.txt`,
+        workdir,
+      );
+
+      // Bazı CI runner'ları (ör. AppArmor'ın unprivileged user namespace'leri
+      // varsayılan kısıtladığı Ubuntu 23.10+ görüntüleri) bwrap'ın kendisinin
+      // başlamasına izin vermez — bu repo'nun kontrolü dışında bir çekirdek/
+      // politika kısıtlamasıdır, kırık bir izolasyon değil. Böyle bir ortam
+      // sınırlamasını gerçek bir test başarısızlığından ayırt et.
+      const envRestricted = /setting up uid map|loopback|newuidmap|clone\(CLONE_NEWUSER/i.test(writeOk.output);
+      if (envRestricted) {
+        console.warn(`[sandbox.test] bwrap blocked by environment policy, skipping: ${writeOk.output}`);
+        return;
+      }
+
+      expect(writeOk.backend).toBe("linux_bwrap");
+      expect(writeOk.isolated).toBe(true);
+      expect(writeOk.output).toContain("hello-from-bwrap");
+
+      // /etc salt-okunur bağlanır — buraya yazma OS seviyesinde reddedilmeli.
+      // Bu, sadece uygulama mantığının değil gerçek bwrap izolasyonunun
+      // çalıştığını kanıtlar. Komut, Node exec → runner.sh → bwrap içi bash
+      // olmak üzere üç iç içe shell katmanından geçiyor; bu katmanlar arasında
+      // `$?` gibi kabuk-özel durum değişkenleri güvenilir şekilde taşınmaz
+      // (görüldüğü gibi dış katman "EXIT:0" yakalayabiliyor, işlemin gerçek
+      // sonucunu değil) — bu yüzden çıkış koduna değil, touch'ın kendi hata
+      // mesajına bakıyoruz; bu, hangi shell'in yakaladığından bağımsız her
+      // zaman çıktıda görünür.
+      const writeEtc = await runInSandbox(
+        `touch /etc/cowrangler_sandbox_test_should_fail`,
+        workdir,
+      );
+      expect(writeEtc.output).toMatch(/read-only file system|permission denied|cannot touch/i);
+    } finally {
+      fs.rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
   it("respects path restrictions", async () => {
     configureSandbox({ 
       enabled: true, 

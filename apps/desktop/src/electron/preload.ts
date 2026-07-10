@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
+import { contextBridge, ipcRenderer, IpcRendererEvent, webUtils } from 'electron'
 
 // Type-safe IPC yüzeyi — window.electronAPI olarak erişilir
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -69,13 +69,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('agent:interrupted', listener)
       return () => ipcRenderer.removeListener('agent:interrupted', listener)
     },
-    onApprovalRequest: (cb: (data: any) => void) => {
-      const listener = (_: IpcRendererEvent, data: any) => cb(data)
-      ipcRenderer.on('agent:approvalRequest', listener)
-      return () => ipcRenderer.removeListener('agent:approvalRequest', listener)
-    },
     removeAllListeners: () => {
-      ;['agent:toolCall', 'agent:stepText', 'agent:qaPrompt', 'agent:progress', 'agent:plan', 'agent:done', 'agent:error', 'agent:interrupted', 'agent:approvalRequest', 'agent:reasoningText']
+      ;['agent:toolCall', 'agent:stepText', 'agent:qaPrompt', 'agent:progress', 'agent:plan', 'agent:done', 'agent:error', 'agent:interrupted', 'agent:reasoningText']
         .forEach(ch => ipcRenderer.removeAllListeners(ch))
     },
   },
@@ -88,6 +83,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     update: (id: string, data: any) => ipcRenderer.invoke('projects:update', id, data),
     delete: (id: string) => ipcRenderer.invoke('projects:delete', id),
     get: (id: string) => ipcRenderer.invoke('projects:get', id),
+    ensureWorkdir: (id: string) => ipcRenderer.invoke('projects:ensureWorkdir', id),
     addFolder: (id: string, folderPath: string) => ipcRenderer.invoke('projects:addFolder', id, folderPath),
     removeFolder: (id: string, folderPath: string) => ipcRenderer.invoke('projects:removeFolder', id, folderPath),
     getFolders: (id: string) => ipcRenderer.invoke('projects:getFolders', id),
@@ -226,7 +222,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveCopy: (payload: { srcPath: string }) => ipcRenderer.invoke('export:saveCopy', payload),
     toPdf: (payload: { srcPath?: string; html?: string; name?: string; landscape?: boolean }) => ipcRenderer.invoke('export:toPdf', payload),
     // accepts width/height so a multi-slide HTML keeps its real aspect ratio
-    toImage: (payload: { srcPath?: string; html?: string; name?: string; width?: number; height?: number }) => ipcRenderer.invoke('export:toImage', payload),
+    toImage: (payload: { srcPath?: string; html?: string; name?: string; width?: number; height?: number; format?: 'png' | 'jpeg'; scale?: number; quality?: number }) => ipcRenderer.invoke('export:toImage', payload),
+    copyImage: (payload: { srcPath?: string; html?: string; width?: number; height?: number }) => ipcRenderer.invoke('export:copyImage', payload),
+    toPdfAdvanced: (payload: { files: string[]; name?: string; pageSize?: 'fit' | 'a4' | 'letter'; landscape?: boolean; marginIn?: number; scale?: number; fitW?: number; fitH?: number }) => ipcRenderer.invoke('export:toPdfAdvanced', payload),
     fileToPptx: (payload: { srcPath: string; name?: string; width?: number; height?: number }) => ipcRenderer.invoke('export:fileToPptx', payload),
     deckToPdf: (payload: { files: string[]; name?: string; slideW?: number; slideH?: number }) => ipcRenderer.invoke('export:deckToPdf', payload),
     deckToPptx: (payload: { files: string[]; name?: string; slideW?: number; slideH?: number }) => ipcRenderer.invoke('export:deckToPptx', payload),
@@ -294,7 +292,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   fs: {
     pickFolder: () => ipcRenderer.invoke('fs:pickFolder'),
     pickFile: () => ipcRenderer.invoke('fs:pickFile'),
+    /** Sürüklenen File için gerçek disk yolunu döndürür (Electron webUtils). Yoksa ''. */
+    pathForFile: (file: File): string => {
+      try { return webUtils.getPathForFile(file) } catch { return '' }
+    },
     addFiles: (payload: { projectId: string; paths: string[] }) => ipcRenderer.invoke('fs:addFiles', payload),
+    /** Disk yolu olmayan (ör. tarayıcı/canvas'tan sürüklenen) görselleri byte olarak yaz. */
+    addFileBytes: (payload: { projectId: string; files: { name: string; dataBase64: string }[] }) =>
+      ipcRenderer.invoke('fs:addFileBytes', payload),
     fileTree: (dirPath: string, depth?: number) => ipcRenderer.invoke('fs:fileTree', dirPath, depth),
     readFile: (filePath: string) => ipcRenderer.invoke('fs:readFile', filePath),
     writeFile: (filePath: string, content: string) => ipcRenderer.invoke('fs:writeFile', filePath, content),

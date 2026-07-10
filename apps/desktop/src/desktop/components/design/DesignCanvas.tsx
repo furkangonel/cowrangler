@@ -135,6 +135,13 @@ function ScaledScreen({ filePath, kind, meta, intrinsicW, intrinsicH, scale, rel
     iframeRef.current?.contentWindow?.postMessage({ type: 'run_a11y' }, '*')
   }, [loaded, a11yRequest, filePath, reloadKey])
 
+  // Re-highlight a selector when a composer chip for this screen is clicked.
+  const highlightRequest = useDesignStore(s => s.highlightRequest)
+  useEffect(() => {
+    if (!loaded || !highlightRequest || highlightRequest.filePath !== filePath) return
+    iframeRef.current?.contentWindow?.postMessage({ type: 'highlight_selector', selector: highlightRequest.selector }, '*')
+  }, [loaded, highlightRequest, filePath, reloadKey])
+
   // Single message listener: resize + inspector picks + a11y reports.
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {

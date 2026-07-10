@@ -4,6 +4,7 @@
 
 # 0. Internal planning docs (not committed)
 REFACTOR_PLAN.md
+/docs/
 
 # 1. Dependencies
 node_modules/
@@ -46,6 +47,9 @@ PROGRESS.md
 # Audit log (can contain user prompt data)
 audit.log
 
+# User-attached files copied into project workdirs by the desktop app.
+uploads/
+
 # 5. OS & editor artifacts
 .DS_Store
 Thumbs.db
@@ -68,6 +72,10 @@ pnpm-lock.yaml
 # 8. Test / coverage output
 coverage/
 .nyc_output/
+test-results/
+playwright-report/
+/e2e/test-results/
+/e2e/playwright-report/
 
 # 9. macOS extended attributes
 .AppleDouble

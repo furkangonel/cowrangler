@@ -22,6 +22,7 @@ import { registerExportIPC } from './ipc/export.ipc.js'
 import { registerTerminalIPC, getTerminalManager } from './ipc/terminal.ipc.js'
 import { registerPreviewIPC } from './ipc/preview.ipc.js'
 import { registerPluginsIPC } from './ipc/plugins.ipc.js'
+import { installTrustedIpcGuard, openAllowedExternalUrl } from './ipc/security.js'
 import { agentManager } from './agent_manager.js'
 // KRİTİK: Tüm yerleşik araçları (system/git/web/dev/skill/file/brief/computer_use +
 // mcp_status) registry'ye kaydet. Bu import olmadan desktop agent'ı yalnızca
@@ -32,6 +33,22 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 let mainWindow: BrowserWindow | null = null
 let ipcRegistered = false
+
+function reportMainProcessError(kind: string, error: unknown): void {
+  const message = error instanceof Error ? error.stack || error.message : String(error)
+  console.error(`[main] ${kind}: ${message}`)
+  if (app.isReady() && app.isPackaged) {
+    dialog.showErrorBox('Cowrangler error', 'An unexpected application error occurred. Check logs for details.')
+  }
+}
+
+process.on('uncaughtException', (error) => {
+  reportMainProcessError('uncaughtException', error)
+})
+
+process.on('unhandledRejection', (reason) => {
+  reportMainProcessError('unhandledRejection', reason)
+})
 
 function createWindow(): void {
   // Cowrangler ortamını başlat (config, credentials, dirs)
@@ -60,16 +77,21 @@ function createWindow(): void {
     vibrancy: undefined,
     show: false,
     webPreferences: {
-      preload: path.join(__dirname, '../preload/index.mjs'),
+      preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      // preload.ts yalnızca 'electron' modülünü kullanır (contextBridge/
+      // ipcRenderer/webUtils) — fs/path/child_process/require yok, bu yüzden
+      // Electron sandbox'ı (Node API'lerini preload'dan da kaldırır) güvenle
+      // açılabilir.
+      sandbox: true,
       webSecurity: true,
     },
   })
 
   // IPC handler'larını kaydet
   if (!ipcRegistered) {
+    installTrustedIpcGuard(ipcMain)
     registerAgentIPC(ipcMain, mainWindow)
     registerProjectsIPC(ipcMain)
     registerSessionsIPC(ipcMain)
@@ -97,10 +119,10 @@ function createWindow(): void {
         backgroundColor: '#0f0f0f',
         show: false,
         webPreferences: {
-          preload: path.join(__dirname, '../preload/index.mjs'),
+          preload: path.join(__dirname, '../preload/index.js'),
           contextIsolation: true,
           nodeIntegration: false,
-          sandbox: false,
+          sandbox: true,
           webSecurity: true,
         },
       })
@@ -117,7 +139,9 @@ function createWindow(): void {
 
   // Harici linkleri tarayıcıda aç
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
+    void openAllowedExternalUrl(url).catch((err) => {
+      console.warn(`[security] blocked external URL: ${err?.message ?? err}`)
+    })
     return { action: 'deny' }
   })
 
@@ -133,7 +157,11 @@ function createWindow(): void {
     mainWindow = null
   })
 
-  if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
+  // E2E (Playwright), unpackaged bir dev-server olmadan çalışır — her zaman
+  // derlenmiş statik renderer'ı yükle, localhost:5173'e bağımlı olma.
+  if (process.env.COWRANGLER_E2E === '1') {
+    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
+  } else if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
     const devPort = process.env.VITE_DEV_SERVER_URL
     if (devPort) {
       mainWindow.loadURL(devPort)

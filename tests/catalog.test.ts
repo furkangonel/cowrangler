@@ -1,6 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import { getModelMeta, classifyProviderAuth } from "@cowrangler/core/model_metadata.js";
-import { providerOf, buildCatalog } from "@cowrangler/core/model/catalog.js";
+import {
+  MODEL_CATALOG_PRECEDENCE,
+  providerOf,
+  buildCatalog,
+  getModelMetaSync,
+} from "@cowrangler/core/model/catalog.js";
 import { makeModel } from "@cowrangler/core/model/driver.js";
 import { PROVIDERS } from "@cowrangler/core/model/driver.js";
 
@@ -28,6 +33,19 @@ describe("Data-driven Provider Catalog", () => {
     expect(meta).toBeDefined();
     expect(meta.id).toBe("openrouter/weird-model");
     expect(meta.contextWindow).toBe(128000);
+  });
+
+  it("documents catalog precedence and synthesized fallback source", () => {
+    expect(MODEL_CATALOG_PRECEDENCE).toEqual([
+      "discovery-availability",
+      "models.dev-metadata",
+      "synthesized-defaults",
+    ]);
+
+    expect(getModelMetaSync("unknown/catalog-test-model")).toMatchObject({
+      provider: "openrouter",
+      metadataSource: "synthesized",
+    });
   });
 
   it("getModelMeta synthesizes thinking correctly", () => {

@@ -150,6 +150,36 @@ describe("WP-7 — Ask/Plan/Bypass modes preserved", () => {
   });
 });
 
+describe("WP-7 — Low-trust sandbox mode", () => {
+  it("still allows safe readonly tools without approval", () => {
+    const r = checkPermission("read_file", "auto", path.join(WS, "a.ts"), { sandboxLowTrust: true });
+    expect(r.allowed).toBe(true);
+    expect(r.requiresApproval).toBeFalsy();
+  });
+
+  it("requires approval for moderate reversible actions in auto mode", () => {
+    const r = checkPermission("write_file", "auto", path.join(WS, "a.ts"), { sandboxLowTrust: true });
+    expect(r.allowed).toBe(false);
+    expect(r.requiresApproval).toBe(true);
+    expect(r.reason).toContain("LOW-TRUST SANDBOX");
+    expect(r.useSandbox).toBe(false);
+  });
+
+  it("does not let allowlist bypass moderate commands when sandbox is low-trust", () => {
+    const r = checkPermission("execute_bash", "ask", "npm run test", {
+      allow: ["npm run test"],
+      sandboxLowTrust: true,
+    });
+    expect(r.allowed).toBe(false);
+    expect(r.requiresApproval).toBe(true);
+  });
+
+  it("keeps bypass behavior unchanged for trusted manual overrides", () => {
+    const r = checkPermission("execute_bash", "bypass", "npm run test", { sandboxLowTrust: true });
+    expect(r.allowed).toBe(true);
+  });
+});
+
 describe("WP-7 — Policy configurations (Allowlist, Denylist, alwaysAskDestructive)", () => {
   it("denylist checks first and blocks matching commands immediately", () => {
     const policy = { deny: ["npm publish", "rm -rf"] };

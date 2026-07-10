@@ -47,6 +47,54 @@ export interface ContextSnapshot {
 
 export type ContextStyle = "normal" | "warning" | "critical";
 
+/**
+ * Aynı araç + aynı argümanlarla birden fazla kez çağrılmış tool-result'lar
+ * arasında SONUNCUSU dışındakiler düşük bilgi taşır (ör. model aynı dosyayı
+ * peş peşe üç kez okumuşsa, ilk iki okuma özet için gürültüdür — üçüncüsü
+ * neyin "güncel" olduğunu zaten temsil eder). Yalnızca sıkıştırılıp özete
+ * dönüştürülecek dilime uygulanmalıdır; korunan "recent" mesajlara değil.
+ */
+export function collapseDuplicateToolResults(messages: CoreMessage[]): CoreMessage[] {
+  // 1) toolCallId → "toolName:args" anahtarı (assistant mesajlarındaki tool-call'lardan)
+  const keyByCallId = new Map<string, string>();
+  for (const msg of messages) {
+    if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
+    for (const part of msg.content as any[]) {
+      if (part?.type === "tool-call" && part.toolCallId) {
+        keyByCallId.set(part.toolCallId, `${part.toolName}:${JSON.stringify(part.args ?? {})}`);
+      }
+    }
+  }
+  if (keyByCallId.size === 0) return messages;
+
+  // 2) Her anahtarın EN SON geçtiği mesaj indeksi
+  const lastMessageIndexForKey = new Map<string, number>();
+  messages.forEach((msg, idx) => {
+    if (msg.role !== "tool" || !Array.isArray(msg.content)) return;
+    for (const part of msg.content as any[]) {
+      if (part?.type !== "tool-result") continue;
+      const key = keyByCallId.get(part.toolCallId);
+      if (key) lastMessageIndexForKey.set(key, idx);
+    }
+  });
+
+  // 3) Son olmayan tekrarları yer tutucuyla değiştir
+  return messages.map((msg, idx) => {
+    if (msg.role !== "tool" || !Array.isArray(msg.content)) return msg;
+    const content = (msg.content as any[]).map((part) => {
+      if (part?.type !== "tool-result") return part;
+      const key = keyByCallId.get(part.toolCallId);
+      if (!key) return part;
+      if (lastMessageIndexForKey.get(key) === idx) return part; // en güncel — korunur
+      return {
+        ...part,
+        result: `[duplicate ${part.toolName ?? "tool"} call — superseded by an identical later call, earlier result omitted]`,
+      };
+    });
+    return { ...msg, content } as CoreMessage;
+  });
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // CONTEXT ENGINE ABSTRACT (pluggable)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -174,7 +222,11 @@ export class DefaultContextEngine extends ContextEngine {
     // geçersiz mesaj dizisi gider (tool_result without preceding tool_call).
     const splitAt = this._safeSplitIndex(pruned, this.keepRecent);
 
-    const toSummarize = pruned.slice(0, splitAt);
+    // Atılacak kısımdaki tekrarlanan (aynı araç + aynı argüman) çağrıların
+    // eski sonuçlarını düşük-bilgi kabul edip yer tutucuyla değiştir — özet
+    // üretimi aynı dosya/komut çıktısını tekrar tekrar işlemesin. `recent`
+    // (korunan) kısma dokunulmaz.
+    const toSummarize = collapseDuplicateToolResults(pruned.slice(0, splitAt));
     const recent = pruned.slice(splitAt);
 
     if (toSummarize.length === 0) return messages;

@@ -2,17 +2,24 @@
  * credential_vault — kimlik bilgileri için şifreli yerel kasa.
  *
  * Connector API anahtarları / token'ları artık config.yaml içinde DÜZ METİN
- * olarak tutulmaz. Bunun yerine bu kasa, Electron `safeStorage` (OS keychain
- * destekli) ile şifreler ve `~/.cowrangler/secrets.json`'a yazar.
+ * olarak tutulmaz. Bunun yerine bu kasa, üç kademeli bir öncelik sırasıyla
+ * yazar (bkz. `encryptCell`):
  *
- * Electron dışı bağlam (CLI) için safeStorage yoksa, base64 obfuscation'a
- * düşülür (şifreleme DEĞİL — sadece düz metin göz taramasını engeller) ve
- * dosya 0600 izinle yazılır. Bu durum `isEncrypted()` ile UI'a bildirilir.
+ *   1. Electron `safeStorage` (desktop, OS keychain destekli) → mode "safe".
+ *   2. CLI (Electron dışı) bağlamda gerçek OS deposu varsa (macOS Keychain
+ *      `security`, Linux libsecret `secret-tool` — bkz. os_keychain.ts) →
+ *      mode "os". Gerçek değer secrets.json'a YAZILMAZ, yalnızca keychain
+ *      kaydının "account" adı tutulur.
+ *   3. Hiçbiri yoksa (ör. Windows CLI, ya da yukarıdakiler başarısız olursa)
+ *      base64 obfuscation'a düşülür (şifreleme DEĞİL) ve dosya 0600 izinle
+ *      (Windows'ta icacls ile mevcut kullanıcıya kilitlenerek) yazılır.
+ *
+ * Hangi modun kullanıldığı `isEncrypted()` ile UI'a bildirilir.
  *
  * Şema (~/.cowrangler/secrets.json):
  *   {
  *     "slack":        { "SLACK_BOT_TOKEN": { "m": "safe", "d": "<b64>" } },
- *     "oauth:notion": { "tokens": { "m": "safe", "d": "<b64>" } }
+ *     "oauth:notion": { "tokens": { "m": "os", "d": "oauth:notion.tokens" } }
  *   }
  */
 
@@ -20,18 +27,31 @@ import path from "path";
 import os from "os";
 import fs from "fs";
 import { createRequire } from "module";
+import { isOSKeychainAvailable, osKeychainDelete, osKeychainGet, osKeychainSet, restrictFileToCurrentUserWindows } from "./os_keychain.js";
 
 const require_ = createRequire(import.meta.url);
 
 const GLOBAL_DIR = path.join(os.homedir(), ".cowrangler");
-const SECRETS_FILE = path.join(GLOBAL_DIR, "secrets.json");
+let SECRETS_FILE = path.join(GLOBAL_DIR, "secrets.json");
 
-type Mode = "safe" | "plain";
+/** Yalnızca testler için — gerçek kullanıcının ~/.cowrangler/secrets.json'ından izole çalışmak amacıyla. */
+export function _setSecretsFileForTests(p: string): void {
+  SECRETS_FILE = p;
+}
+
+// "os" hücreleri: gerçek değer secrets.json'da DEĞİL, OS keychain/libsecret'ta
+// tutulur — `d` burada yalnızca keychain'deki kaydı bulmak için kullanılan
+// "account" tanımlayıcısını taşır (bkz. os_keychain.ts).
+type Mode = "safe" | "plain" | "os";
 interface Cell {
   m: Mode;
-  d: string; // base64 payload
+  d: string; // "safe"/"plain": base64 payload — "os": keychain account adı
 }
 type Store = Record<string, Record<string, Cell>>;
+
+function keychainAccount(namespace: string, key: string): string {
+  return `${namespace}.${key}`;
+}
 
 // ── Electron safeStorage (yalnızca main process'te mevcut) ────────────────────
 let _safe: any | null | undefined;
@@ -47,9 +67,9 @@ function safeStorage(): any | null {
   return _safe;
 }
 
-/** Şifreleme gerçekten OS-destekli mi (UI ipucu için). */
+/** Şifreleme gerçekten OS-destekli mi (UI ipucu için) — Electron safeStorage veya CLI'da OS keychain. */
 export function isEncrypted(): boolean {
-  return safeStorage() != null;
+  return safeStorage() != null || isOSKeychainAvailable();
 }
 
 function readStore(): Store {
@@ -62,7 +82,7 @@ function readStore(): Store {
 }
 
 function writeStore(store: Store): void {
-  fs.mkdirSync(GLOBAL_DIR, { recursive: true });
+  fs.mkdirSync(path.dirname(SECRETS_FILE), { recursive: true });
   fs.writeFileSync(SECRETS_FILE, JSON.stringify(store, null, 2), "utf-8");
   try {
     fs.chmodSync(SECRETS_FILE, 0o600);
@@ -71,7 +91,7 @@ function writeStore(store: Store): void {
   }
 }
 
-function encryptCell(plain: string, forcePlain = false): Cell {
+function encryptCell(plain: string, account: string, forcePlain = false): Cell {
   if (!forcePlain) {
     const ss = safeStorage();
     if (ss) {
@@ -81,7 +101,12 @@ function encryptCell(plain: string, forcePlain = false): Cell {
         /* düşüş */
       }
     }
+    // Electron safeStorage yok (CLI bağlamı) — gerçek OS keychain dene.
+    if (isOSKeychainAvailable() && osKeychainSet(account, plain)) {
+      return { m: "os", d: account };
+    }
   }
+  restrictFileToCurrentUserWindows(SECRETS_FILE);
   return { m: "plain", d: Buffer.from(plain, "utf-8").toString("base64") };
 }
 
@@ -91,6 +116,9 @@ function decryptCell(cell: Cell): string {
       const ss = safeStorage();
       if (!ss) return "";
       return ss.decryptString(Buffer.from(cell.d, "base64"));
+    }
+    if (cell.m === "os") {
+      return osKeychainGet(cell.d) ?? "";
     }
     return Buffer.from(cell.d, "base64").toString("utf-8");
   } catch {
@@ -125,11 +153,17 @@ export function setSecrets(
   const store = readStore();
   const bucket = { ...(store[namespace] ?? {}) };
   for (const [k, v] of Object.entries(secrets)) {
+    const previous = bucket[k];
     if (v == null || v === "") {
+      if (previous?.m === "os") osKeychainDelete(previous.d);
       delete bucket[k];
       continue;
     }
-    bucket[k] = encryptCell(v, opts?.forcePlain);
+    const account = keychainAccount(namespace, k);
+    const next = encryptCell(v, account, opts?.forcePlain);
+    // Mod değiştiyse (ör. os → plain), keychain'de yetim kayıt kalmasın.
+    if (previous?.m === "os" && previous.d !== next.d) osKeychainDelete(previous.d);
+    bucket[k] = next;
   }
   store[namespace] = bucket;
   writeStore(store);
@@ -186,7 +220,11 @@ export function hasSecrets(namespace: string): boolean {
 /** Namespace'i tamamen siler. */
 export function deleteSecrets(namespace: string): void {
   const store = readStore();
-  if (store[namespace]) {
+  const bucket = store[namespace];
+  if (bucket) {
+    for (const cell of Object.values(bucket)) {
+      if (cell.m === "os") osKeychainDelete(cell.d);
+    }
     delete store[namespace];
     writeStore(store);
   }
