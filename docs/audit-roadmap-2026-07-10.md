@@ -48,7 +48,7 @@ Source: `COWRANGLER_KAPSAMLI_DENETIM_RAPORU_2026-07-10.md`
 - [ ] 3.3 Split large files: `commands.ts`, `DesignHome.tsx`, `agent.ts`, and `DesignEditor.tsx`.
 - [x] 3.4 Confirm `.DS_Store` is ignored and not tracked by git.
 - [x] 3.4 Clean web `uploads/` hygiene.
-- [ ] 3.4 Rename the web package from `cowrangler-temp`.
+- [x] 3.4 Rename the web package from `cowrangler-temp`. (No package named `cowrangler-temp` exists in the current repo — verified via repo-wide grep; item was already resolved or referred to a stale snapshot.)
 - [ ] 3.5 Expand `trajectory.ts` into replayable model/tool/context audit records.
 - [x] 3.6 Define and log precedence between static model catalog data and discovery results.
 - [x] 3.7 Add `SECURITY.md`.
@@ -60,10 +60,10 @@ Source: `COWRANGLER_KAPSAMLI_DENETIM_RAPORU_2026-07-10.md`
 
 - [ ] 4.1 Add sandbox backend tests to the CI matrix, including real Linux Bubblewrap coverage.
 - [x] 4.2 Extend prompt-injection scanning to web page content and file read results.
-- [ ] 4.2 Add language-broader prompt-injection patterns.
+- [x] 4.2 Add language-broader prompt-injection patterns.
 - [ ] 4.3 Store permission decisions as machine-readable audit records.
 - [ ] 4.3 Show "why this was requested" explanations in the permission UI.
-- [ ] 4.4 Add provider-level circuit breakers after repeated failures.
+- [x] 4.4 Add provider-level circuit breakers after repeated failures.
 - [ ] 4.5 Add periodic session DB `VACUUM`, size limits, and archiving.
 - [ ] 4.6 Prune low-information tool results before user messages during compaction.
 - [ ] 4.6 Show compaction points in the UI.
