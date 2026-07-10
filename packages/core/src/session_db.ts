@@ -216,6 +216,14 @@ export class SessionDB {
         );
       END;
     `);
+
+    // Bakım muhasebesi (son VACUUM/arşivleme zamanı gibi tekil değerler)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS meta (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    `);
   }
 
   // ── Session CRUD ────────────────────────────────────────────────────────────
@@ -322,6 +330,99 @@ export class SessionDB {
       this.db.prepare(`DELETE FROM sessions WHERE id = ?`).run(id);
     });
     tx(sessionId);
+  }
+
+  // ── Bakım: arşivleme + VACUUM ───────────────────────────────────────────────
+
+  private _getMeta(key: string): string | null {
+    const row = this.db.prepare(`SELECT value FROM meta WHERE key = ?`).get(key) as { value: string } | undefined;
+    return row?.value ?? null;
+  }
+
+  private _setMeta(key: string, value: string): void {
+    this.db.prepare(`INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(key, value);
+  }
+
+  /**
+   * Pinlenmemiş, belirtilen yaştan eski oturumları `archiveDir`'e JSON olarak
+   * dışa aktarır ve DB'den siler. Geriye arşivlenen oturum sayısını döner.
+   */
+  archiveOldSessions(opts: { olderThanMs: number; archiveDir: string; limit?: number } = { olderThanMs: 90 * 24 * 60 * 60 * 1000, archiveDir: path.join(DIRS.global.base, "archive") }): number {
+    const cutoff = Date.now() - opts.olderThanMs;
+    const candidates = this.db
+      .prepare(
+        `SELECT id FROM sessions WHERE pinned = 0 AND ended_at IS NOT NULL AND ended_at < ? ORDER BY ended_at ASC LIMIT ?`,
+      )
+      .all(cutoff, opts.limit ?? 500) as { id: string }[];
+
+    if (candidates.length === 0) return 0;
+
+    fs.mkdirSync(opts.archiveDir, { recursive: true });
+
+    let archived = 0;
+    for (const { id } of candidates) {
+      const session = this.getSession(id);
+      if (!session) continue;
+      const messages = this.getMessages(id, { limit: 100_000 });
+      const outPath = path.join(opts.archiveDir, `session-${id}.json`);
+      fs.writeFileSync(outPath, JSON.stringify({ session, messages }, null, 2), "utf8");
+      this.deleteSession(id);
+      archived++;
+    }
+    return archived;
+  }
+
+  /** `PRAGMA optimize` + `VACUUM` çalıştırır (WAL checkpoint dahil). */
+  vacuum(): void {
+    try {
+      this.db.pragma("optimize");
+    } catch {
+      // optimize best-effort — sürüm desteklemiyorsa yok say
+    }
+    this.db.exec("VACUUM");
+  }
+
+  /**
+   * Eski oturumları arşivler, DB dosya boyutu üst sınırı aşıyorsa pinlenmemiş
+   * en eski oturumları (yaşına bakmaksızın) sınırın altına inene kadar
+   * arşivlemeye devam eder, sonunda VACUUM çalıştırır.
+   */
+  runMaintenance(
+    opts: { olderThanMs?: number; maxSizeBytes?: number; archiveDir?: string } = {},
+  ): { archivedCount: number; sizeBeforeBytes: number; sizeAfterBytes: number } {
+    const olderThanMs = opts.olderThanMs ?? 90 * 24 * 60 * 60 * 1000;
+    const maxSizeBytes = opts.maxSizeBytes ?? 500 * 1024 * 1024; // 500MB
+    const archiveDir = opts.archiveDir ?? path.join(DIRS.global.base, "archive");
+
+    const sizeBeforeBytes = fs.existsSync(this.dbPath) ? fs.statSync(this.dbPath).size : 0;
+
+    let archivedCount = this.archiveOldSessions({ olderThanMs, archiveDir });
+
+    // Boyut hâlâ sınırın üzerindeyse, yaşa bakmaksızın en eski pinlenmemiş
+    // oturumları toplu halde arşivlemeye devam et.
+    let guard = 0;
+    while (fs.existsSync(this.dbPath) && fs.statSync(this.dbPath).size > maxSizeBytes && guard < 20) {
+      const more = this.archiveOldSessions({ olderThanMs: 0, archiveDir, limit: 100 });
+      if (more === 0) break;
+      archivedCount += more;
+      guard++;
+    }
+
+    this.vacuum();
+    const sizeAfterBytes = fs.existsSync(this.dbPath) ? fs.statSync(this.dbPath).size : 0;
+    this._setMeta("last_maintenance_at", String(Date.now()));
+
+    return { archivedCount, sizeBeforeBytes, sizeAfterBytes };
+  }
+
+  /** `runMaintenance`'ı yalnızca son çalışmadan bu yana `minIntervalMs` geçtiyse tetikler. */
+  maybeRunMaintenance(
+    opts: { olderThanMs?: number; maxSizeBytes?: number; archiveDir?: string; minIntervalMs?: number } = {},
+  ): { archivedCount: number; sizeBeforeBytes: number; sizeAfterBytes: number } | null {
+    const minIntervalMs = opts.minIntervalMs ?? 24 * 60 * 60 * 1000; // 24 saat
+    const last = Number(this._getMeta("last_maintenance_at") ?? 0);
+    if (Date.now() - last < minIntervalMs) return null;
+    return this.runMaintenance(opts);
   }
 
   getLastActiveAt(sessionId: string): number {
@@ -714,6 +815,11 @@ let _instance: SessionDB | null = null;
 export function getSessionDB(): SessionDB {
   if (!_instance) {
     _instance = new SessionDB();
+    try {
+      _instance.maybeRunMaintenance();
+    } catch {
+      // Bakım en fazla günde bir kez best-effort çalışır — hata oturumu engellemesin.
+    }
   }
   return _instance;
 }
