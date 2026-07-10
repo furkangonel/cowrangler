@@ -10,6 +10,7 @@ import { RightPanel } from "./RightPanel";
 import { ProjectHome } from "../project/ProjectHome";
 import { SessionView } from "../session/SessionView";
 import { CodeSessionView } from "../session/CodeSessionView";
+import { ErrorBoundary } from "../shared/ErrorBoundary";
 import { FEATURES } from "../../lib/features";
 import { NewProjectModal } from "../project/NewProjectModal";
 
@@ -130,19 +131,33 @@ export function AppShell() {
 
         <main className="flex flex-col flex-1 overflow-hidden bg-bg-primary">
           {showEmptyProjects && (
-            <EmptyState onNew={() => setNewProjectModal(true)} />
+            <ErrorBoundary label="Empty projects">
+              <EmptyState onNew={() => setNewProjectModal(true)} />
+            </ErrorBoundary>
           )}
-          {showProjectHome && <ProjectHome projectId={activeProjectId!} />}
+          {showProjectHome && (
+            <ErrorBoundary label="Project home">
+              <ProjectHome projectId={activeProjectId!} />
+            </ErrorBoundary>
+          )}
           {showSession && (
-            <SessionView
-              projectId={activeProjectId!}
-              sessionId={activeSessionId!}
-            />
+            <ErrorBoundary label="Session">
+              <SessionView
+                projectId={activeProjectId!}
+                sessionId={activeSessionId!}
+              />
+            </ErrorBoundary>
           )}
-          {showCode && <CodeSessionView />}
+          {showCode && (
+            <ErrorBoundary label="Code session">
+              <CodeSessionView />
+            </ErrorBoundary>
+          )}
         </main>
 
-        <RightPanel />
+        <ErrorBoundary label="Right panel">
+          <RightPanel />
+        </ErrorBoundary>
       </div>
 
       {newProjectModalOpen && <NewProjectModal />}

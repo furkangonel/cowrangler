@@ -22,6 +22,7 @@ import { registerExportIPC } from './ipc/export.ipc.js'
 import { registerTerminalIPC, getTerminalManager } from './ipc/terminal.ipc.js'
 import { registerPreviewIPC } from './ipc/preview.ipc.js'
 import { registerPluginsIPC } from './ipc/plugins.ipc.js'
+import { installTrustedIpcGuard, openAllowedExternalUrl } from './ipc/security.js'
 import { agentManager } from './agent_manager.js'
 // KRİTİK: Tüm yerleşik araçları (system/git/web/dev/skill/file/brief/computer_use +
 // mcp_status) registry'ye kaydet. Bu import olmadan desktop agent'ı yalnızca
@@ -32,6 +33,22 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 let mainWindow: BrowserWindow | null = null
 let ipcRegistered = false
+
+function reportMainProcessError(kind: string, error: unknown): void {
+  const message = error instanceof Error ? error.stack || error.message : String(error)
+  console.error(`[main] ${kind}: ${message}`)
+  if (app.isReady() && app.isPackaged) {
+    dialog.showErrorBox('Cowrangler error', 'An unexpected application error occurred. Check logs for details.')
+  }
+}
+
+process.on('uncaughtException', (error) => {
+  reportMainProcessError('uncaughtException', error)
+})
+
+process.on('unhandledRejection', (reason) => {
+  reportMainProcessError('unhandledRejection', reason)
+})
 
 function createWindow(): void {
   // Cowrangler ortamını başlat (config, credentials, dirs)
@@ -70,6 +87,7 @@ function createWindow(): void {
 
   // IPC handler'larını kaydet
   if (!ipcRegistered) {
+    installTrustedIpcGuard(ipcMain)
     registerAgentIPC(ipcMain, mainWindow)
     registerProjectsIPC(ipcMain)
     registerSessionsIPC(ipcMain)
@@ -117,7 +135,9 @@ function createWindow(): void {
 
   // Harici linkleri tarayıcıda aç
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
+    void openAllowedExternalUrl(url).catch((err) => {
+      console.warn(`[security] blocked external URL: ${err?.message ?? err}`)
+    })
     return { action: 'deny' }
   })
 

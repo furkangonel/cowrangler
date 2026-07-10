@@ -1,5 +1,6 @@
-import { IpcMain, shell, BrowserWindow } from 'electron'
+import { IpcMain, BrowserWindow } from 'electron'
 import { PluginManager } from '@cowrangler/core/plugins.js'
+import { openAllowedExternalUrl } from './security.js'
 
 export function registerPluginsIPC(ipcMain: IpcMain) {
   ipcMain.handle('plugins:list', async () => {
@@ -58,7 +59,7 @@ export function registerPluginsIPC(ipcMain: IpcMain) {
         } catch { /* best effort */ }
       }
       const res = await PluginManager.getInstance().runAction(pluginId, actionId, {
-        openUrl: (url: string) => { void shell.openExternal(url) },
+        openUrl: (url: string) => { void openAllowedExternalUrl(url) },
         log: send,
       })
       return res

@@ -4,7 +4,8 @@ import { existsSync, mkdirSync, statSync } from "fs";
 import path from "path";
 import mammoth from "mammoth";
 import pdfParse from "pdf-parse";
-import * as xlsx from "xlsx";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import ExcelJS from "exceljs";
 import fg from "fast-glob";
 import { registerTool } from "./registry.js";
 import { beforeMutation, setCheckpointBase } from "../checkpoints.js";
@@ -22,6 +23,71 @@ function _safePath(relativePath: string): string {
   return path.isAbsolute(relativePath)
     ? path.resolve(relativePath)
     : path.resolve(_WORKSPACE, relativePath);
+}
+
+function markdownToPlainText(markdown: string): string {
+  return markdown
+    .replace(/```[\s\S]*?```/g, (block) => block.replace(/```[a-zA-Z0-9_-]*\n?/g, "").replace(/```/g, ""))
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*[-*+]\s+/gm, "- ")
+    .replace(/^\s*\d+\.\s+/gm, (match) => match.trimEnd() + " ")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+}
+
+function wrapText(line: string, font: any, fontSize: number, maxWidth: number): string[] {
+  if (!line.trim()) return [""];
+  const words = line.split(/\s+/);
+  const wrapped: string[] = [];
+  let current = "";
+
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (font.widthOfTextAtSize(candidate, fontSize) <= maxWidth) {
+      current = candidate;
+      continue;
+    }
+    if (current) wrapped.push(current);
+    current = word;
+  }
+
+  if (current) wrapped.push(current);
+  return wrapped;
+}
+
+async function writeMarkdownPdf(target: string, markdown: string): Promise<void> {
+  const pdf = await PDFDocument.create();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const fontSize = 11;
+  const lineHeight = 15;
+  const margin = 54;
+  const pageWidth = 612;
+  const pageHeight = 792;
+  const maxWidth = pageWidth - margin * 2;
+  let page = pdf.addPage([pageWidth, pageHeight]);
+  let y = pageHeight - margin;
+
+  const lines = markdownToPlainText(markdown).split(/\r?\n/);
+  for (const line of lines) {
+    for (const wrapped of wrapText(line, font, fontSize, maxWidth)) {
+      if (y < margin) {
+        page = pdf.addPage([pageWidth, pageHeight]);
+        y = pageHeight - margin;
+      }
+      page.drawText(wrapped, {
+        x: margin,
+        y,
+        size: fontSize,
+        font,
+        color: rgb(0.08, 0.08, 0.08),
+      });
+      y -= lineHeight;
+    }
+  }
+
+  await fs.writeFile(target, await pdf.save());
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -145,7 +211,7 @@ registerTool(
 // ─────────────────────────────────────────────────────────────────────────────
 registerTool(
   "read_file",
-  "Read a file and return its content. Supports plain text/code, .docx, .pdf, .xlsx/.xls, .pptx, .rtf, .html, .csv. Optionally specify line range.",
+  "Read a file and return its content. Supports plain text/code, .docx, .pdf, .xlsx, .pptx, .rtf, .html, .csv. Optionally specify line range.",
   z.object({
     path: z.string(),
     start_line: z.number().optional().describe("First line to read (1-indexed)"),
@@ -166,11 +232,25 @@ registerTool(
         const data = await pdfParse(dataBuffer);
         return data.text;
       }
-      if (ext === ".xlsx" || ext === ".xls") {
-        const workbook = xlsx.readFile(target);
-        return workbook.SheetNames.map((name) => {
-          return `=== Sheet: ${name} ===\n${xlsx.utils.sheet_to_csv(workbook.Sheets[name])}`;
+      if (ext === ".xlsx") {
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.readFile(target);
+        return workbook.worksheets.map((sheet) => {
+          const rows: string[] = [];
+          sheet.eachRow((row) => {
+            const values = Array.isArray(row.values) ? row.values.slice(1) : [];
+            rows.push(values.map((value) => {
+              if (value == null) return "";
+              if (typeof value === "object" && "text" in value) return String((value as any).text);
+              if (typeof value === "object" && "result" in value) return String((value as any).result ?? "");
+              return String(value);
+            }).join(","));
+          });
+          return `=== Sheet: ${sheet.name} ===\n${rows.join("\n")}`;
         }).join("\n\n");
+      }
+      if (ext === ".xls") {
+        return "ERROR reading file: legacy .xls files are not supported. Please convert the workbook to .xlsx.";
       }
       if (ext === ".pptx") {
         const JSZip = (await import("jszip")).default;
@@ -524,20 +604,8 @@ registerTool(
       if (!relPath.toLowerCase().endsWith(".pdf")) relPath += ".pdf";
       const target = _safePath(relPath);
       await fs.mkdir(path.dirname(target), { recursive: true });
-      // markdown-pdf is an optional dependency (it pulls in phantomjs-prebuilt,
-      // whose OS-specific binary can fail to install on some platforms). Load it
-      // lazily so its absence never breaks startup or the build — only this tool.
-      let markdownpdf: any;
-      try {
-        markdownpdf = (await import("markdown-pdf")).default;
-      } catch {
-        return "ERROR creating PDF: the 'markdown-pdf' package is not installed in this build. Install it (`npm i markdown-pdf`) to enable create_pdf.";
-      }
-      return new Promise((resolve) => {
-        markdownpdf().from.string(markdown_content).to(target, () => {
-          resolve(`OK: PDF created at ${relPath}`);
-        });
-      });
+      await writeMarkdownPdf(target, markdown_content);
+      return `OK: PDF created at ${relPath}`;
     } catch (e: any) {
       return `ERROR creating PDF: ${e.message}`;
     }

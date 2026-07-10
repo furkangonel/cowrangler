@@ -1,13 +1,119 @@
 import { z } from "zod";
-import axios from "axios";
+import axios, { AxiosRequestConfig, AxiosResponse } from "axios";
 import * as cheerio from "cheerio";
 import TurndownService from "turndown";
 import { registerTool } from "./registry.js";
+import dns from "node:dns/promises";
+import net from "node:net";
 
 const turndown = new TurndownService({
   headingStyle: "atx",
   codeBlockStyle: "fenced",
 });
+
+const MAX_SAFE_REDIRECTS = 5;
+
+function isPrivateIpv4(ip: string): boolean {
+  const parts = ip.split(".").map((part) => Number(part));
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return true;
+  }
+
+  const [a, b] = parts;
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 198 && (b === 18 || b === 19)) ||
+    a >= 224
+  );
+}
+
+function normalizeIpv6(ip: string): string {
+  return ip.toLowerCase();
+}
+
+function isPrivateIpv6(ip: string): boolean {
+  const normalized = normalizeIpv6(ip);
+  return (
+    normalized === "::1" ||
+    normalized === "::" ||
+    normalized.startsWith("fc") ||
+    normalized.startsWith("fd") ||
+    normalized.startsWith("fe80:") ||
+    normalized.startsWith("::ffff:127.") ||
+    normalized.startsWith("::ffff:10.") ||
+    normalized.startsWith("::ffff:169.254.") ||
+    normalized.startsWith("::ffff:192.168.")
+  );
+}
+
+export function isBlockedNetworkAddress(address: string): boolean {
+  const family = net.isIP(address);
+  if (family === 4) return isPrivateIpv4(address);
+  if (family === 6) return isPrivateIpv6(address);
+  return true;
+}
+
+export async function assertPublicHttpUrl(rawUrl: string): Promise<URL> {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error("Invalid URL");
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("Only http and https URLs are allowed");
+  }
+
+  const literalFamily = net.isIP(parsed.hostname);
+  if (literalFamily && isBlockedNetworkAddress(parsed.hostname)) {
+    throw new Error(`Blocked private network address: ${parsed.hostname}`);
+  }
+
+  const records = await dns.lookup(parsed.hostname, { all: true, verbatim: true });
+  if (records.length === 0) {
+    throw new Error(`Could not resolve host: ${parsed.hostname}`);
+  }
+
+  const blocked = records.find((record) => isBlockedNetworkAddress(record.address));
+  if (blocked) {
+    throw new Error(`Blocked private network address: ${blocked.address}`);
+  }
+
+  return parsed;
+}
+
+async function safeAxiosRequest(config: AxiosRequestConfig, redirects = 0): Promise<AxiosResponse> {
+  if (!config.url) throw new Error("Missing URL");
+  const currentUrl = await assertPublicHttpUrl(config.url);
+  const response = await axios({
+    ...config,
+    url: currentUrl.toString(),
+    maxRedirects: 0,
+    validateStatus: () => true,
+  });
+
+  if (
+    response.status >= 300 &&
+    response.status < 400 &&
+    response.headers.location
+  ) {
+    if (redirects >= MAX_SAFE_REDIRECTS) {
+      throw new Error("Too many redirects");
+    }
+    const nextUrl = new URL(String(response.headers.location), currentUrl).toString();
+    await assertPublicHttpUrl(nextUrl);
+    return safeAxiosRequest({ ...config, url: nextUrl }, redirects + 1);
+  }
+
+  return response;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FETCH WEBPAGE (read-only, converts to Markdown)
@@ -39,7 +145,9 @@ registerTool(
     max_length: number;
   }) => {
     try {
-      const { data } = await axios.get(url, {
+      const { data } = await safeAxiosRequest({
+        method: "GET",
+        url,
         headers: {
           "User-Agent":
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -248,7 +356,7 @@ registerTool(
     timeout: number;
   }) => {
     try {
-      const response = await axios({
+      const response = await safeAxiosRequest({
         method: method.toLowerCase() as any,
         url,
         headers: {

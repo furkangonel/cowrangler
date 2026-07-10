@@ -4,6 +4,7 @@ import os from 'os'
 import path from 'path'
 import { getProjectDB } from '../project_db.js'
 import { getCodeWorkdir } from './code_workdir.js'
+import { openAllowedExternalUrl } from './security.js'
 
 /** Renderer'daki GLOBAL_PROJECT_ID ile aynı — projesiz genel sohbet. */
 const GLOBAL_PROJECT_ID = '__global__'
@@ -191,7 +192,7 @@ export function registerFSIPC(ipcMain: IpcMain): void {
   })
 
   ipcMain.handle('fs:openExternal', async (_, url: string) => {
-    shell.openExternal(url)
+    await openAllowedExternalUrl(url)
     return { ok: true }
   })
 }
