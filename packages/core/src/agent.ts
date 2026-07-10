@@ -402,9 +402,13 @@ export class Agent {
                   // Already approved in this plan context, proceed
                 } else {
                   const { executeAskUser } = await import("./tools/ask_user.js");
-                  const questionText = name === "execute_bash"
+                  const baseQuestion = name === "execute_bash"
                     ? `Do you want to run this command: "${args.command}"?`
                     : `Do you want to run tool: ${name}${extraInfo ? ` on "${extraInfo}"` : ""}?`;
+                  // Kullanıcı SADECE "izin ver mi" değil, NEDEN sorulduğunu da görsün.
+                  const questionText = permResult.reason
+                    ? `${baseQuestion}\n\n${riskBadge(permResult.riskLevel)} ${permResult.reason}`
+                    : baseQuestion;
 
                   // Onay istemi cevapsız kalırsa sonsuza dek asılı kalma:
                   // 10 dk sonra güvenli varsayılan olan Deny ile devam et.

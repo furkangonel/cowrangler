@@ -80,7 +80,11 @@ function createWindow(): void {
       preload: path.join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      // preload.ts yalnızca 'electron' modülünü kullanır (contextBridge/
+      // ipcRenderer/webUtils) — fs/path/child_process/require yok, bu yüzden
+      // Electron sandbox'ı (Node API'lerini preload'dan da kaldırır) güvenle
+      // açılabilir.
+      sandbox: true,
       webSecurity: true,
     },
   })
@@ -118,7 +122,7 @@ function createWindow(): void {
           preload: path.join(__dirname, '../preload/index.mjs'),
           contextIsolation: true,
           nodeIntegration: false,
-          sandbox: false,
+          sandbox: true,
           webSecurity: true,
         },
       })

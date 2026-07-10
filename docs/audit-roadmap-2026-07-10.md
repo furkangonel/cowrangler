@@ -42,7 +42,7 @@ Source: `COWRANGLER_KAPSAMLI_DENETIM_RAPORU_2026-07-10.md`
 
 ## Phase 3: Architecture, Product, And Hygiene
 
-- [ ] 3.1 Evaluate `sandbox: true` for windows that do not need Node in preload.
+- [x] 3.1 Evaluate `sandbox: true` for windows that do not need Node in preload. (mainWindow + design window flipped to `sandbox: true` — preload.ts only uses `electron`'s contextBridge/ipcRenderer/webUtils, no fs/path/child_process. Export's offscreen window was already sandboxed.)
 - [ ] 3.1 Use a separate sandboxed profile for preview or third-party-rendering windows.
 - [x] 3.2 Either extract UI strings into the i18n system or document i18n as limited to core messages.
 - [ ] 3.3 Split large files: `commands.ts`, `DesignHome.tsx`, `agent.ts`, and `DesignEditor.tsx`.
@@ -62,7 +62,7 @@ Source: `COWRANGLER_KAPSAMLI_DENETIM_RAPORU_2026-07-10.md`
 - [x] 4.2 Extend prompt-injection scanning to web page content and file read results.
 - [x] 4.2 Add language-broader prompt-injection patterns.
 - [x] 4.3 Store permission decisions as machine-readable audit records.
-- [ ] 4.3 Show "why this was requested" explanations in the permission UI.
+- [x] 4.3 Show "why this was requested" explanations in the permission UI.
 - [x] 4.4 Add provider-level circuit breakers after repeated failures.
 - [x] 4.5 Add periodic session DB `VACUUM`, size limits, and archiving.
 - [x] 4.6 Prune low-information tool results before user messages during compaction.
