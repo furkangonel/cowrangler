@@ -10,6 +10,12 @@ export default defineConfig({
       reporter: ["text", "lcov"],
       include: ["packages/**/src/**/*.ts", "apps/**/src/**/*.ts"],
       exclude: ["apps/cli/src/main.ts", "**/*.d.ts"],
+      thresholds: {
+        statements: 3,
+        branches: 40,
+        functions: 20,
+        lines: 3,
+      },
     },
     // ESM ortamı — ts files are run directly by vitest
     testTimeout: 15_000,

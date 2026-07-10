@@ -37,7 +37,7 @@ Source: `COWRANGLER_KAPSAMLI_DENETIM_RAPORU_2026-07-10.md`
 - [ ] 2.6 Complete macOS Developer ID signing and notarization in release workflow.
 - [ ] 2.7 Add IPC contract tests.
 - [ ] 2.7 Add Playwright E2E tests for app launch, chat start, file drop, and export.
-- [ ] 2.7 Add coverage threshold gates in CI.
+- [x] 2.7 Add coverage threshold gates in CI.
 - [ ] 2.8 Replace CLI base64 vault storage with macOS Keychain, Linux libsecret, and Windows ACL support.
 
 ## Phase 3: Architecture, Product, And Hygiene
@@ -54,7 +54,7 @@ Source: `COWRANGLER_KAPSAMLI_DENETIM_RAPORU_2026-07-10.md`
 - [x] 3.7 Add `SECURITY.md`.
 - [x] 3.7 Add issue templates.
 - [x] 3.7 Add `"engines": { "node": ">=20" }`.
-- [ ] 3.8 Add coverage reporting enforcement or PR comments.
+- [x] 3.8 Add coverage reporting enforcement or PR comments.
 
 ## Phase 4: Strengths To Extend
 
