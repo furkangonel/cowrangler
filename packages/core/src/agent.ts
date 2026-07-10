@@ -27,7 +27,7 @@ import { getSessionDB } from "./session_db.js";
 import { modelSupportsThinking, estimateCost } from "./model_metadata.js";
 import { getLogger } from "./logger.js";
 import { rotateCredentialPoolKey } from "./credential_pool.js";
-import { TrajectoryRecorder } from "./trajectory.js";
+import { TrajectoryRecorder, TRAJECTORY_RESULT_MAX_CHARS } from "./trajectory.js";
 import { cancelPendingAskUser } from "./tools/ask_user.js";
 
 /** Extended thinking destekleyen modeller için hızlı kontrol */
@@ -127,6 +127,13 @@ export class Agent {
 
   /** Trajectory recorder — null ise kayıt yapılmaz */
   public trajectoryRecorder: TrajectoryRecorder | null = null;
+  /**
+   * Bu turda tamamlanan araç çağrılarının sonuçları — execute sarmalayıcısı
+   * (getTools) tarafından toolCallId'ye göre doldurulur, recordTurn'den önce
+   * roundToolCalls'a eşlenip temizlenir. Sadece trajectoryRecorder aktifken
+   * anlamlıdır (opt-in kayıt — kullanıcı /trajectory start ile açar).
+   */
+  private _pendingToolResults = new Map<string, { result: unknown; isError: boolean }>();
 
   public approvedPlanActions = new Set<string>();
 
@@ -385,6 +392,7 @@ export class Agent {
                 const blockMsg = `${riskBadge(permResult.riskLevel)} BLOCKED: ${permResult.reason}`;
                 recordPermDecision("denied", "auto", permResult.reason);
                 this._onToolEvent?.({ id, name, phase: "done", durationMs: Date.now() - startedAt, result: blockMsg });
+                if (this.trajectoryRecorder) this._pendingToolResults.set(id, { result: blockMsg, isError: true });
                 return blockMsg;
               }
 
@@ -424,6 +432,7 @@ export class Agent {
                     const blockMsg = `${riskBadge("dangerous")} BLOCKED: User denied permission.`;
                     recordPermDecision("denied", "user", "User denied permission.");
                     this._onToolEvent?.({ id, name, phase: "done", durationMs: Date.now() - startedAt, result: blockMsg });
+                    if (this.trajectoryRecorder) this._pendingToolResults.set(id, { result: blockMsg, isError: true });
                     return blockMsg;
                   }
 
@@ -468,9 +477,12 @@ export class Agent {
               }
             }
             this._onToolEvent?.({ id, name, phase: "done", durationMs: Date.now() - startedAt, result: r });
+            if (this.trajectoryRecorder) this._pendingToolResults.set(id, { result: r, isError: false });
             return r;
           } catch (err) {
-            this._onToolEvent?.({ id, name, phase: "error", durationMs: Date.now() - startedAt, error: (err as any)?.message ?? String(err) });
+            const errMsg = (err as any)?.message ?? String(err);
+            this._onToolEvent?.({ id, name, phase: "error", durationMs: Date.now() - startedAt, error: errMsg });
+            if (this.trajectoryRecorder) this._pendingToolResults.set(id, { result: errMsg, isError: true });
             throw err;
           }
         },
@@ -604,7 +616,7 @@ export class Agent {
     let finalText = "";
     let responseMessages: CoreMessage[] = [];
     let roundToolCallCount = 0;
-    const roundToolCalls: { name: string; args: Record<string, unknown> }[] = [];
+    const roundToolCalls: { id?: string; name: string; args: Record<string, unknown> }[] = [];
 
     try {
       let lastError: unknown;
@@ -728,6 +740,7 @@ export class Agent {
                 for (const call of toolCalls) {
                   roundToolCallCount++;
                   roundToolCalls.push({
+                    id: call.toolCallId,
                     name: call.toolName,
                     args: (call.args ?? {}) as Record<string, unknown>,
                   });
@@ -1015,10 +1028,25 @@ export class Agent {
 
       // Trajectory kaydı
       if (this.trajectoryRecorder) {
+        const toolCallsWithResults = roundToolCalls.map(({ id, ...rest }) => {
+          const pending = id ? this._pendingToolResults.get(id) : undefined;
+          if (!pending) return rest;
+          const resultStr =
+            typeof pending.result === "string" ? pending.result : JSON.stringify(pending.result);
+          const truncated = resultStr.length > TRAJECTORY_RESULT_MAX_CHARS;
+          return {
+            ...rest,
+            result: truncated ? resultStr.slice(0, TRAJECTORY_RESULT_MAX_CHARS) : resultStr,
+            isError: pending.isError,
+            resultTruncated: truncated,
+          };
+        });
+        this._pendingToolResults.clear();
+
         this.trajectoryRecorder.recordTurn({
           userMessage,
           assistantResponse: finalText,
-          toolCalls: roundToolCalls,
+          toolCalls: toolCallsWithResults,
           inputTokens: totalInputTokens,
           outputTokens: totalOutputTokens,
           tokenCount: totalTokens,

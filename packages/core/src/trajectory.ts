@@ -30,10 +30,16 @@ export interface TrajectoryTurn {
   timestamp: number;
 }
 
+/** Kaydedilen sonuç metninin üst sınırı — trajectory dosyasının şişmesini önler. */
+export const TRAJECTORY_RESULT_MAX_CHARS = 4000;
+
 export interface TrajectoryToolCall {
   name: string;
   args: Record<string, unknown>;
-  /** true ise result kaydedilmedi (gizlilik / boyut) */
+  /** Aracın gerçek çıktısı (varsa) — `TRAJECTORY_RESULT_MAX_CHARS` karaktere kırpılır. */
+  result?: string;
+  isError?: boolean;
+  /** true ise `result` kırpıldı (tam metin değil) */
   resultTruncated?: boolean;
 }
 

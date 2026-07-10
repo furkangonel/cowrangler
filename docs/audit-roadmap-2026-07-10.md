@@ -49,7 +49,7 @@ Source: `COWRANGLER_KAPSAMLI_DENETIM_RAPORU_2026-07-10.md`
 - [x] 3.4 Confirm `.DS_Store` is ignored and not tracked by git.
 - [x] 3.4 Clean web `uploads/` hygiene.
 - [x] 3.4 Rename the web package from `cowrangler-temp`. (No package named `cowrangler-temp` exists in the current repo — verified via repo-wide grep; item was already resolved or referred to a stale snapshot.)
-- [ ] 3.5 Expand `trajectory.ts` into replayable model/tool/context audit records.
+- [x] 3.5 Expand `trajectory.ts` into replayable model/tool/context audit records.
 - [x] 3.6 Define and log precedence between static model catalog data and discovery results.
 - [x] 3.7 Add `SECURITY.md`.
 - [x] 3.7 Add issue templates.
@@ -65,7 +65,7 @@ Source: `COWRANGLER_KAPSAMLI_DENETIM_RAPORU_2026-07-10.md`
 - [ ] 4.3 Show "why this was requested" explanations in the permission UI.
 - [x] 4.4 Add provider-level circuit breakers after repeated failures.
 - [x] 4.5 Add periodic session DB `VACUUM`, size limits, and archiving.
-- [ ] 4.6 Prune low-information tool results before user messages during compaction.
+- [x] 4.6 Prune low-information tool results before user messages during compaction.
 - [x] 4.6 Show compaction points in the UI.
 - [ ] 4.7 Research and prototype embedding-based semantic code search on top of repomap.
 - [ ] 4.8 Add delta updates and in-app release notes.
