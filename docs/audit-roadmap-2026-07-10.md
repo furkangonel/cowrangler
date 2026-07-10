@@ -38,7 +38,7 @@ Source: `COWRANGLER_KAPSAMLI_DENETIM_RAPORU_2026-07-10.md`
 - [x] 2.7 Add IPC contract tests. (Static source-scan tests, not a shared type contract — catches renderer/main channel-name drift and duplicate handlers without needing an Electron runtime. Found and removed one real dead listener, `agent:approvalRequest`.)
 - [x] 2.7 Add Playwright E2E tests for app launch, chat start, file drop, and export. (New e2e/ dir, 6 tests across 4 spec files. Found and fixed two real bugs along the way: sandboxed preload couldn't load as ESM, and pre-stream agent errors were silently dropped in the UI. CI job added as report-only — unverified in real GitHub Actions, only tested locally on macOS.)
 - [x] 2.7 Add coverage threshold gates in CI.
-- [ ] 2.8 Replace CLI base64 vault storage with macOS Keychain, Linux libsecret, and Windows ACL support.
+- [x] 2.8 Replace CLI base64 vault storage with macOS Keychain, Linux libsecret, and Windows ACL support. (macOS via `security` CLI and Linux via `secret-tool`, both shelled out from a new os_keychain.ts — no native module dependency. Windows: no equivalent CLI store exists, so base64 fallback stays but the file is now locked to the current user via `icacls` — real Keychain-equivalent encryption on Windows would need a native module or DPAPI shell-out neither of which could be verified in this session.)
 
 ## Phase 3: Architecture, Product, And Hygiene
 
