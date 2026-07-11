@@ -34,6 +34,7 @@ import { ShortcutOverlay } from "./ShortcutOverlay.js";
 import { StatusBar } from "./StatusBar.js";
 import { ModelPicker } from "./ModelPicker.js";
 import { DIRS } from "@cowrangler/core/init.js";
+import { TaskManager } from "@cowrangler/core/task_manager.js";
 import { LLM } from "@cowrangler/core/llm.js";
 import yaml from "js-yaml";
 
@@ -194,13 +195,8 @@ export const App: React.FC<AppProps> = ({ agent }) => {
     }
     const readActiveTask = () => {
       try {
-        if (!fs.existsSync(DIRS.local.tasks)) return;
-        const raw = fs.readFileSync(DIRS.local.tasks, "utf-8");
-        const store = JSON.parse(raw);
-        const active = (store.tasks ?? []).find(
-          (t: any) => t.status === "in_progress",
-        ) ?? (store.tasks ?? []).find((t: any) => t.status === "todo");
-        setActiveTodoItem(active?.title ?? null);
+        const active = new TaskManager().getActive();
+        setActiveTodoItem(active?.subject ?? null);
       } catch {
         setActiveTodoItem(null);
       }

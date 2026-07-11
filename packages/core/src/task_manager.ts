@@ -63,7 +63,10 @@ export class TaskManager {
   }
 
   private _loadAll(): SessionTask[] {
-    const dir = this._getDir();
+    // Salt-okuma: dizin yoksa oluşturma (UI göstergesi 800ms'de yoklar; global
+    // depoyu boş yere yaratmasın). Yalnızca yazma yolları (_save) dizini oluşturur.
+    const dir = getProjectTasksDir();
+    if (!fs.existsSync(dir)) return [];
     const tasks: SessionTask[] = [];
     const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
 
@@ -246,6 +249,23 @@ export class TaskManager {
 
   list(filter?: TaskStatus[]): string {
     return this._render(filter);
+  }
+
+  /**
+   * Üzerinde çalışılan görevi döndürür: öncelik in_progress, yoksa ilk todo.
+   * UI göstergeleri için (aktif task etiketi). Görev yoksa null.
+   */
+  getActive(): SessionTask | null {
+    try {
+      const tasks = this._loadAll();
+      return (
+        tasks.find((t) => t.status === "in_progress") ??
+        tasks.find((t) => t.status === "todo") ??
+        null
+      );
+    } catch {
+      return null;
+    }
   }
 
   /**

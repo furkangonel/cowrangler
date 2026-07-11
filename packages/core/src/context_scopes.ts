@@ -9,16 +9,17 @@
  * Precedence (düşük → yüksek, yüksek olan ezer):
  *   bundled < global < project < session
  *
- * Kanonik yerleşim:
+ * Kanonik yerleşim (session katmanı = global proje deposu <store> =
+ * ~/.cowrangler/projects/<label>-<hash>/; proje dizinini kirletmez):
  *   Skills        global   ~/.cowrangler/skills/
  *                 project  {workdir}/.cowrangler/skills/
- *                 session  {workdir}/.cowrangler/context/skills/<sessionId>/
+ *                 session  <store>/context/skills/<sessionId>/
  *   Agents        global   ~/.cowrangler/agents/
  *                 project  {workdir}/.cowrangler/agents/
- *                 session  {workdir}/.cowrangler/context/agents/<sessionId>/
+ *                 session  <store>/context/agents/<sessionId>/
  *   Memory        global   ~/.cowrangler/memory.md
  *                 project  {workdir}/.cowrangler/memory/
- *                 session  {workdir}/.cowrangler/context/memory/<sessionId>.md
+ *                 session  <store>/context/memory/<sessionId>.md
  *   Instructions  project  {workdir}/COWRNGLR.md
  */
 
