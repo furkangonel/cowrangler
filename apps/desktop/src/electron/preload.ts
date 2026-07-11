@@ -14,6 +14,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('agent:newSession', projectId),
     setCodeWorkdir: (dir: string | null) =>
       ipcRenderer.invoke('agent:setCodeWorkdir', dir),
+    getCodeDirs: () =>
+      ipcRenderer.invoke('agent:getCodeDirs'),
+    addCodeDir: (dir: string) =>
+      ipcRenderer.invoke('agent:addCodeDir', dir),
+    removeCodeDir: (dir: string) =>
+      ipcRenderer.invoke('agent:removeCodeDir', dir),
     getTodo: (projectId: string, sessionId?: string) =>
       ipcRenderer.invoke('agent:getTodo', projectId, sessionId),
     setActiveSession: (sessionId: string | null) =>

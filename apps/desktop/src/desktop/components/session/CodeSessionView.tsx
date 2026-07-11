@@ -11,8 +11,8 @@
  */
 import React, { useEffect, useRef, useCallback, useState } from 'react'
 import {
-  Plus, Square, FolderOpen, GitBranch, Check, Monitor, GitBranchPlus,
-  ChevronRight, ChevronDown, Code2, GitPullRequest, RefreshCw, X,
+  Plus, Square, FolderOpen, GitBranch, Check,
+  ChevronDown, Code2, GitPullRequest, RefreshCw, X,
 } from 'lucide-react'
 import { ipc } from '../../lib/ipc'
 import { useAgentStore } from '../../stores/agent.store'
@@ -28,6 +28,27 @@ import { StatsDashboard } from './StatsDashboard'
 export const CODE_PROJECT_ID = '__code__'
 /** Henüz DB'ye yazılmamış taze oturum (ilk mesajda gerçek id ile değişir). */
 const NEW_CODE_SESSION = '__new__'
+
+/**
+ * "New task" — taze bir kod workspace'i başlat. Ana sayfayı (CodeHome) açar:
+ * mevcut oturumdan çıkar, workdir + ek dizinleri sıfırlar ki kullanıcı yeni bir
+ * ana workspace seçebilsin. Sol sidebardaki "New task" butonu bunu çağırır.
+ */
+export async function startNewCodeTask(): Promise<void> {
+  await ipc.agent.newSession(CODE_PROJECT_ID).catch(() => {})
+  const agent = useAgentStore.getState()
+  agent.setStatus('idle')
+  agent.clearToolCalls()
+  agent.clearTimelines()
+  agent.setProgress([])
+  agent.setCurrentPlan(null)
+  useSessionsStore.getState().clearUIMessages()
+  // Ana workspace'i sıfırla → CodeHome'da yeni klasör seçilebilir (setCodeWorkdir
+  // null ek dizinleri de backend'de temizler).
+  useGitStore.getState().setWorkdir(null)
+  ipc.agent.setCodeWorkdir(null).catch(() => {})
+  useUIStore.getState().setActiveCodeSession(null)
+}
 
 /* ══════════════════════════════════════════════════════════════════════════ */
 
@@ -133,7 +154,7 @@ export function CodeSessionView() {
     const checkServer = async () => {
       const found = await ipc.preview.detect(workdir).catch(() => null)
       const isNowRunning = !!found
-      
+
       if (!isMounted) return
 
       setDevServerRunning((prev) => {
@@ -236,24 +257,39 @@ export function CodeSessionView() {
     )
   }, [handleSend])
 
-  const handleNewSession = useCallback(async () => {
-    await ipc.agent.newSession(CODE_PROJECT_ID)
-    agentStore.setStatus('idle')
-    agentStore.clearToolCalls()
-    agentStore.clearTimelines()
-    clearUIMessages()
-    // '__new__' → boş sohbet ekranı + input açılır (CodeHome'a düşmeden yazılabilir).
-    setActiveCodeSession(NEW_CODE_SESSION)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
+  // Ana workspace (primary) — bir kez seçilir, sonra kilitlenir. Yalnız workdir
+  // yokken seçilebilir; değiştirmek için soldan "New task" → yeni workspace.
   const handlePickFolder = useCallback(async () => {
+    if (workdir) return // primary kilitli
     const path = await ipc.fs.pickFolder()
     if (path) {
       gitStore.setWorkdir(path)
       ipc.agent.setCodeWorkdir(path).catch(() => {})
     }
-  }, [gitStore])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gitStore, workdir])
+
+  // Ek çalışma dizinleri — ana workspace dışında agent'ın erişebildiği klasörler.
+  const [extraDirs, setExtraDirs] = useState<string[]>([])
+  const refreshDirs = useCallback(async () => {
+    const d = await ipc.agent.getCodeDirs().catch(() => null)
+    if (d) setExtraDirs(d.extraDirs || [])
+  }, [])
+  useEffect(() => { void refreshDirs() }, [workdir, refreshDirs])
+
+  const handleAddFolder = useCallback(async () => {
+    if (!workdir) return // önce ana workspace seçilmeli
+    const path = await ipc.fs.pickFolder()
+    if (path && path !== workdir) {
+      await ipc.agent.addCodeDir(path).catch(() => {})
+      void refreshDirs()
+    }
+  }, [workdir, refreshDirs])
+
+  const handleRemoveDir = useCallback(async (dir: string) => {
+    await ipc.agent.removeCodeDir(dir).catch(() => {})
+    void refreshDirs()
+  }, [refreshDirs])
 
   const hasMessages = uiMessages.length > 0
 
@@ -261,12 +297,12 @@ export function CodeSessionView() {
   // '__new__' (taze) veya gerçek id → aşağıdaki sohbet + input görünümü açılır.
   if (!activeCodeSessionId) {
     return (
-      <div className="flex flex-col h-full overflow-hidden bg-bg-primary">
+      <div className="code-chat flex flex-col h-full overflow-hidden bg-bg-primary">
         <div className="flex-1 overflow-y-auto px-8 pt-16 pb-8">
           <StatsDashboard userName={userName} />
         </div>
 
-        {/* Workspace chip bar (Local · folder · branch · worktree) */}
+        {/* Workspace chip bar — primary (kilitli) · branch · ek dizinler */}
         <CodeWorkspaceBar
           workdir={workdir}
           repoName={repoName}
@@ -274,6 +310,9 @@ export function CodeSessionView() {
           gitStatus={gitStore.status}
           onPickFolder={handlePickFolder}
           onCheckout={(b) => void gitStore.checkout(b)}
+          extraDirs={extraDirs}
+          onAddFolder={handleAddFolder}
+          onRemoveDir={handleRemoveDir}
         />
 
         {/* Input */}
@@ -281,34 +320,28 @@ export function CodeSessionView() {
           onSend={handleSend}
           onInterrupt={handleInterrupt}
           disabled={status === 'thinking' || !workdir}
-          placeholder={!workdir ? 'Lütfen işlem başlatmak için önce bir klasör (proje) seçin...' : undefined}
+          busy={status === 'thinking'}
+          placeholder={!workdir ? 'Please select a folder (project) first to start the process...' : undefined}
           projectId={CODE_PROJECT_ID}
+          variant="code"
         />
       </div>
     )
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-bg-primary">
-      {/* Header */}
+    <div className="code-chat flex flex-col h-full overflow-hidden bg-bg-primary">
+      {/* Header — minimal: başlık + repo. Geri/New yok (gezinme sol sidebardan). */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-border-subtle flex-shrink-0 bg-bg-primary">
-        <div className="flex items-center gap-2">
-          {/* ← Back to Home button */}
-          <button
-            onClick={() => setActiveCodeSession(null)}
-            className="p-1 -ml-1 text-text-muted hover:text-text-primary transition-colors"
-            title="Back to Code Home"
-          >
-            <ChevronRight size={15} className="rotate-180" />
-          </button>
-          <Code2 size={14} className="text-accent ml-1" />
-          <span className="text-sm font-medium text-text-secondary truncate max-w-[280px]">
-            {activeCodeSessionId === NEW_CODE_SESSION 
-              ? 'New Session' 
+        <div className="flex items-center gap-2 min-w-0">
+          <Code2 size={14} className="text-accent flex-shrink-0" />
+          <span className="text-sm font-medium text-text-secondary truncate max-w-[360px]">
+            {activeCodeSessionId === NEW_CODE_SESSION
+              ? 'New Session'
               : (uiMessages[0]?.content?.slice(0, 60) || 'Code session')}
           </span>
           {repoName && (
-            <span className="text-xs text-text-muted bg-bg-tertiary px-1.5 py-0.5 rounded-md font-mono border border-border-subtle ml-2">
+            <span className="text-xs text-text-muted bg-bg-tertiary px-1.5 py-0.5 rounded-md font-mono border border-border-subtle ml-1 flex-shrink-0">
               {repoName}
             </span>
           )}
@@ -322,12 +355,6 @@ export function CodeSessionView() {
               <Square size={11} className="fill-current" /> Stop
             </button>
           )}
-          <button
-            onClick={handleNewSession}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-text-secondary border border-border rounded-lg hover:text-text-primary hover:border-accent/40 transition-colors"
-          >
-            <Plus size={12} /> New
-          </button>
         </div>
       </div>
 
@@ -384,10 +411,12 @@ export function CodeSessionView() {
           repoName={repoName}
           gitStatus={gitStore.status}
           gitBranches={gitStore.branches}
-          onPickFolder={handlePickFolder}
           onRefresh={() => gitStore.refresh()}
           onCreatePR={handleCreatePR}
           loading={gitStore.loading}
+          extraDirs={extraDirs}
+          onAddFolder={handleAddFolder}
+          onRemoveDir={handleRemoveDir}
         />
       )}
 
@@ -397,27 +426,16 @@ export function CodeSessionView() {
         onInterrupt={handleInterrupt}
         disabled={status === 'thinking' && !(agentStore.qaPrompt && agentStore.qaPrompt.meta?.sessionId === activeCodeSessionId)}
         projectId={CODE_PROJECT_ID}
+        variant="code"
       />
     </div>
   )
 }
 
-/* ── Code Workspace chip bar — Local · folder · branch · worktree ─────────── */
-const RECENTS_KEY = 'cowrangler.code.recentFolders'
-
-function readRecents(): string[] {
-  try { return JSON.parse(localStorage.getItem(RECENTS_KEY) || '[]') } catch { return [] }
-}
-function pushRecent(path: string) {
-  try {
-    const list = readRecents().filter((p) => p !== path)
-    list.unshift(path)
-    localStorage.setItem(RECENTS_KEY, JSON.stringify(list.slice(0, 10)))
-  } catch { /* yoksay */ }
-}
-
+/* ── Code Workspace chip bar — primary (kilitli) · branch · ek dizinler ────── */
 function CodeWorkspaceBar({
   workdir, repoName, branches, gitStatus, onPickFolder, onCheckout,
+  extraDirs, onAddFolder, onRemoveDir,
 }: {
   workdir: string | null
   repoName: string | null
@@ -425,88 +443,30 @@ function CodeWorkspaceBar({
   gitStatus: import('../../lib/ipc').GitStatus | null
   onPickFolder: () => void
   onCheckout: (branch: string) => void
+  extraDirs: string[]
+  onAddFolder: () => void
+  onRemoveDir: (dir: string) => void
 }) {
-  const [menu, setMenu] = useState<null | 'folder' | 'branch'>(null)
+  const [menu, setMenu] = useState<null | 'branch'>(null)
   const currentBranch = gitStatus?.branch || branches?.current || null
-  const [recents, setRecents] = useState<string[]>([])
-
-  useEffect(() => {
-    if (menu === 'folder') {
-      setRecents(readRecents())
-    }
-  }, [menu])
-
-  useEffect(() => {
-    if (workdir) {
-      pushRecent(workdir)
-      if (menu === 'folder') {
-        setRecents(readRecents())
-      }
-    }
-  }, [workdir, menu])
-
   const close = () => setMenu(null)
 
-  const handleRemoveRecent = (e: React.MouseEvent, pathToRemove: string) => {
-    e.stopPropagation()
-    try {
-      const list = readRecents().filter((p) => p !== pathToRemove)
-      localStorage.setItem(RECENTS_KEY, JSON.stringify(list))
-      setRecents(list)
-    } catch { /* yoksay */ }
-  }
-
   return (
-    <div className="flex items-center gap-1.5 px-4 py-1.5 text-[11px] text-text-muted flex-shrink-0 relative">
-      {/* Folder */}
-      <div className="relative">
-        <Chip
-          icon={<FolderOpen size={12} />}
-          label={repoName ?? 'Open folder'}
-          onClick={() => setMenu((m) => (m === 'folder' ? null : 'folder'))}
-          active={menu === 'folder'}
-        />
-        {menu === 'folder' && (
-          <>
-            <div className="fixed inset-0 z-40" onClick={close} />
-            <div className="absolute bottom-full left-0 mb-1.5 z-50 w-56 bg-bg-secondary border border-border rounded-xl shadow-pop p-1 animate-slide-up">
-              {recents.length > 0 && (
-                <div className="px-2 py-1 text-[10px] text-text-muted uppercase tracking-wide">Recent</div>
-              )}
-              {recents.map((p) => (
-                <div
-                  key={p}
-                  className="w-full flex items-center group px-1 py-0.5 rounded-lg hover:bg-bg-hover transition-colors text-left"
-                >
-                  <button
-                    onClick={() => { close(); useGitStore.getState().setWorkdir(p); ipc.agent.setCodeWorkdir(p).catch(() => {}) }}
-                    className="flex-1 flex items-center gap-2 px-1 py-1 text-left min-w-0"
-                  >
-                    <span className="truncate text-xs text-text-primary" title={p}>{p.split('/').pop()}</span>
-                    {p === workdir && <Check size={12} className="text-accent flex-shrink-0 ml-auto" />}
-                  </button>
-                  <button
-                    onClick={(e) => handleRemoveRecent(e, p)}
-                    className="opacity-0 group-hover:opacity-100 p-1 text-text-muted hover:text-text-primary rounded hover:bg-bg-secondary flex-shrink-0 transition-opacity ml-1"
-                    title="Remove from recents"
-                  >
-                    <X size={10} />
-                  </button>
-                </div>
-              ))}
-              <button
-                onClick={() => { close(); onPickFolder() }}
-                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left hover:bg-bg-hover transition-colors border-t border-border-subtle/50 mt-1 pt-1.5"
-              >
-                <FolderOpen size={12} className="text-text-muted" />
-                <span className="text-xs text-text-secondary">Open folder…</span>
-              </button>
-            </div>
-          </>
-        )}
-      </div>
+    <div className="flex items-center gap-1.5 px-4 py-1.5 text-[11px] text-text-muted flex-shrink-0 relative flex-wrap">
+      {/* Primary workspace — yoksa seçtir, varsa kilitli göster */}
+      {!workdir ? (
+        <Chip icon={<FolderOpen size={12} />} label="Open folder" onClick={onPickFolder} />
+      ) : (
+        <div
+          className="flex items-center gap-1.5 px-2 py-1 rounded-md text-text-secondary cursor-default"
+          title={workdir}
+        >
+          <FolderOpen size={12} className="text-text-muted" />
+          <span className="font-medium truncate max-w-[140px]">{repoName}</span>
+        </div>
+      )}
 
-      {/* Branch */}
+      {/* Branch (kilitli değil — dallar arası geçiş serbest) */}
       {currentBranch && (
         <div className="relative">
           <Chip
@@ -534,7 +494,51 @@ function CodeWorkspaceBar({
           )}
         </div>
       )}
+
+      {/* Ek çalışma dizinleri + ekle */}
+      {workdir && (
+        <ExtraDirsChips extraDirs={extraDirs} onAddFolder={onAddFolder} onRemoveDir={onRemoveDir} />
+      )}
     </div>
+  )
+}
+
+/* ── Ek dizin chip'leri (ana workspace dışında agent'ın eriştiği klasörler) ── */
+function ExtraDirsChips({
+  extraDirs, onAddFolder, onRemoveDir,
+}: {
+  extraDirs: string[]
+  onAddFolder: () => void
+  onRemoveDir: (dir: string) => void
+}) {
+  return (
+    <>
+      {extraDirs.map((d) => (
+        <div
+          key={d}
+          className="flex items-center gap-1 pl-2 pr-1 py-1 rounded-md bg-bg-tertiary border border-border-subtle text-text-secondary"
+          title={d}
+        >
+          <FolderOpen size={11} className="text-text-muted flex-shrink-0" />
+          <span className="font-medium truncate max-w-[120px]">{d.split('/').pop()}</span>
+          <button
+            onClick={() => onRemoveDir(d)}
+            className="ml-0.5 p-0.5 rounded text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors flex-shrink-0"
+            title="Remove folder"
+          >
+            <X size={10} />
+          </button>
+        </div>
+      ))}
+      <button
+        onClick={onAddFolder}
+        title="Add another folder the agent can work in"
+        className="flex items-center gap-1 px-1.5 py-1 rounded-md text-text-muted hover:text-text-secondary hover:bg-bg-hover transition-colors"
+      >
+        <Plus size={12} />
+        <span className="font-medium">Add folder</span>
+      </button>
+    </>
   )
 }
 
@@ -555,16 +559,19 @@ function Chip({ icon, label, onClick, active }: { icon: React.ReactNode; label: 
 
 /* ── Git status bar — sessions içindeki alt git çubuğu ───────────────────── */
 function CodeGitBar({
-  workdir, repoName, gitStatus, gitBranches, onPickFolder, onRefresh, onCreatePR, loading,
+  workdir, repoName, gitStatus, gitBranches, onRefresh, onCreatePR, loading,
+  extraDirs, onAddFolder, onRemoveDir,
 }: {
   workdir: string | null
   repoName: string | null
   gitStatus: any
   gitBranches: any
-  onPickFolder: () => void
   onRefresh: () => void
   onCreatePR: (kind?: 'pr' | 'draft') => void
   loading: boolean
+  extraDirs: string[]
+  onAddFolder: () => void
+  onRemoveDir: (dir: string) => void
 }) {
   const stagedCount   = (gitStatus?.files ?? []).filter((f: any) => f.staged).length
   const unstagedCount = (gitStatus?.files ?? []).filter((f: any) => f.unstaged).length
@@ -578,16 +585,15 @@ function CodeGitBar({
   }
 
   return (
-    <div className="flex items-center gap-3 px-4 py-2 border-t border-border-subtle bg-bg-primary text-[11px] text-text-muted flex-shrink-0 z-10">
-      {/* Folder / repo */}
-      <button
-        onClick={onPickFolder}
-        className="flex items-center gap-1.5 hover:text-text-secondary transition-colors py-0.5"
-        title={workdir ?? 'Pick a folder'}
+    <div className="flex items-center gap-3 px-4 py-2 border-t border-border-subtle bg-bg-primary text-[11px] text-text-muted flex-shrink-0 z-10 flex-wrap">
+      {/* Folder / repo — primary kilitli (sadece gösterim) */}
+      <div
+        className="flex items-center gap-1.5 py-0.5 cursor-default"
+        title={workdir ?? 'No folder'}
       >
         <FolderOpen size={13} className="text-text-muted" />
         <span className="font-mono truncate max-w-[150px] font-medium">{repoName ?? 'No folder'}</span>
-      </button>
+      </div>
 
       {gitStatus?.branch && (
         <>
@@ -619,6 +625,13 @@ function CodeGitBar({
             )}
           </div>
         </>
+      )}
+
+      {/* Ek çalışma dizinleri + ekle */}
+      {workdir && (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <ExtraDirsChips extraDirs={extraDirs} onAddFolder={onAddFolder} onRemoveDir={onRemoveDir} />
+        </div>
       )}
 
       <div className="ml-auto flex items-center gap-1.5">

@@ -9,7 +9,7 @@ import { getConfig } from '@cowrangler/core/init.js'
 import { getSystemPrompt } from '@cowrangler/core/prompts/index.js'
 import { Agent } from '@cowrangler/core/agent.js'
 import { setAskUserListener, resolveAskUser } from '@cowrangler/core/tools/ask_user.js'
-import { getCodeWorkdir, setCodeWorkdir } from './code_workdir.js'
+import { getCodeWorkdir, setCodeWorkdir, getCodeExtraDirs, addCodeExtraDir, removeCodeExtraDir } from './code_workdir.js'
 import { ensureProjectWorkdir } from './managed_workspace.js'
 
 /** Code sekmesi için sabit projectId. Renderer'daki CODE_PROJECT_ID ile aynı. */
@@ -90,7 +90,20 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       ? 'desktop_code'
       : isDesign ? 'desktop_design' : 'desktop_session'
     const basePrompt = getSystemPrompt(contextType)
-    const systemPrompt = buildSystemPrompt(basePrompt, instructions)
+    let systemPrompt = buildSystemPrompt(basePrompt, instructions)
+
+    // Code: ana workspace dışında kullanıcının eklediği EK dizinleri agent'a bildir.
+    // file_tools mutlak yol kabul eder → agent bu dizinlerde de okuyup yazabilir.
+    if (projectId === CODE_PROJECT_ID) {
+      const extraDirs = getCodeExtraDirs()
+      if (extraDirs.length > 0) {
+        systemPrompt +=
+          `\n\n---\n\n## ADDITIONAL WORKSPACE DIRECTORIES\n\n` +
+          `Besides the primary workspace, you may also read, edit, and run code in ` +
+          `these directories. Reference their files by ABSOLUTE path:\n` +
+          extraDirs.map((d) => `- ${d}`).join('\n')
+      }
+    }
 
     // Design: needs to WRITE screen files + assets, but must START BUILDING
     // immediately. Excludes manage_task (no task-list stalling), spawn_subagent,
@@ -371,6 +384,33 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
     setCodeWorkdir(next)
     agentManager.destroy(CODE_PROJECT_ID)
     return { ok: true }
+  })
+
+  // ── agent:getCodeDirs ──────────────────────────────────────────────────────
+  // Ana workspace + kullanıcının eklediği ek dizinleri döndür (Code workspace bar).
+  ipcMain.handle('agent:getCodeDirs', async () => ({
+    workdir: getCodeWorkdir() ?? null,
+    extraDirs: getCodeExtraDirs(),
+  }))
+
+  // ── agent:addCodeDir ───────────────────────────────────────────────────────
+  // Ana workspace dışında EK bir çalışma dizini ekle. Agent'ı düşür ki bir
+  // sonraki mesaj güncel dizin setini görsün.
+  ipcMain.handle('agent:addCodeDir', async (_, dir: string) => {
+    if (dir) {
+      addCodeExtraDir(dir)
+      agentManager.destroy(CODE_PROJECT_ID)
+    }
+    return { ok: true, extraDirs: getCodeExtraDirs() }
+  })
+
+  // ── agent:removeCodeDir ────────────────────────────────────────────────────
+  ipcMain.handle('agent:removeCodeDir', async (_, dir: string) => {
+    if (dir) {
+      removeCodeExtraDir(dir)
+      agentManager.destroy(CODE_PROJECT_ID)
+    }
+    return { ok: true, extraDirs: getCodeExtraDirs() }
   })
 
   // ── agent:getTodo ──────────────────────────────────────────────────────────

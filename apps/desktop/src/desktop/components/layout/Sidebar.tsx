@@ -10,7 +10,7 @@ import { useSessionsStore } from '../../stores/sessions.store'
 import { useUIStore } from '../../stores/ui.store'
 import { useAgentStore } from '../../stores/agent.store'
 import { ipc } from '../../lib/ipc'
-import { CODE_PROJECT_ID } from '../session/CodeSessionView'
+import { CODE_PROJECT_ID, startNewCodeTask } from '../session/CodeSessionView'
 import { FEATURES } from '../../lib/features'
 import { formatRelative } from '../../lib/time'
 import { UpdateBanner } from '../UpdateBanner'
@@ -177,13 +177,13 @@ export function Sidebar() {
         <div className="flex-1" />
         <UpdateBanner collapsed />
 
-        <button
-          onClick={() => ipc.design.openWindow()}
-          title="Design"
-          className="reasoning-gradient-button w-9 h-9 flex items-center justify-center rounded-xl transition-all hover:opacity-90 active:scale-95"
-        >
-          <Palette size={15} />
-        </button>
+        {activeTab === 'projects' && (
+          <NavIconBtn
+            onClick={() => ipc.design.openWindow()}
+            title="Design"
+            icon={<Palette size={16} />}
+          />
+        )}
 
         <NavIconBtn onClick={() => openCustomize()} title="Customize" icon={<Boxes size={16} />} />
         <NavIconBtn onClick={() => openSettings('models')} title="Settings" icon={<Settings size={16} />} />
@@ -210,7 +210,23 @@ export function Sidebar() {
       {/* ── Scrollable list ── */}
       <div className="flex-1 overflow-y-auto px-2 pb-2">
 
-        {FEATURES.code && activeTab === 'code' && <CodeSessionsList />}
+        {FEATURES.code && activeTab === 'code' && (
+          <>
+            {/* New task — taze workspace: ana sayfayı açar, klasör seçtirir */}
+            <div className="px-1 pt-0.5 pb-2">
+              <button
+                onClick={() => void startNewCodeTask()}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium
+                           bg-bg-tertiary border border-border-subtle text-text-secondary
+                           hover:text-text-primary hover:border-accent/40 hover:bg-bg-hover transition-colors"
+              >
+                <Plus size={13} className="flex-shrink-0" />
+                <span>New task</span>
+              </button>
+            </div>
+            <CodeSessionsList />
+          </>
+        )}
 
         {activeTab === 'projects' && (
           <>
@@ -303,17 +319,14 @@ export function Sidebar() {
       <div className="border-t border-border-subtle pt-2 pb-3 flex flex-col">
         <UpdateBanner />
         <div className="px-2 space-y-0.5">
-          <button
-            onClick={() => ipc.design.openWindow()}
-            className="reasoning-gradient-button w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium
-                       transition-all hover:opacity-95 active:scale-[0.98]"
-          >
-            <Palette size={13} className="flex-shrink-0" />
-            <span>Design</span>
-            <span className="ml-auto flex items-center gap-1 text-[10px] bg-white/20 rounded px-1.5 py-0.5 font-semibold leading-none">
-             New
-            </span>
-          </button>
+          {/* Design — sade liste öğesi, yalnız Cowork tab'ında görünür */}
+          {activeTab === 'projects' && (
+            <FooterBtn
+              onClick={() => ipc.design.openWindow()}
+              icon={<Palette size={13} />}
+              label="Design"
+            />
+          )}
           <FooterBtn onClick={() => openCustomize()}        icon={<Boxes size={13} />}    label="Customize" />
           <FooterBtn onClick={() => openSettings('models')} icon={<Settings size={13} />} label="Settings" />
         </div>
