@@ -277,12 +277,14 @@ if (args[0] === "plugins" || args[0] === "plugin") {
   } else if (args[1] === "add") {
     const source = args[2];
     if (!source) {
-      console.log(chalk.red("  Usage: cowrangler plugins add <git-url | folder-path | zip-file-path> [--global]"));
+      console.log(chalk.red("  Usage: cowrangler plugins add <git-url | folder-path | zip-file-path> [--local]"));
       process.exit(1);
     }
-    const isGlobal = args.includes("--global") || args.includes("-g");
-    console.log(chalk.cyan(`\n  Installing plugin from "${source}"...`));
-    const res = await manager.installPlugin(source, { global: isGlobal });
+    // Plugin'ler varsayılan olarak GLOBAL kurulur (~/.cowrangler/plugins).
+    // Proje dizinine kurmak isteyen nadir durum için `--local` opt-out.
+    const isLocal = args.includes("--local");
+    console.log(chalk.cyan(`\n  Installing plugin from "${source}" (${isLocal ? "project-local" : "global"})...`));
+    const res = await manager.installPlugin(source, { global: !isLocal });
     if (res.ok) {
       console.log(chalk.green(`  ✓ Plugin "${res.id}" successfully installed!`));
       process.exit(0);

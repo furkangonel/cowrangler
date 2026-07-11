@@ -26,10 +26,10 @@
   --text-muted:      138 138 135;/* #8A8A87 */
   --text-placeholder: 137 135 130;/* #898782 */
 
-  /* Cowrangler marka turuncusu */
-  --accent:       236 90 41;    /* #EC5A29 */
-  --accent-hover: 213 72 22;    /* #D54816 */
-  --accent-press: 190 55 10;    /* #BE370A */
+  /* Nötr primary — seçili öğeler/butonlar siyah-beyaz (light: siyah) */
+  --accent:       28 28 26;     /* #1C1C1A */
+  --accent-hover: 48 48 45;     /* #30302D */
+  --accent-press: 0 0 0;        /* #000000 */
   --accent-fg:    255 255 255;
 
   --user-bubble-bg:     33 29 24;   /* #211D18 koyu sıcak balon (design görseli) */
@@ -61,11 +61,11 @@
   --text-muted:       128 128 124; /* #80807C */
   --text-placeholder: 195 194 184; /* #C3C2B8 */
 
-  /* Koyu zeminde */
-  --accent:       210 96 57;   /* #D26039 */
-  --accent-hover: 225 115 75;  /* #E1734B */
-  --accent-press: 195 85 45;   /* #C3552D */
-  --accent-fg:    255 255 255;
+  /* Nötr primary — seçili öğeler/butonlar siyah-beyaz (dark: beyaz) */
+  --accent:       238 238 232; /* #EEEEE8 */
+  --accent-hover: 220 220 214; /* #DCDCD6 */
+  --accent-press: 255 255 255; /* #FFFFFF */
+  --accent-fg:    24 24 22;    /* #181816 koyu zeminde beyaz üzerine metin */
 
   --user-bubble-bg:     18 18 18;  /* #121212 koyu tema balon */
   --user-bubble-border: 30 30 30;  /* #1E1E1E hafif kenar */
@@ -151,6 +151,22 @@ html, body, #root {
   margin: 1.15em 0 0.5em;
   line-height: 1.3;
   letter-spacing: -0.015em;
+}
+
+/* ── Code chat prose — düz sans (Cowork'ün editorial serif'inden ayrı) ──────
+   Code sekmesindeki agent yanıtları görsellerdeki gibi nötr sans tipografi
+   kullanır. Yalnızca .code-chat kapsayıcısı altındaki prose'u override eder;
+   Cowork tarafı dokunulmadan Charter serif kalır. */
+.code-chat .prose {
+  font-family: 'SF Pro Rounded', 'Inter', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: calc(14px * var(--font-scale));
+  line-height: 1.7;
+  color: rgb(var(--text-primary) / 0.9);
+}
+.code-chat .prose h1, .code-chat .prose h2,
+.code-chat .prose h3, .code-chat .prose h4 {
+  letter-spacing: -0.01em;
+  font-weight: 640;
 }
 .prose h1 { font-size: 1.5em; }
 .prose h2 { font-size: 1.25em; border-bottom: 1px solid rgb(var(--border-subtle)); padding-bottom: 0.3em; }

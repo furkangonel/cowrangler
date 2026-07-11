@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { execSync } from "child_process";
 import { DIRS, getConfig } from "./init.js";
+import { getProjectWorkdir } from "./project_context.js";
 import { registerTool } from "./tools/registry.js";
 import { SUB_AGENTS } from "./subagents.js";
 import { ModelMeta, registerDynamicModel } from "./model_metadata.js";
@@ -117,8 +118,13 @@ export class PluginManager {
     return this.interceptors.get(providerId);
   }
 
+  /**
+   * DEPRECATED yerleşim — plugin'ler artık yalnızca global tutulur. Bu yol yalnızca
+   * eski, proje-lokal plugin artıklarını tespit/tarama (ve migration) içindir.
+   * process.cwd() yerine AKTİF workdir'i kullanır (desktop'ta doğru proje).
+   */
   public getLocalPluginsDir(): string {
-    return path.join(process.cwd(), ".cowrangler", "plugins");
+    return path.join(getProjectWorkdir(), ".cowrangler", "plugins");
   }
 
   public getGlobalPluginsDir(): string {
@@ -329,7 +335,9 @@ export class PluginManager {
     sourcePathOrUrl: string,
     options: { global?: boolean } = {}
   ): Promise<{ ok: boolean; error?: string; id?: string }> {
-    const isGlobal = options.global ?? false;
+    // Plugin'ler makine-geneli bir kaynaktır → VARSAYILAN GLOBAL. Proje dizinine
+    // asla klonlanmaz. `global: false` yalnızca bilinçli opt-in (nadir) içindir.
+    const isGlobal = options.global ?? true;
     const destParent = isGlobal ? this.getGlobalPluginsDir() : this.getLocalPluginsDir();
     fs.mkdirSync(destParent, { recursive: true });
 

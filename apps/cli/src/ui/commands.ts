@@ -17,6 +17,8 @@ import {
   setConfigValue,
 } from "@cowrangler/core/init.js";
 import { getModelMeta } from "@cowrangler/core/model_metadata.js";
+import { TaskManager } from "@cowrangler/core/task_manager.js";
+import { getProjectAuditLog, getProjectMemoryDir } from "@cowrangler/core/project_context.js";
 import { t } from "@cowrangler/core/i18n/index.js";
 import { missingKeyHint, showSetupGuide } from "./setup.js";
 import { SUB_AGENTS } from "@cowrangler/core/subagents.js";
@@ -236,8 +238,9 @@ export class CommandRouter {
       get description() { return t("commands.status_desc"); },
       execute: (args: string[], ctx: CommandContext) => {
         const skills = ctx.skillManager.getAvailableSkills();
-        const memExists = fs.existsSync(DIRS.local.memory);
-        const memSize = memExists ? fs.statSync(DIRS.local.memory).size : 0;
+        const memFile = path.join(getProjectMemoryDir(), "project.md");
+        const memExists = fs.existsSync(memFile);
+        const memSize = memExists ? fs.statSync(memFile).size : 0;
         const toolCount = Object.keys(TOOL_SCHEMAS).length;
         const lines = [
           `  ${Theme.dim("Model          ")} ${Theme.accent(ctx.agent.llm.model)}`,
@@ -486,19 +489,20 @@ export class CommandRouter {
       description: "View or clear project memory: /memory [show|clear]",
       execute: (args: string[], ctx: CommandContext) => {
         const action = args[0] ?? "show";
+        const memFile = path.join(getProjectMemoryDir(), "project.md");
         if (action === "show") {
-          if (!fs.existsSync(DIRS.local.memory)) {
+          if (!fs.existsSync(memFile)) {
             return UI.warn(
               "No memory file yet. Run /init or /memory clear to create one.",
             );
           }
-          const content = fs.readFileSync(DIRS.local.memory, "utf-8");
+          const content = fs.readFileSync(memFile, "utf-8");
           console.log("\n" + Theme.dim(content) + "\n");
           return;
         }
         if (action === "clear") {
           ensureLocalMemory(); // create if missing
-          fs.writeFileSync(DIRS.local.memory, "# Project Memory\n", "utf-8");
+          fs.writeFileSync(memFile, "# Project Memory\n", "utf-8");
           ctx.agent.refreshSystemPrompt();
           return UI.success(
             "Project memory cleared and system prompt refreshed.",
@@ -1204,7 +1208,7 @@ After writing, reply: "✓ COWRNGLR.md written. Agent context is now active."
           configureSandbox({ enabled: true, networkRestricted: true });
           UI.success("Strict mode active — network commands are also blocked.");
         } else if (action === "audit") {
-          const logPath = DIRS.local.auditLog;
+          const logPath = getProjectAuditLog();
           cfg.sandbox.audit_log = true;
           configureSandbox({ auditLogPath: logPath });
           UI.success(`Audit log active: ${Theme.accent(logPath)}`);
@@ -1608,28 +1612,14 @@ After writing, reply: "✓ COWRNGLR.md written. Agent context is now active."
 
     // ── /todo ─────────────────────────────────────────────────────────────────
     this.commands.set("/todo", {
-      description: "Show the agent's active session task list (.cowrangler/tasks.json)",
+      description: "Show the agent's active session task list",
       execute: () => {
-        const tasksPath = DIRS.local.tasks;
-        if (!fs.existsSync(tasksPath)) {
-          return UI.info("No active task list. The agent creates one automatically for multi-step tasks.");
-        }
         try {
-          const raw = fs.readFileSync(tasksPath, "utf-8").trim();
-          if (!raw) return UI.info("Task list is empty.");
-          const store = JSON.parse(raw);
-          const tasks: any[] = store.tasks ?? [];
-          if (tasks.length === 0) return UI.info("Task list is empty.");
-          const STATUS_ICON: Record<string, string> = { todo: "○", in_progress: "◉", done: "✓", blocked: "✗" };
-          const lines = tasks.map((t: any) => {
-            const icon = STATUS_ICON[t.status] ?? "?";
-            const dim = t.status === "done";
-            const line = `  ${icon}  ${t.index}. ${t.title}${t.priority === "high" ? " [HIGH]" : ""}`;
-            return dim ? Theme.dim(line) : (t.status === "in_progress" ? Theme.accent(line) : Theme.main(line));
-          });
-          const active = tasks.filter((t: any) => ["todo","in_progress"].includes(t.status)).length;
-          lines.push("", Theme.dim(`  Active: ${active}  Total: ${tasks.length}`));
-          UI.box(lines.join("\n"), "Session Tasks");
+          const rendered = new TaskManager().list();
+          if (rendered.trim() === "Task list is empty.") {
+            return UI.info("No active task list. The agent creates one automatically for multi-step tasks.");
+          }
+          UI.box(rendered, "Session Tasks");
         } catch {
           return UI.info("Could not read task list.");
         }

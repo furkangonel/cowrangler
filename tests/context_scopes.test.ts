@@ -8,24 +8,30 @@ beforeAll(() => {
 });
 
 describe("context_scopes — kanonik üç-katman yollar", () => {
-  it("skills: global/proje/session", () => {
+  // Session katmanı artık global proje deposunda (proje dizinini kirletmez):
+  //   ~/.cowrangler/projects/<label>-<hash>/context/...
+  // Bu yüzden session yolları proje dizini altında OLMAMALI.
+  it("skills: proje-lokal proje, global-store session", () => {
     const s = getScopePaths("skills");
     expect(s.project).toBe("/tmp/proj/.cowrangler/skills");
-    expect(s.session).toBe("/tmp/proj/.cowrangler/context/skills/s1");
+    expect(s.session).toMatch(/\/projects\/proj-[0-9a-f]{16}\/context\/skills\/s1$/);
+    expect(s.session).not.toContain("/tmp/proj/");
     expect(s.global).toMatch(/\.cowrangler\/skills$/);
   });
 
-  it("agents: global/proje/session", () => {
+  it("agents: proje-lokal proje, global-store session", () => {
     const a = getScopePaths("agents");
     expect(a.project).toBe("/tmp/proj/.cowrangler/agents");
-    expect(a.session).toBe("/tmp/proj/.cowrangler/context/agents/s1");
+    expect(a.session).toMatch(/\/projects\/proj-[0-9a-f]{16}\/context\/agents\/s1$/);
+    expect(a.session).not.toContain("/tmp/proj/");
     expect(a.global).toMatch(/\.cowrangler\/agents$/);
   });
 
-  it("memory: global(md)/proje(dir)/session(md)", () => {
+  it("memory: global(md)/proje(dir)/session(store md)", () => {
     const m = getScopePaths("memory");
     expect(m.project).toBe("/tmp/proj/.cowrangler/memory");
-    expect(m.session).toBe("/tmp/proj/.cowrangler/context/memory/s1.md");
+    expect(m.session).toMatch(/\/projects\/proj-[0-9a-f]{16}\/context\/memory\/s1\.md$/);
+    expect(m.session).not.toContain("/tmp/proj/");
     expect(m.global).toMatch(/\.cowrangler\/memory\.md$/);
   });
 
@@ -44,7 +50,9 @@ describe("context_scopes — kanonik üç-katman yollar", () => {
   });
 
   it("explicit sessionId parametresi aktif session'ı ezer", () => {
-    expect(getScopePaths("skills", "other").session).toBe("/tmp/proj/.cowrangler/context/skills/other");
+    expect(getScopePaths("skills", "other").session).toMatch(
+      /\/projects\/proj-[0-9a-f]{16}\/context\/skills\/other$/,
+    );
   });
 
   it("describeContextScopes tüm haritayı verir", () => {

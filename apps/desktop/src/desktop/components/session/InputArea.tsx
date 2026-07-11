@@ -12,9 +12,26 @@ interface Props {
   /** When true, hides the bottom model picker row. */
   hideModelPicker?: boolean
   placeholder?: string
+  /** 'code' → minimal görünüm: renksiz enter butonu + 10 satıra kadar büyüyen alan. */
+  variant?: 'default' | 'code'
+  /**
+   * Agent gerçekten çalışıyor mu? Stop butonu buna göre gösterilir. Verilmezse
+   * `disabled`'a düşer (geriye dönük uyum). Code home gibi input'un başka nedenle
+   * (klasör seçilmemiş) kilitli olduğu yerlerde `disabled=true` ama `busy=false`
+   * geçilir → Stop yerine (pasif) Send görünür.
+   */
+  busy?: boolean
 }
 
-export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelPicker, placeholder }: Props) {
+// Textarea maksimum yüksekliği: code varyantı ~10 satır sonra scroll'a geçer.
+const MAX_H_DEFAULT = 220
+const MAX_H_CODE = 232 // tam 10 satır: 10 × 22px (text-md line-height) + 12px (py-1.5) → sonrası scroll
+
+export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelPicker, placeholder, variant = 'default', busy }: Props) {
+  const isCode = variant === 'code'
+  const maxH = isCode ? MAX_H_CODE : MAX_H_DEFAULT
+  // Stop butonu yalnız agent gerçekten çalışırken; verilmezse disabled'a düş.
+  const showStop = busy ?? disabled
   const [value, setValue] = useState('')
   const [skills, setSkills] = useState<SkillDef[]>([])
   const [slashOpen, setSlashOpen] = useState(false)
@@ -131,7 +148,7 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelP
     const newValue = el.value
     setValue(newValue)
     el.style.height = 'auto'
-    el.style.height = Math.min(el.scrollHeight, 220) + 'px'
+    el.style.height = Math.min(el.scrollHeight, maxH) + 'px'
     detectSlash(newValue, el.selectionStart ?? newValue.length)
   }
 
@@ -154,7 +171,7 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelP
       el?.focus()
       const pos = cleaned.length
       el?.setSelectionRange(pos, pos)
-      if (el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 220) + 'px' }
+      if (el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, maxH) + 'px' }
     })
   }
 
@@ -438,11 +455,11 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelP
               disabled={disabled}
               placeholder={placeholder || (disabled ? 'Agent is working…' : 'Type a task…  ( call a skill with / )')}
               rows={1}
-              className="flex-1 bg-transparent text-md text-text-primary placeholder-text-muted resize-none outline-none max-h-[220px] overflow-y-auto selectable py-1.5 disabled:opacity-60"
-              style={{ minHeight: '28px' }}
+              className="flex-1 bg-transparent text-md text-text-primary placeholder-text-muted resize-none outline-none overflow-y-auto selectable py-1.5 disabled:opacity-60"
+              style={{ minHeight: '28px', maxHeight: maxH }}
             />
 
-            {disabled ? (
+            {showStop ? (
               <button
                 onClick={onInterrupt}
                 title="Stop (Esc)"
@@ -450,6 +467,19 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelP
                            hover:bg-error/22 transition-colors flex-shrink-0"
               >
                 <Square size={14} className="fill-current" />
+              </button>
+            ) : isCode ? (
+              /* Code varyantı — renksiz, minimal enter (↵) butonu */
+              <button
+                onClick={handleSend}
+                disabled={!hasContent}
+                data-testid="chat-send-button"
+                title="Send (Enter)"
+                className="flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0 border border-border
+                           bg-bg-hover text-text-secondary hover:text-text-primary hover:bg-bg-tertiary
+                           disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-95"
+              >
+                <CornerDownLeft size={15} />
               </button>
             ) : (
               <button

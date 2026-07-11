@@ -476,6 +476,9 @@ interface ElectronAPI {
     getContextSnapshot: (projectId: string) => Promise<ContextSnapshot | null>
     newSession: (projectId: string) => Promise<{ ok: boolean }>
     setCodeWorkdir: (dir: string | null) => Promise<{ ok: boolean }>
+    getCodeDirs: () => Promise<{ workdir: string | null; extraDirs: string[] }>
+    addCodeDir: (dir: string) => Promise<{ ok: boolean; extraDirs: string[] }>
+    removeCodeDir: (dir: string) => Promise<{ ok: boolean; extraDirs: string[] }>
     getTodo: (projectId: string, sessionId?: string) => Promise<TaskProgress[]>
     setActiveSession: (sessionId: string | null) => Promise<void>
     getPlan: (projectId: string, sessionId?: string) => Promise<PlanPayload | null>

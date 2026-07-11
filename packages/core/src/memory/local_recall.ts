@@ -1,13 +1,13 @@
 /**
  * local_recall — bağımlılıksız yerel uzun-dönem hafıza sağlayıcısı.
  *
- * Konuşma turlarını `.cowrangler/memory/recall.jsonl` içine yazar; sorguya göre
- * anahtar-kelime örtüşmesi + yakınlık (recency) ile en ilgili birkaç turu geri
- * getirir. Harici servis / vektör DB gerektirmez (gömme entegrasyonu için
- * genişletilebilir bir temel).
+ * Konuşma turlarını global proje deposundaki `recall.jsonl` içine yazar (proje
+ * dizinini kirletmez); sorguya göre anahtar-kelime örtüşmesi + yakınlık (recency)
+ * ile en ilgili birkaç turu geri getirir. Harici servis / vektör DB gerektirmez.
  */
 
 import fs from "fs";
+import { projectStoreDirFor } from "../project_context.js";
 import path from "path";
 import type { MemoryProvider } from "../memory_provider.js";
 
@@ -39,7 +39,7 @@ export class LocalRecallProvider implements MemoryProvider {
   }
 
   private file(): string {
-    return path.join(this.base, ".cowrangler", "memory", "recall.jsonl");
+    return path.join(projectStoreDirFor(this.base), "memory", "recall.jsonl");
   }
 
   private read(): RecallEntry[] {

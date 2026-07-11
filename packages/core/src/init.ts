@@ -27,15 +27,15 @@ export const GLOBAL_DIR = path.join(os.homedir(), ".cowrangler");
 export const COWRNGLR_MD = path.join(PROJECT_ROOT, "COWRNGLR.md");
 
 export const DIRS = {
+  // PROJE-YAZIMI veri yalnızca. Üretilen/oturum verisi (tasks, plans, history,
+  // audit.log, recall) ve plugin'ler projeye YAZILMAZ — global proje deposuna
+  // ve ~/.cowrangler/plugins'e gider (bkz. project_context.ts / plugins.ts).
   local: {
     base: LOCAL_DIR,
     skills: path.join(LOCAL_DIR, "skills"),
     agents: path.join(LOCAL_DIR, "agents"), // Custom agent tanımları
     config: path.join(LOCAL_DIR, "config.yaml"),
     memory: path.join(LOCAL_DIR, "memory"),
-    tasks: path.join(LOCAL_DIR, "tasks"),
-    auditLog: path.join(LOCAL_DIR, "audit.log"), // Sandbox audit log
-    plugins: path.join(LOCAL_DIR, "plugins"),
   },
   global: {
     base: GLOBAL_DIR,
@@ -49,14 +49,20 @@ export const DIRS = {
 };
 
 import { getSystemPrompt } from "./prompts/index.js";
+import { getProjectMemoryDir, getProjectStoreDir } from "./project_context.js";
 
 /**
  * initEnvironment — "lazy" init model, like Claude Code.
  *
- * Only global infra is created on every startup (needed for model/key config).
- * Project-level files (.cowrangler/memory.md, AGENT_TODO.md) are NOT created
- * automatically — they are created on demand by /init, /memory write, etc.
- * This keeps the project root clean for users who never ask for those features.
+ * Only GLOBAL infra is created here (needed for model/key config). NOTHING is
+ * written into the project on startup — no `.cowrangler/` dir, no skills/agents
+ * skeleton. Project-scoped files are created strictly on demand:
+ *   - project config      → `/config set --local` (settings)
+ *   - project memory       → ensureLocalMemory() (first `/memory` write or `/init`)
+ *   - project skills/agents → only when the user authors one
+ * Generated/session data never touches the project; it lives in the global
+ * per-project store (see project_context.ts). This keeps every working project
+ * root pristine.
  */
 export function initEnvironment() {
   // ── Global (always — needed for model + credential config) ─────────────────
@@ -154,30 +160,23 @@ export function initEnvironment() {
     );
   }
 
-  // ── Local directory skeleton (dirs only — no files unless user asks) ────────
-  // The .cowrangler/ dir and skills/ subdir are created so that skill discovery
-  // and history persistence work without errors. No .md files are written here.
   fs.mkdirSync(DIRS.global.agents, { recursive: true });
 
-  try {
-    fs.mkdirSync(DIRS.local.base, { recursive: true });
-    fs.mkdirSync(DIRS.local.skills, { recursive: true });
-    fs.mkdirSync(DIRS.local.agents, { recursive: true });
-  } catch (err: any) {
-    // Desktop uygulamasında (macOS release) process.cwd() kök dizin (/) olabileceği için
-    // EACCES hatası verebilir. Masaüstü uygulaması yerel (local) dizinler yerine
-    // ProjectContext üzerinden kendi çalışma dizinlerini oluşturur, bu yüzden bu adımı
-    // sessizce geçebiliriz. CLI ise normal şekilde klasörleri oluşturur.
-  }
+  // NOTE: Intentionally no project-level directory creation here. The project
+  // root stays untouched until the user authors a project skill/agent/memory.
+  // Skill/agent discovery and history persistence tolerate missing project dirs.
 }
 
 /**
  * ensureLocalMemory — called lazily when memory is first written.
- * Creates memory.md only when needed, not on every startup.
+ * Creates memory/project.md only when needed, not on every startup.
+ * Uses the ACTIVE workdir (getProjectMemoryDir), so on desktop the file lands in
+ * the real project — not in the app's process.cwd().
  */
 export function ensureLocalMemory(): void {
-  fs.mkdirSync(DIRS.local.memory, { recursive: true });
-  const projectMem = path.join(DIRS.local.memory, "project.md");
+  const memDir = getProjectMemoryDir();
+  fs.mkdirSync(memDir, { recursive: true });
+  const projectMem = path.join(memDir, "project.md");
   if (!fs.existsSync(projectMem)) {
     fs.writeFileSync(
       projectMem,
@@ -201,10 +200,11 @@ export function ensureLocalMemory(): void {
 
 /**
  * ensureTaskStore — called lazily when the task manager first writes.
- * tasks.json is created by TaskManager itself; this just ensures the dir exists.
+ * Task files live in the global per-project store; TaskManager creates the
+ * per-session dir itself. This just ensures the base exists for the active workdir.
  */
 export function ensureTaskStore(): void {
-  fs.mkdirSync(DIRS.local.base, { recursive: true });
+  fs.mkdirSync(getProjectStoreDir(), { recursive: true });
 }
 
 export function loadEnvironmentVariables() {
