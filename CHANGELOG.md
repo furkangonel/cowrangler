@@ -6,6 +6,25 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.1.5] — 2026-07-11
+
+### Added
+- Code tab: addable extra working directories beyond the locked primary workspace — the agent can read, edit, and run code in them via absolute paths (`agent:getCodeDirs`/`addCodeDir`/`removeCodeDir`, injected into the code system prompt).
+- Sidebar "New task" button for the Code tab that opens a fresh Code home to pick a new workspace.
+
+### Changed
+- Neutralize the primary accent to monochrome — selected menu items, active tabs, and buttons now render black (light) / white (dark) instead of terracotta.
+- Code chat now uses a plain sans typeface (distinct from Cowork's editorial serif); Cowork typography is unchanged.
+- Code composer restyled to a minimal variant: colorless enter-icon send button and a textarea that grows up to 10 lines before scrolling.
+- Code session header simplified — removed the back and "New" buttons; navigation moves to the sidebar.
+- The primary Code workspace folder is locked once selected; switch folders by starting a new task.
+- The Design button is minimal, uses the palette icon, and is shown only in the Cowork tab.
+
+### Fixed
+- Stop button no longer appears in the Code home composer when no folder is selected (it now shows only while the agent is actually working).
+
+---
+
 ## [2.1.4] — 2026-07-10
 
 ### Added
