@@ -6,6 +6,11 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.1.6] — 2026-07-12
+
+### Fixed
+- Plugin manager: implement full state cleanup on plugin re-initialization (properly clearing stale tools, subagents, dynamic models, interceptors, and skill paths when a plugin is uninstalled or reloaded).
+
 ## [2.1.5] — 2026-07-11
 
 ### Added

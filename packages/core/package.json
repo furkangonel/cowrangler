@@ -1,6 +1,6 @@
 {
   "name": "@cowrangler/core",
-  "version": "2.1.5",
+  "version": "2.1.6",
   "private": true,
   "description": "Cowrangler çekirdeği — SDK-agnostik model/provider katmanı, ajan loop, context scoping. Hiçbir arayüze bağımlı değildir.",
   "type": "module",
