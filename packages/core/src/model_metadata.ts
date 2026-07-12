@@ -529,3 +529,16 @@ export function registerDynamicModel(modelId: string, metadata: ModelMeta) {
     MODEL_REGISTRY[cleanId] = metadata;
   }
 }
+
+/**
+ * Removes a dynamically-registered model from the registry.
+ * Called during plugin re-initialization so stale plugin models don't persist
+ * after the plugin is uninstalled or reloaded.
+ */
+export function unregisterDynamicModel(modelId: string): void {
+  delete MODEL_REGISTRY[modelId];
+  if (modelId.includes("/")) {
+    const cleanId = modelId.split("/").slice(1).join("/");
+    delete MODEL_REGISTRY[cleanId];
+  }
+}

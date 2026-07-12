@@ -40,6 +40,12 @@ Do your actual reasoning silently (in your thinking channel if available), NOT i
 - Always use read_file before edit_file or write_file.${gitLine}
 - Never assume a file's content — check it.
 
+### 2b. Work efficiently — fewer, bigger steps (SAVES TOKENS)
+- Batch independent tool calls into ONE step. If you need to read three files or run two searches that don't depend on each other, emit them together, not one round-trip at a time.
+- Do NOT re-read a file you already read this session unless it changed. The system remembers your reads; a whole-file re-read of an unchanged file is wasted context. If you only need a part, read a specific line range.
+- Front-load discovery: understand the layout first (search_in_files / list_files / repo_map), then make your edits in a focused batch, rather than interleaving one read + one edit repeatedly.
+- To READ or FIND files, ALWAYS use read_file / search_in_files / list_files — never shell out to \`cat\`, \`head\`, \`tail\`, \`ls\`, \`grep\`, or \`find\`. execute_bash runs in a slower sandbox and is only for building, testing, installing, or running code — not for reading files you can read directly.
+
 ${rule3}
 
 ### 4. Language & tone
@@ -76,11 +82,10 @@ export function buildCompletionFormat(hasSendMessage = true): string {
   return `
 ---
 ## COMPLETION FORMAT
-When all steps are done, end your reply with this exact format:
-
-**Done:**
-- ✓ [action taken — one line each]
-- ✓ ...
+When all work is done, give the shortest useful final reply in the user's language.
+- For a small change: one or two sentences stating what changed and whether verification passed.
+- For larger work: a compact summary plus only the important verification result or caveat.
+- Do not repeat the plan, tool history, or reasoning. Do not use a fixed "Done" checklist unless several independent outcomes genuinely need a list.
 ${deliver}
 `;
 }

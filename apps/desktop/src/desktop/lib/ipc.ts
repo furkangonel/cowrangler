@@ -516,7 +516,7 @@ interface ElectronAPI {
     delete: (projectId: string, sessionId: string) => Promise<{ ok: boolean }>
     rename: (sessionId: string, title: string) => Promise<{ ok: boolean }>
     pin: (sessionId: string, pinned: boolean) => Promise<{ ok: boolean }>
-    dashboardStats: (sinceMs?: number) => Promise<DashboardStats>
+    dashboardStats: (sinceMs?: number, projectId?: string) => Promise<DashboardStats>
   }
   preview: {
     detect: (workdir?: string) => Promise<{ url: string; port: number } | null>

@@ -9,6 +9,7 @@ import { ListChecks, FileText, X } from 'lucide-react'
 import { useAgentStore } from '../../stores/agent.store'
 import { useUIStore } from '../../stores/ui.store'
 import { ipc } from '../../lib/ipc'
+import { MarkdownRenderer } from '../shared/MarkdownRenderer'
 
 const RISK_COLOR: Record<string, string> = {
   low: 'text-emerald-500 bg-emerald-500/10',
@@ -19,6 +20,11 @@ const RISK_COLOR: Record<string, string> = {
 export function CodePlanPanel() {
   const plan = useAgentStore((s) => s.currentPlan)
   const setCodeRightTab = useUIStore((s) => s.setCodeRightTab)
+
+  // Yapılı görünüm (title/steps) yalnızca JSON ile kalıcılaşan planlarda vardır.
+  // Diskten markdown olarak geri yüklenen (eski) planlar için markdown'ı olduğu
+  // gibi render ederiz — aksi halde panel doluymuş gibi görünüp içi boş kalır.
+  const structured = !!(plan && ((plan.steps && plan.steps.length > 0) || plan.title))
 
   return (
     <div className="flex flex-col h-full bg-bg-secondary">
@@ -43,6 +49,10 @@ export function CodePlanPanel() {
         <div className="flex flex-col items-center justify-center gap-2 py-12 text-text-muted h-full">
           <ListChecks size={20} />
           <p className="text-xs text-center px-6">No plan yet. It appears here when the agent writes one for a multi-step task.</p>
+        </div>
+      ) : !structured ? (
+        <div className="flex-1 overflow-y-auto px-3 py-3">
+          <MarkdownRenderer content={plan.markdown ?? ''} className="text-xs" />
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto px-3 py-3">

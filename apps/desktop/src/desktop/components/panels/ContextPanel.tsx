@@ -494,7 +494,7 @@ function WorkingFoldersManager({ projectId }: { projectId: string | null }) {
           {projectFolders.length === 0 ? (
             <p className="text-2xs text-text-muted py-1 italic">No folders added yet.</p>
           ) : (
-            projectFolders.map(folder => (
+            projectId && projectFolders.map(folder => (
               <ProjectHomeFolderItem key={folder.id} folder={folder} projectId={projectId} />
             ))
           )}

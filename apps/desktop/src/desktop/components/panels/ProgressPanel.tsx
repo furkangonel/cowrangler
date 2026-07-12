@@ -43,7 +43,7 @@ export function ProgressPanel({ projectId, sessionId }: { projectId: string; ses
   )
 }
 
-function TaskItem({ task, index }: { task: TaskProgress; index: number }) {
+function TaskItem({ task }: { task: TaskProgress }) {
   return (
     <div className="flex items-start gap-3.5">
       <div className="flex-shrink-0 mt-[3px]">

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { collapseDuplicateToolResults } from "@cowrangler/core/context_engine.js";
+import { collapseDuplicateToolResults, DefaultContextEngine } from "@cowrangler/core/context_engine.js";
+import { compactToolResultForModel } from "@cowrangler/core/agent.js";
 import type { CoreMessage } from "ai";
 
 function toolCallMsg(id: string, name: string, args: Record<string, unknown>): CoreMessage {
@@ -62,5 +63,29 @@ describe("collapseDuplicateToolResults", () => {
     expect((out[1].content as any[])[0].result).toContain("duplicate");
     expect((out[3].content as any[])[0].result).toContain("duplicate");
     expect((out[5].content as any[])[0].result).toBe("match 3 — final");
+  });
+});
+
+describe("economic context controls", () => {
+  it("prunes oversized tool results before every model turn", () => {
+    const engine = new DefaultContextEngine("google/gemini-2.5-pro");
+    const messages = [toolResultMsg("1", "read_file", "x".repeat(10_000))];
+    const out = engine.compactForNextTurn(messages);
+    const result = (out[0].content as any[])[0].result as string;
+    expect(result.length).toBeLessThan(2_100);
+    expect(result).toContain("chars pruned");
+  });
+
+  it("compacts tool output before the next step in the same agent loop", () => {
+    const out = compactToolResultForModel({ result: "x".repeat(10_000) }, 1_000) as any;
+    expect(out.truncated).toBe(true);
+    expect(out.result.length).toBeLessThan(1_100);
+    expect(out.result).toContain("request a narrower range");
+  });
+
+  it("compresses at the economic soft limit even for a 1M model window", () => {
+    const engine = new DefaultContextEngine("google/gemini-2.5-pro");
+    expect(engine.shouldCompress(23_999)).toBe(false);
+    expect(engine.shouldCompress(24_000)).toBe(true);
   });
 });

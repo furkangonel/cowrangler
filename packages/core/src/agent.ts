@@ -11,12 +11,48 @@
  */
 
 import { streamText, CoreMessage } from "ai";
+import { z } from "zod";
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { LLM } from "./llm.js";
 import { SkillManager } from "./skills.js";
-import { TOOL_SCHEMAS } from "./tools/registry.js";
+import { TOOL_SCHEMAS, hasTool } from "./tools/registry.js";
+
+/**
+ * Katmanlı araç sunumu için ÇEKİRDEK araçlar — her zaman aktif (tam şema modele
+ * gider). Kalanlar "extended" olarak load_tool ile talep üzerine aktive edilir.
+ * Böylece 50+ aracın şeması her turda taşınmaz; sadece isim+açıklaması load_tool
+ * kataloğunda durur (ucuz), tam şema yalnız gerekince yüklenir.
+ */
+const CORE_TOOL_NAMES = [
+  // Dosya işleri
+  "read_file", "write_file", "edit_file", "apply_patch",
+  // Keşif: `explore` birleşik araç EK olarak var ama orijinal keşif araçlarını da
+  // çekirdekte TUTUYORUZ. Bunları explore ardına gizlemek (extended tier) modelin
+  // alışık olduğu arayüzü bozup regresyona yol açtı; geri koyduk. explore isteğe
+  // bağlı kolaylık, orijinaller birinci sınıf.
+  "explore", "search_in_files", "glob_files", "list_files", "repo_map",
+  "execute_bash",
+  "web_search", "fetch_webpage", "manage_task", "spawn_subagent",
+  "utilize_skill", "ask_user", "load_tool", "send_message",
+];
+const CORE_TOOL_SET = new Set(CORE_TOOL_NAMES);
+
+/**
+ * "Hızlı olması gereken" salt-okunur/keşif araçları. Bunlar saniyeler içinde
+ * dönmeli; dönmezse (ör. devasa ağaçta glob, symlink döngüsü) tüm turu asmasınlar.
+ * execute_bash (kendi timeout'u var), ask_user (kullanıcıyı bekler), spawn_subagent
+ * ve ağ/görsel araçları (meşru uzun sürebilir) KAPSAM DIŞI.
+ */
+const TIMED_TOOLS = new Set([
+  "read_file", "explore", "glob_files", "search_in_files", "list_files",
+  "file_info", "repo_map", "semantic_code_search",
+  "git_status", "git_diff", "git_log", "which_command",
+]);
+
+/** Zamanlama teşhis logları — sadece COWRANGLER_DEBUG_TIMING=1 iken konsola yazar. */
+const DEBUG_TIMING = process.env.COWRANGLER_DEBUG_TIMING === "1";
 import { BriefBuffer, createSendMessageTool } from "./tools/brief_tool.js";
 import { DIRS, getConfig } from "./init.js";
 import { scanContext } from "./context_security.js";
@@ -53,6 +89,35 @@ function isRetryable(error: unknown): boolean {
     msg.includes("too many requests") ||
     msg.includes("service unavailable")
   );
+}
+
+export const AGENT_TOOL_RESULT_MAX_CHARS = 6_000;
+
+/** Tool sonucunu aynı Code agent döngüsündeki sonraki model adımı için küçültür. */
+export function compactToolResultForModel(
+  value: unknown,
+  maxChars = AGENT_TOOL_RESULT_MAX_CHARS,
+): unknown {
+  if (typeof value === "string") {
+    if (value.length <= maxChars) return value;
+    return `${value.slice(0, maxChars)}\n… [${value.length - maxChars} chars omitted; request a narrower range if needed]`;
+  }
+  if (value && typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    if (typeof obj.result === "string") {
+      const compact = compactToolResultForModel(obj.result, maxChars);
+      return compact === obj.result ? value : { ...obj, result: compact, truncated: true };
+    }
+    let serialized: string;
+    try { serialized = JSON.stringify(value); } catch { return value; }
+    if (serialized.length > maxChars) {
+      return {
+        result: `${serialized.slice(0, maxChars)}\n… [${serialized.length - maxChars} chars omitted; refine the query]`,
+        truncated: true,
+      };
+    }
+  }
+  return value;
 }
 
 
@@ -98,6 +163,7 @@ export class Agent {
 
   /** Session DB kimliği — null ise kayıt yapılmaz */
   private sessionId: string | null = null;
+  private readonly sessionSource: string;
   private sessionToolCallCount = 0;
 
   private skillManager: SkillManager;
@@ -134,6 +200,26 @@ export class Agent {
    * anlamlıdır (opt-in kayıt — kullanıcı /trajectory start ile açar).
    */
   private _pendingToolResults = new Map<string, { result: unknown; isError: boolean }>();
+  /** Aynı agent turunda tekrarlanan salt-okunur çağrıları kısa devre eder. */
+  private _roundReadToolCache = new Set<string>();
+  /**
+   * TURLAR ARASI dosya-okuma önbelleği. Bir dosya bir kez tam okunduğunda
+   * mtime+size'ı burada saklanır. Sonraki tam okumada dosya DEĞİŞMEMİŞSE içeriği
+   * yeniden göndermeyiz — sadece "değişmedi" işaretçisi döneriz. Mutasyonda ilgili
+   * yol temizlenir. Belirli aralık (start/end_line) okumaları bu önbelleği atlar
+   * (hedefli okuma her zaman servis edilir). "Aynı işi tekrar tekrar yapma".
+   */
+  private _fileReadCache = new Map<string, { mtime: number; size: number }>();
+  /** Repo haritası bu oturumda bir kez enjekte edildi mi (agent el yordamıyla aramasın). */
+  private _repoMapInjected = false;
+  /**
+   * P2 tiered lazy-load: load_tool ile bu oturumda aktive edilmiş "extended"
+   * araçlar. experimental_activeTools üzerinden modele sunulur; kalıcıdır
+   * (oturum boyu), böylece bir kez yüklenen araç tekrar yüklenmez.
+   */
+  private activatedTools = new Set<string>();
+  /** Bu turun kullanıcı metni — extended araçların relevance seçimi için. */
+  private _turnUserText = "";
 
   public approvedPlanActions = new Set<string>();
 
@@ -145,6 +231,7 @@ export class Agent {
     sessionSource: string = "cli",
   ) {
     this.llm = llm;
+    this.sessionSource = sessionSource;
     this.maxIterations = maxIterations;
     this.allowedTools = allowedTools;
     // (setAllowedTools allows the host to re-scope tools per context without recreating.)
@@ -289,20 +376,21 @@ export class Agent {
       }
     }
     // Perf/odak: çok sayıda araç (builtin + MCP) modelin kafasını karıştırır ve
-    // ilk-token gecikmesini artırır. `COWRANGLER_MAX_TOOLS` (veya config.tools.max)
-    // ayarlıysa ve aşılıyorsa çekirdek araçları koruyup fazlalığı kırp. Ayar yoksa
-    // davranış aynen korunur (regresyon yok).
+    // ilk-token gecikmesini artırır. İki mekanizma var:
+    //
+    //  1) COWRANGLER_MAX_TOOLS (hard-cap): açıkça ayarlıysa fazlalığı OBJEDEN
+    //     siler. Eski davranış — geri uyum için korunur. Sildiği araç çağrılamaz.
+    //  2) Tiered lazy-load (yeni, default): araçları objede TUTAR ama modele
+    //     yalnız çekirdek + aktive edilmişleri sunar (experimental_activeTools).
+    //     Kalanlar load_tool kataloğunda isim+açıklama olarak durur; kaybolmaz,
+    //     bir tur gecikmeyle erişilir. Hard-cap set edilmişse tiering devre dışı.
     let cfgToolMax = "";
     try { cfgToolMax = String((getConfig() as any)?.tools?.max ?? ""); } catch {}
     const toolCap = parseInt(process.env.COWRANGLER_MAX_TOOLS ?? cfgToolMax, 10);
-    if (Number.isFinite(toolCap) && toolCap > 0 && Object.keys(base).length > toolCap) {
-      const CORE = [
-        "read_file", "write_file", "edit_file", "apply_patch",
-        "search_in_files", "glob_files", "list_files", "execute_bash",
-        "web_search", "fetch_webpage", "manage_task", "spawn_subagent", "repo_map",
-      ];
+    const hardCapActive = Number.isFinite(toolCap) && toolCap > 0;
+    if (hardCapActive && Object.keys(base).length > toolCap) {
       const kept: Record<string, any> = {};
-      for (const k of CORE) if (base[k]) kept[k] = base[k];
+      for (const k of CORE_TOOL_NAMES) if (base[k]) kept[k] = base[k];
       for (const k of Object.keys(base)) {
         if (Object.keys(kept).length >= toolCap) break;
         if (!kept[k]) kept[k] = base[k];
@@ -325,6 +413,66 @@ export class Agent {
       delete base["send_message"];
     }
 
+    // ── P2: load_tool meta-aracı ────────────────────────────────────────────
+    // Tiering aktifse, extended araçların isim+açıklamasını listeleyen bir
+    // load_tool aracı ekle. Model gerekince bunu çağırır → activatedTools'a
+    // eklenir → experimental_prepareStep bir sonraki adımda tam şemayı sunar.
+    if (this._tieringActive(Object.keys(base).length, hardCapActive)) {
+      const catalog = Object.keys(base)
+        .filter((n) => !CORE_TOOL_SET.has(n) && !this.activatedTools.has(n))
+        .map((n) => {
+          const d = String(base[n]?.description ?? "").split("\n")[0].slice(0, 140);
+          return `- ${n}: ${d}`;
+        })
+        .join("\n");
+      // Katalog boşsa (her şey zaten aktif) load_tool ekleme.
+      if (catalog) {
+        const self = this;
+        base["load_tool"] = {
+          description:
+            "Activate additional tools into the callable set. To save context, only core " +
+            "tools are exposed by default. If a task needs a tool listed below, call load_tool " +
+            "with its name(s) FIRST; the tool becomes callable on your next step.\n\n" +
+            "Loadable tools:\n" +
+            catalog,
+          parameters: z.object({
+            names: z.array(z.string()).describe("Exact tool name(s) to activate"),
+          }),
+          execute: async ({ names }: { names: string[] }) => {
+            const loaded: string[] = [];
+            const unknown: string[] = [];
+            for (const n of names ?? []) {
+              if (hasTool(n) || n in base) {
+                self.activatedTools.add(n);
+                loaded.push(n);
+              } else {
+                unknown.push(n);
+              }
+            }
+            return {
+              result:
+                (loaded.length ? `Activated (now callable): ${loaded.join(", ")}.` : "No tools activated.") +
+                (unknown.length ? ` Unknown, ignored: ${unknown.join(", ")}.` : ""),
+            };
+          },
+        };
+      }
+    }
+
+    // ── P2: tiering aktifse base'i AKTİF alt-kümeye indir ───────────────────
+    // ÖNEMLİ: Daha önce tüm araçları `tools`'ta gönderip `experimental_activeTools`
+    // ile daraltıyorduk. Anthropic'te sorunsuz ama GEMINI function-calling buna
+    // hassas — model tool-call'ı emit edip stream'i donduruyordu (regresyon).
+    // Provider-güvenli yol: doğrudan `tools`'u subset'le. Böylece her sağlayıcıya
+    // sadece aktif araçlar standart biçimde gider. (load_tool yine çekirdekte;
+    // çağrılınca activatedTools'a ekler, sonraki tur alt-kümede görünür.)
+    const activeNames = new Set(this.getActiveToolNames(base));
+    if (activeNames.size > 0 && activeNames.size < Object.keys(base).length) {
+      const filtered: Record<string, any> = {};
+      for (const k of Object.keys(base)) if (activeNames.has(k)) filtered[k] = base[k];
+      base = filtered;
+    }
+
     // Her aracın execute'ını sarmalayarak GERÇEK ZAMANLI, BAĞIMSIZ start/done/error
     // olayları yayınla (toplu/batch değil). id = SDK'nın toolCallId'si.
     const wrapped: Record<string, any> = {};
@@ -344,6 +492,58 @@ export class Agent {
           this._onToolCall?.(name, args);
           this._onToolEvent?.({ id, name, args, phase: "start" });
           try {
+            const cacheableReads = new Set([
+              "read_file", "explore", "list_files", "glob_files", "search_in_files", "file_info",
+              "git_status", "git_diff", "git_log", "which_command", "repo_map",
+            ]);
+            const readCacheKey = cacheableReads.has(name)
+              ? `${name}:${JSON.stringify(args ?? {})}`
+              : null;
+            if (readCacheKey && this._roundReadToolCache.has(readCacheKey)) {
+              const duplicate = {
+                result: `[duplicate ${name} call omitted — the identical result is already present earlier in this turn]`,
+              };
+              this._onToolEvent?.({ id, name, phase: "done", durationMs: Date.now() - startedAt, result: duplicate });
+              return duplicate;
+            }
+
+            // ── TURLAR ARASI dosya-okuma önbelleği ──────────────────────────
+            // read_file / explore{action:read} TAM okuma (aralık yok) ve dosya son
+            // okumadan beri DEĞİŞMEMİŞSE: içeriği yeniden gönderme, kısa işaretçi
+            // dön. Böylece agent değişmeyen dosyaları tur tur yeniden okuyup token
+            // yakmaz. Aralık (start/end_line) okumaları bilerek atlanır → hedefli
+            // okuma her zaman gerçek içerik döndürür. Değişmiş/ilk okumada normal
+            // akışa düşer (permission + hooks korunur); imza `fullReadAbs` üzerinden
+            // orig çalıştıktan SONRA kaydedilir.
+            let fullReadAbs: string | null = null;
+            const isFullRead =
+              args?.start_line == null &&
+              args?.end_line == null &&
+              typeof args?.path === "string" &&
+              (name === "read_file" || (name === "explore" && args?.action === "read"));
+            if (isFullRead) {
+              try {
+                const abs = path.isAbsolute(args.path)
+                  ? path.resolve(args.path)
+                  : path.resolve(getProjectWorkdir(), args.path);
+                const st = fs.statSync(abs);
+                const prev = this._fileReadCache.get(abs);
+                const cur = { mtime: Math.floor(st.mtimeMs), size: st.size };
+                if (prev && prev.mtime === cur.mtime && prev.size === cur.size) {
+                  const unchanged = {
+                    result:
+                      `[${args.path} unchanged since you last read it this session ` +
+                      `(${cur.size} bytes) — content NOT resent to save tokens. Your earlier read is still valid. ` +
+                      `If you need a specific part again, read it with a start_line/end_line range.]`,
+                  };
+                  this._onToolEvent?.({ id, name, phase: "done", durationMs: Date.now() - startedAt, result: unchanged });
+                  return unchanged;
+                }
+                fullReadAbs = abs; // değişmiş/ilk okuma — orig sonrası imzala
+              } catch {
+                // stat başarısız (dosya yok vb.) → normal akışa düş.
+              }
+            }
             // ── Centralized Permission Check ──
             const { checkPermission, riskBadge, normalizePermissionMode, isOptionSelected } = await import("./permissions.js");
             const config = getConfig();
@@ -454,13 +654,47 @@ export class Agent {
             try { const { runHooks } = await import("./hooks.js"); await runHooks("pre_tool_call", { tool: name }); } catch { /* hooks best-effort */ }
             // Araç çalışırken stream'den chunk gelmez — watchdog'un bunu stall
             // sanmaması için çalışan araç sayısını izle.
+            const _tExecStart = Date.now();
+            // eslint-disable-next-line no-console
+            if (DEBUG_TIMING) console.error(`[TOOL-TIMING] ▶ ${name} start args=${JSON.stringify(args ?? {}).slice(0, 120)}`);
             this._toolRunning++;
             let r: any;
             try {
-              r = await orig(args, options);
+              r = await this._runToolWithTimeout(name, orig, args, options);
             } finally {
               this._toolRunning--;
+              // eslint-disable-next-line no-console
+              if (DEBUG_TIMING) console.error(`[TOOL-TIMING] ■ ${name} done in ${Date.now() - _tExecStart}ms`);
               this._lastStreamActivity = Date.now();
+            }
+            if (readCacheKey) this._roundReadToolCache.add(readCacheKey);
+            // Tam okuma başarıyla tamamlandı → turlar-arası imzayı kaydet (sonraki
+            // aynı okuma değişmemişse gönderilmeyecek).
+            if (fullReadAbs) {
+              try {
+                const st2 = fs.statSync(fullReadAbs);
+                this._fileReadCache.set(fullReadAbs, { mtime: Math.floor(st2.mtimeMs), size: st2.size });
+              } catch { /* stat yarışı — kaydetme */ }
+            }
+            if ([
+              "write_file", "edit_file", "apply_patch", "append_to_file",
+              "move_item", "copy_file", "delete_file", "delete_folder", "create_folder",
+              "execute_bash", "git_checkout_file", "git_stash",
+            ].includes(name)) {
+              // Bir mutasyon sonrası önceki dosya/git okumaları artık stale olabilir.
+              this._roundReadToolCache.clear();
+              // TURLAR ARASI önbelleği de geçersiz kıl. Yol-hedefli mutasyonlarda
+              // yalnız o dosyayı düş; kapsamı bilinmeyen mutasyonlarda (bash, git,
+              // move/copy) tamamını temizle (güvenli taraf — stale içerik dönmesin).
+              const pathScoped = ["write_file", "edit_file", "apply_patch", "append_to_file", "delete_file"];
+              if (pathScoped.includes(name) && typeof args?.path === "string") {
+                const absM = path.isAbsolute(args.path)
+                  ? path.resolve(args.path)
+                  : path.resolve(getProjectWorkdir(), args.path);
+                this._fileReadCache.delete(absM);
+              } else {
+                this._fileReadCache.clear();
+              }
             }
             try { const { runHooks } = await import("./hooks.js"); await runHooks("post_tool_call", { tool: name }); } catch { /* hooks best-effort */ }
             if (name === "write_plan" && typeof r === "string" && r.startsWith("PLAN_APPROVED_CONTINUE:")) {
@@ -482,7 +716,9 @@ export class Agent {
             }
             this._onToolEvent?.({ id, name, phase: "done", durationMs: Date.now() - startedAt, result: r });
             if (this.trajectoryRecorder) this._pendingToolResults.set(id, { result: r, isError: false });
-            return r;
+            return ["desktop_code", "desktop_session", "cli", "batch", "cron"].includes(this.sessionSource)
+              ? compactToolResultForModel(r)
+              : r;
           } catch (err) {
             const errMsg = (err as any)?.message ?? String(err);
             this._onToolEvent?.({ id, name, phase: "error", durationMs: Date.now() - startedAt, error: errMsg });
@@ -493,6 +729,128 @@ export class Agent {
       };
     }
     return wrapped;
+  }
+
+  /**
+   * Tiering (katmanlı sunum) bu tur aktif mi?
+   *  - Hard-cap (COWRANGLER_MAX_TOOLS) set ise → tiering KAPALI (çakışmasın).
+   *  - COWRANGLER_TOOL_TIERING=0 / config.tools.tiered=false → kapalı.
+   *  - =1 / true → açık.
+   *  - Aksi halde: araç sayısı eşiği (default 25) aşınca otomatik açık.
+   * Küçük allowlist'ler (chat/lean mod) eşiğin altında kalır → davranış değişmez.
+   */
+  private _tieringActive(toolCount: number, hardCapActive: boolean): boolean {
+    if (hardCapActive) return false;
+    let cfgTiered: unknown;
+    let cfgThreshold = "";
+    try {
+      const t = (getConfig() as any)?.tools ?? {};
+      cfgTiered = t.tiered;
+      cfgThreshold = String(t.tier_threshold ?? "");
+    } catch { /* config yoksa default */ }
+    const env = process.env.COWRANGLER_TOOL_TIERING;
+    if (env === "0" || cfgTiered === false) return false;
+    if (env === "1" || cfgTiered === true) return true;
+    // VARSAYILAN: KAPALI (opt-in). Tool subsetting bazı sağlayıcılarda (Gemini)
+    // function-calling'i bozdu; güvenli varsayılan tüm araçları göndermek. Token
+    // optimizasyonu için açıkça COWRANGLER_TOOL_TIERING=1 gerekiyor.
+    void toolCount; void cfgThreshold;
+    return false;
+  }
+
+  /**
+   * Modele SUNULACAK araç adları (experimental_activeTools). Tiering aktifse
+   * çekirdek + bu oturumda load_tool ile aktive edilmişler; değilse hepsi.
+   * Kayıt sırasını korur → Anthropic prompt-cache prefix'i stabil kalır.
+   */
+  private getActiveToolNames(toolSet: Record<string, any>): string[] {
+    const names = Object.keys(toolSet);
+    // Hard-cap zaten objeyi kırptığından ikinci parametre hesaplanır; burada
+    // yalnız tiering kararına bakıyoruz (hard-cap set ise _tieringActive false).
+    let hardCapActive = false;
+    try {
+      const cfgMax = String((getConfig() as any)?.tools?.max ?? "");
+      const cap = parseInt(process.env.COWRANGLER_MAX_TOOLS ?? cfgMax, 10);
+      hardCapActive = Number.isFinite(cap) && cap > 0;
+    } catch { /* default */ }
+    if (!this._tieringActive(names.length, hardCapActive)) return names;
+    const active = new Set<string>();
+    for (const n of CORE_TOOL_NAMES) if (toolSet[n]) active.add(n);
+    // Oturum boyu load_tool ile aktive edilmişler (kalıcı).
+    for (const n of this.activatedTools) if (toolSet[n]) active.add(n);
+    // Tur-başı relevance: extended araçlardan bu turun metnine uyanları da ekle,
+    // böylece model çoğu ihtiyacı load_tool round-trip'i olmadan karşılar.
+    for (const n of names) {
+      if (active.has(n)) continue;
+      if (this._toolMatchesTurn(n, toolSet[n])) active.add(n);
+    }
+    // Stabil sıra: orijinal kayıt sırasına göre filtrele (cache prefix'i bozulmasın).
+    return names.filter((n) => active.has(n));
+  }
+
+  /**
+   * Bir extended aracın bu turun kullanıcı metniyle alakalı olup olmadığı.
+   * Ucuz sezgisel: araç adının alt-kelimeleri (>=4 harf) veya adı, metinde geçiyorsa
+   * eşleşir. Hata payı güvenli tarafta — çekirdek araçlar zaten hep aktif; yanlış
+   * eşleşme yalnız birkaç fazladan şema, kaçırma ise load_tool ile telafi edilir.
+   */
+  private _toolMatchesTurn(name: string, tool: any): boolean {
+    const text = this._turnUserText.toLowerCase();
+    if (!text) return false;
+    if (text.includes(name.toLowerCase().replace(/_/g, " "))) return true;
+    for (const part of name.toLowerCase().split(/[_\s]+/)) {
+      if (part.length >= 4 && text.includes(part)) return true;
+    }
+    // Açıklamanın ilk cümlesindeki anlamlı kelimeler metinde geçiyor mu?
+    const desc = String(tool?.description ?? "").toLowerCase().split(/[.\n]/)[0];
+    for (const w of desc.split(/[^a-z0-9]+/)) {
+      if (w.length >= 5 && text.includes(w)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Bir aracı, "hızlı olması gereken" araç kümesindeyse zaman aşımıyla çalıştırır.
+   * Süre aşılırsa araç TERK EDİLİR (arka plandaki promise sızmasın diye reddi yutulur)
+   * ve modele bir hata sonucu döner — böylece model uyum sağlar, tur asılı kalmaz.
+   * Bu, JS araçlarında (glob/search/read) timeout olmaması + stall watchdog'un çalışan
+   * araç varken susması yüzünden oluşan sonsuz-asılma açığını kapatır.
+   * `COWRANGLER_TOOL_TIMEOUT_MS=0` (veya config.tools.timeout_ms=0) ile kapatılabilir.
+   */
+  private async _runToolWithTimeout(
+    name: string,
+    orig: (a: any, o: any) => any,
+    args: any,
+    options: any,
+  ): Promise<any> {
+    if (!TIMED_TOOLS.has(name)) return orig(args, options);
+    let ms = 60_000;
+    try {
+      const cfg = getConfig() as any;
+      const raw = process.env.COWRANGLER_TOOL_TIMEOUT_MS ?? String(cfg?.tools?.timeout_ms ?? "");
+      const parsed = parseInt(raw, 10);
+      if (Number.isFinite(parsed)) ms = parsed; // 0 → kapalı
+    } catch { /* config yoksa default */ }
+    if (!(ms > 0)) return orig(args, options);
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const TIMEOUT = Symbol("timeout");
+    const timeout = new Promise<typeof TIMEOUT>((resolve) => {
+      timer = setTimeout(() => resolve(TIMEOUT), ms);
+    });
+    const p = Promise.resolve().then(() => orig(args, options));
+    p.catch(() => { /* terk edilen aracın geç reddini yut */ });
+    const res = await Promise.race([p, timeout]);
+    if (timer) clearTimeout(timer);
+    if (res === TIMEOUT) {
+      return {
+        result:
+          `[${name} timed out after ${Math.round(ms / 1000)}s and was abandoned. ` +
+          `The query was too broad or the tree too large. Narrow it: use a more specific ` +
+          `path/pattern, add ignores, or read a specific file/line-range instead of scanning everything.]`,
+      };
+    }
+    return res;
   }
 
   setModel(newLlm: LLM) {
@@ -540,11 +898,19 @@ export class Agent {
       durationMs?: number;
     }) => void,
     onReasoningToken?: (delta: string) => void,
+    options?: { internal?: boolean },
   ): Promise<AgentChatResult> {
     const roundStart = Date.now();
     this._interruptRequested = false;
     this._onToolCall = onToolCall;
     this._onToolEvent = onToolEvent;
+
+    // Dahili tur: sistem tarafından tetiklenen [SYSTEM] yönlendirmesi (boş-yanıt/
+    // plan-devam guard'ları). Transcript'e YAZILMAZ ve kullanıcıya balon olarak
+    // GÖSTERİLMEZ; ayrıca skill/hafıza enjeksiyonu atlanır (gereksiz token yok).
+    const internal = options?.internal === true;
+    // Relevance seçimi için turun kullanıcı metnini sakla (P2).
+    this._turnUserText = userMessage ?? "";
 
     const log = getLogger();
     log.info("agent", "Chat round started", {
@@ -553,56 +919,105 @@ export class Agent {
       userMessageLength: userMessage.length,
     });
 
-    // Token tabanlı context sıkıştırma kontrolü
-    const snap = this.contextEngine.getSnapshot();
-    if (this.contextEngine.shouldCompress(snap.contextTokens)) {
+    // Tool sonuçlarını HER tur öncesinde buda. Büyük context modellerinde yalnız
+    // %85 doluluğu beklemek aynı dosya/terminal çıktısını onlarca kez faturalar.
+    this.messages = this.contextEngine.compactForNextTurn(this.messages);
+
+    // Snapshot'taki son API input toplamı yerine mevcut geçmişin boyutunu ölç.
+    // JSON/4, farklı tokenizer'lar arasında temkinli ve ucuz bir yaklaşımdır.
+    const estimatedContextTokens = Math.ceil(
+      (this.baseSystemPrompt.length + JSON.stringify(this.messages).length) / 4,
+    );
+    if (this.contextEngine.shouldCompress(estimatedContextTokens)) {
       this.messages = await this.contextEngine.compress(
         this.messages,
         this.llm,
         this.baseSystemPrompt,
       );
+      // Lossy sıkıştırma eski dosya okumalarını özete taşımış olabilir; turlar-arası
+      // okuma önbelleğini sıfırla ki "değişmedi, tekrar gönderme" işaretçisi artık
+      // context'te olmayan bir içeriğe atıfta bulunup modeli aç bırakmasın.
+      this._fileReadCache.clear();
     }
 
-    // Otomatik skill eşleştirme: kullanıcı mesajı ETKİN bir skill'le güçlü
-    // eşleşiyorsa, model unutsa bile onu CONTEXT'e kopyala. Böylece hem bu tur
-    // enjekte edilir hem de sağ paneldeki "Aktif Skiller"de görünür. Sadece
-    // yeni eşleşmede kopyalar (idempotent, zaten aktifse dokunmaz).
-    try {
-      const match = this.skillManager.matchSkill(userMessage);
-      if (match) {
-        const already = this.skillManager
-          .getContextSkills()
-          .some((s) => s.id === match.id);
-        if (!already) this.skillManager.copySkillToContext(match.id);
-      }
-    } catch { /* auto-skill best-effort */ }
-
-    // Aktif CONTEXT skill'lerini kullanıcı mesajından hemen önce enjekte et.
-    // Bu sayede baseSystemPrompt sabit kalır ve Anthropic/Gemini prompt caching korunur.
-    const contextSkills = this.skillManager.getContextSkills();
+    // Skill eşleştirme + CONTEXT/hafıza enjeksiyonu yalnızca gerçek kullanıcı
+    // turlarında. Dahili nudge turlarında bunlar hem gereksiz token yükü hem de
+    // modele istenmeyen bağlam sızıntısıdır — tümüyle atlanır.
     let finalUserMessage = userMessage;
-    if (contextSkills.length > 0) {
-      const active = contextSkills
-        .map((s) => `### SKILL: ${s.id}\n${s.content}`)
-        .join("\n\n");
-      finalUserMessage = `[ACTIVE CONTEXT SKILLS]\nThe following SOPs are active in this project's CONTEXT. Follow them precisely when relevant:\n---\n${active}\n---\n\n[USER REQUEST]\n${userMessage}`;
-    }
+    if (!internal) {
+      // Otomatik skill eşleştirme: kullanıcı mesajı ETKİN bir skill'le güçlü
+      // eşleşiyorsa, model unutsa bile onu CONTEXT'e kopyala. Böylece hem bu tur
+      // enjekte edilir hem de sağ paneldeki "Aktif Skiller"de görünür. Sadece
+      // yeni eşleşmede kopyalar (idempotent, zaten aktifse dokunmaz).
+      try {
+        const match = this.skillManager.matchSkill(userMessage);
+        if (match) {
+          const already = this.skillManager
+            .getContextSkills()
+            .some((s) => s.id === match.id);
+          if (!already) this.skillManager.copySkillToContext(match.id);
+        }
+      } catch { /* auto-skill best-effort */ }
 
-    // Uzun-dönem hafıza — ilgili geçmişi geri getir ve mesaja iliştir
-    try {
-      const { getMemoryManager } = await import("./memory_provider.js");
-      const mm = getMemoryManager();
-      if (mm.enabled) {
-        const recalled = await mm.prefetch(userMessage);
-        if (recalled) finalUserMessage = `${recalled}\n\n---\n\n${finalUserMessage}`;
+      // Aktif CONTEXT skill'lerini kullanıcı mesajından hemen önce enjekte et.
+      // Bu sayede baseSystemPrompt sabit kalır ve Anthropic/Gemini prompt caching korunur.
+      const contextSkills = this.skillManager.getContextSkills();
+      if (contextSkills.length > 0) {
+        const active = contextSkills
+          .map((s) => `### SKILL: ${s.id}\n${s.content}`)
+          .join("\n\n");
+        finalUserMessage = `[ACTIVE CONTEXT SKILLS]\nThe following SOPs are active in this project's CONTEXT. Follow them precisely when relevant:\n---\n${active}\n---\n\n[USER REQUEST]\n${userMessage}`;
       }
-    } catch { /* hafıza best-effort */ }
+
+      // Repo haritası — oturumun İLK gerçek turunda bir kez enjekte et. Böylece
+      // agent projeyi grep/list ile "el yordamıyla" keşfetmek yerine nereye
+      // bakacağını baştan bilir → keşif adımları (ve token) düşer. Sadece bir kez;
+      // baseSystemPrompt'a değil mesaja iliştirilir (prompt cache bozulmaz).
+      // Repo-map enjeksiyonu VARSAYILAN KAPALI (opt-in): ilk tura ekstra bağlam +
+      // gecikme ekliyor, kanıtlanmadı. COWRANGLER_REPO_MAP=1 ile aç.
+      if (process.env.COWRANGLER_REPO_MAP === "1" && !this._repoMapInjected) {
+        this._repoMapInjected = true; // hata olsa da tekrar deneyip her turu yavaşlatma
+        try {
+          const rm = TOOL_SCHEMAS["repo_map"];
+          if (rm && typeof rm.execute === "function") {
+            // İlk API çağrısından ÖNCE senkron çalışır; devasa/yavaş repoda turu
+            // geciktirmesin diye 5s ile kutula — süre aşarsa haritasız devam et.
+            const RM_TIMEOUT = Symbol("rm");
+            const rmP = Promise.resolve().then(() => rm.execute({ limit: 25 }, {}));
+            rmP.catch(() => {});
+            const res = await Promise.race([
+              rmP,
+              new Promise((r) => setTimeout(() => r(RM_TIMEOUT), 5_000)),
+            ]);
+            if (res === RM_TIMEOUT) throw new Error("repo_map timed out");
+            const mapText = typeof res === "string" ? res : ((res as any)?.result ?? "");
+            const trimmed = String(mapText).slice(0, 4000);
+            if (trimmed.trim() && !/no source files/i.test(trimmed)) {
+              finalUserMessage =
+                `[REPO MAP — auto-generated once for orientation. Use it to jump straight to relevant files ` +
+                `instead of searching blindly. Verify with explore/read_file before editing.]\n${trimmed}\n\n---\n\n${finalUserMessage}`;
+            }
+          }
+        } catch { /* repo map best-effort */ }
+      }
+
+      // Uzun-dönem hafıza — ilgili geçmişi geri getir ve mesaja iliştir
+      try {
+        const { getMemoryManager } = await import("./memory_provider.js");
+        const mm = getMemoryManager();
+        if (mm.enabled) {
+          const recalled = await mm.prefetch(userMessage);
+          if (recalled) finalUserMessage = `${recalled}\n\n---\n\n${finalUserMessage}`;
+        }
+      } catch { /* hafıza best-effort */ }
+    }
 
     // Kullanıcı mesajını ekle — ekli görseller varsa native vision içeriği kur.
     this.messages.push({ role: "user", content: this._buildUserContent(finalUserMessage) });
 
-    // Session DB'ye yaz
-    if (this.sessionId) {
+    // Session DB'ye yaz — dahili nudge turları HARİÇ: [SYSTEM] yönergesi
+    // transcript'e sızmasın (yeniden yüklemede balon olarak görünmesin).
+    if (this.sessionId && !internal) {
       try {
         getSessionDB().appendMessage({
           sessionId: this.sessionId,
@@ -636,6 +1051,8 @@ export class Agent {
 
         // Stream stall watchdog durumu — attempt başına sıfırlanır.
         let streamStalled = false;
+        let turnTimedOut = false; // mutlak tur sınırı aşıldı mı
+        let maxTurnMs = 0; // catch bloğundan da erişilebilsin diye attempt-scope
         let stallWatchdog: ReturnType<typeof setInterval> | null = null;
 
         try {
@@ -725,12 +1142,22 @@ export class Agent {
             ? [systemMessage, ...historyMessages]
             : historyMessages;
 
+          // P2: araç setini bir kez üret. Tüm araçlar objede KAYITLI (çağrılabilir)
+          // ama modele yalnız `experimental_activeTools` alt-kümesi sunulur — böylece
+          // 50+ aracın şeması her turda taşınmaz. Aktif küme = çekirdek + bu oturumda
+          // load_tool ile aktive edilmiş + bu turun mesajına relevance ile eşleşen
+          // extended araçlar. (streamText statik activeTools alır; prepareStep yalnız
+          // generateText'te var, o yüzden tur-başı seçim yapıyoruz.)
+          // getTools() artık tiering aktifken zaten aktif alt-kümeyi döndürüyor
+          // (provider-güvenli). experimental_activeTools KULLANMIYORUZ — Gemini
+          // gibi sağlayıcılarda stream'i donduruyordu.
+          const toolSet = this.getTools();
           const callOptions: Parameters<typeof streamText>[0] = {
             abortSignal: this.llm.getAbortSignal(),
             model: this.llm.getModel(),
             ...(isAnthropic ? {} : { system: this.baseSystemPrompt }),
             messages: messagesWithSystem,
-            tools: this.getTools(),
+            tools: toolSet,
             maxSteps: this.maxIterations,
             ...(thinkingEnabled ? { providerOptions } : {}),
             onStepFinish: async ({ text, toolCalls, usage, providerMetadata }: any) => {
@@ -772,6 +1199,10 @@ export class Agent {
           // ilerlemesi için fullStream'i tüketmek zorunludur; text-delta'ları
           // onToken ile UI'a iletiyoruz. Hesaplama (usage/cache) onStepFinish
           // ve aşağıdaki final await'ler üzerinden yapılır.
+          const _tStreamStart = Date.now();
+          // eslint-disable-next-line no-console
+          if (DEBUG_TIMING) console.error(`[STREAM-TIMING] ▶ model call started (attempt ${attempt}, msgs=${messagesWithSystem.length})`);
+          let _firstChunkLogged = false;
           const result = streamText(callOptions);
 
           // ── Stream stall watchdog ──────────────────────────────────────────
@@ -783,14 +1214,30 @@ export class Agent {
           const idleTimeoutMs = Number.isFinite(envIdle)
             ? envIdle
             : ((cfg as any)?.stream_idle_timeout_ms ?? 120_000);
+          // MUTLAK tur sınırı: idle watchdog yalnız "hiç chunk gelmiyor" halini
+          // yakalar. Ama sağlayıcı yavaş yavaş reasoning/keepalive token akıtırsa
+          // (ör. büyük context'te thinking'li model) her chunk aktiviteyi sıfırlar
+          // ve tur SONSUZA dek sürer. Bu sert tavan, sebebi ne olursa olsun
+          // (yavaş akış, uzun düşünme, takılı tool) turu belli sürede keser.
+          const envMaxTurn = parseInt(process.env.COWRANGLER_MAX_TURN_MS ?? "", 10);
+          maxTurnMs = Number.isFinite(envMaxTurn)
+            ? envMaxTurn
+            : ((cfg as any)?.max_turn_ms ?? 300_000); // 5 dk default
+          const turnDeadline = Date.now() + maxTurnMs;
           this._lastStreamActivity = Date.now();
-          if (idleTimeoutMs > 0) {
+          if (idleTimeoutMs > 0 || maxTurnMs > 0) {
             stallWatchdog = setInterval(() => {
+              // Sert tavan — tool çalışsa da, chunk gelse de geçerli.
+              if (maxTurnMs > 0 && Date.now() > turnDeadline) {
+                turnTimedOut = true;
+                try { this.llm.abort(); } catch { /* zaten kapanmış olabilir */ }
+                return;
+              }
               if (this._toolRunning > 0) {
                 this._lastStreamActivity = Date.now();
                 return;
               }
-              if (Date.now() - this._lastStreamActivity > idleTimeoutMs) {
+              if (idleTimeoutMs > 0 && Date.now() - this._lastStreamActivity > idleTimeoutMs) {
                 streamStalled = true;
                 try { this.llm.abort(); } catch { /* zaten kapanmış olabilir */ }
               }
@@ -802,6 +1249,11 @@ export class Agent {
 
           for await (const part of result.fullStream) {
             this._lastStreamActivity = Date.now();
+            if (!_firstChunkLogged) {
+              _firstChunkLogged = true;
+              // eslint-disable-next-line no-console
+              if (DEBUG_TIMING) console.error(`[STREAM-TIMING] ◉ first chunk (${(part as any)?.type}) after ${Date.now() - _tStreamStart}ms`);
+            }
             if (this._interruptRequested) break;
             if (part.type === "text-delta") {
               if (onToken && part.textDelta) onToken(part.textDelta);
@@ -826,6 +1278,17 @@ export class Agent {
             } else if (part.type === "error") {
               throw (part as any).error;
             }
+          }
+
+          // Mutlak tur sınırı aşıldıysa — retry ETME (yavaş sağlayıcı/model tekrar
+          // aynı süreyi yakar). Net bir hata ile turu bitir.
+          if (turnTimedOut) {
+            const toErr = new Error(
+              `TURN_TIMEOUT: turn exceeded ${Math.round(maxTurnMs / 1000)}s and was stopped. ` +
+              `The model/provider was too slow or stuck on this step. Try a smaller request, a faster model, or raise COWRANGLER_MAX_TURN_MS.`,
+            );
+            toErr.name = "TurnTimeoutError";
+            throw toErr;
           }
 
           // Watchdog stall'ı yakaladıysa retryable hata olarak fırlat —
@@ -875,6 +1338,22 @@ export class Agent {
           break;
         } catch (err) {
           lastError = err;
+
+          // Mutlak tur sınırı — abort AbortError olarak da gelebilir, o yüzden
+          // bayrağı EN ÖNCE kontrol et. RETRY ETME: net mesajla bitir.
+          if (turnTimedOut || (err as any)?.name === "TurnTimeoutError") {
+            this.llm.clearAbortController();
+            getLogger().error("agent", "Turn hard-timeout — aborted", {
+              model: this.llm.model, maxTurnMs, attempt,
+            });
+            const msg = new Error(
+              `Tur ${Math.round(maxTurnMs / 1000)} saniyeyi aştı ve durduruldu. ` +
+              `Model/sağlayıcı bu adımda çok yavaştı veya takıldı. Daha küçük bir istek, ` +
+              `daha hızlı bir model deneyin ya da COWRANGLER_MAX_TURN_MS değerini yükseltin.`,
+            );
+            msg.name = "TurnTimeoutError";
+            throw msg;
+          }
 
           // Stream stall (watchdog abort'u) — retryable; kullanıcı iptali DEĞİL.
           // Watchdog llm.abort() çağırdığı için hata AbortError olarak da
@@ -1015,6 +1494,17 @@ export class Agent {
             tool_call_count: this.sessionToolCallCount,
             estimated_cost_usd: cost,
           });
+          db.appendUsageEvent({
+            sessionId: this.sessionId,
+            surface: this.sessionSource,
+            model: this.llm.model,
+            inputTokens: totalInputTokens,
+            outputTokens: totalOutputTokens,
+            cacheReadTokens: totalCacheReadTokens,
+            cacheWriteTokens: totalCacheWriteTokens,
+            toolCallCount: roundToolCallCount,
+            status: "success",
+          });
         } catch { /* sessizce devam */ }
       }
 
@@ -1119,11 +1609,12 @@ export class Agent {
 
     // Yeni oturum başlat
     this.messages = [];
+    this._roundReadToolCache.clear();
     this.briefBuffer.clear();
     this.contextEngine.reset();
     this.sessionToolCallCount = 0;
     this.baseSystemPrompt = this._buildSystemPrompt(this.originalPrompt);
-    this._startSession("cli");
+    this._startSession(this.sessionSource);
   }
 
   /** Oturum geçmişini veritabanından yükler */
@@ -1141,7 +1632,7 @@ export class Agent {
     for (const m of dbMsgs) {
       if (m.role === "user") {
         mapped.push({ role: "user", content: m.content });
-      } else if (m.role === "assistant" || m.role === "reasoning" || m.role === "tool_call") {
+      } else if (m.role === "assistant" || m.role === "tool_call") {
         let last = mapped[mapped.length - 1];
         if (!last || last.role !== "assistant") {
           last = { role: "assistant", content: [] };
@@ -1155,8 +1646,6 @@ export class Agent {
 
         if (m.role === "assistant") {
           contentArr.push({ type: "text", text: m.content });
-        } else if (m.role === "reasoning") {
-          contentArr.push({ type: "text", text: `[Reasoning] ${m.content}` });
         } else if (m.role === "tool_call") {
           let args = {};
           try {
@@ -1198,6 +1687,22 @@ export class Agent {
       if (Array.isArray(m.content) && m.content.length === 0) return false;
       return true;
     });
+
+    // Session yeniden açıldığında aynı salt-okunur çağrıları gereksiz yere
+    // tekrarlamamak için geçmiş tool-call argümanlarını cache'e indeksle.
+    this._roundReadToolCache.clear();
+    const cacheableReads = new Set([
+      "read_file", "list_files", "glob_files", "search_in_files", "file_info",
+      "git_status", "git_diff", "git_log", "which_command", "repo_map",
+    ]);
+    for (const msg of this.messages) {
+      if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
+      for (const part of msg.content as any[]) {
+        if (part?.type === "tool-call" && cacheableReads.has(part.toolName)) {
+          this._roundReadToolCache.add(`${part.toolName}:${JSON.stringify(part.args ?? {})}`);
+        }
+      }
+    }
 
     this.sessionToolCallCount = sess.tool_call_count;
     this.contextEngine.reset();

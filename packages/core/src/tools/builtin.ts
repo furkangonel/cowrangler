@@ -24,3 +24,12 @@ import "./computer_use.js";
 import "./mcp_status_tool.js";
 import "./ask_user.js";
 import "./preview_tools.js";
+
+// Birleşik facade aracı (explore) — VARSAYILAN KAPALI. Gemini function-calling'i
+// explore'un birleşik şemasını (enum action + çok opsiyonel param) akıtırken adımı
+// kapatamayıp stream'i donduruyor (model tool-call'ı emit ediyor ama hiç yürütülmüyor).
+// Basit şemalı orijinal araçlar (read_file/search_in_files/glob_files/list_files)
+// doğrudan çalışıyor. Token birleştirmesini istersen COWRANGLER_ENABLE_EXPLORE=1 ile
+// aç — ama önce kullandığın modelde çalıştığını doğrula.
+import { registerFacades } from "./facades.js";
+if (process.env.COWRANGLER_ENABLE_EXPLORE === "1") registerFacades();

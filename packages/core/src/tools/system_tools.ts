@@ -21,6 +21,7 @@ import {
   PermissionMode,
   isOptionSelected,
 } from "../permissions.js";
+import { truncateToolOutput } from "./truncate.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET CURRENT TIME
@@ -203,7 +204,7 @@ Use execute_bash only when necessary. Prefer purpose-built tools (git_*, file_*)
         execFile("ssh", sshArgs, { timeout, maxBuffer: 512 * 1024 }, (err, stdout, stderr) => {
           const out = (stdout || "") + (stderr ? `\n${stderr}` : "");
           if (err && !out.trim()) resolve(`ERROR (ssh): ${err.message}`);
-          else resolve(out || "Command succeeded with no output.");
+          else resolve(truncateToolOutput(out || "Command succeeded with no output.", { label: "ssh" }));
         });
       });
     }
@@ -212,7 +213,10 @@ Use execute_bash only when necessary. Prefer purpose-built tools (git_*, file_*)
      configureSandbox({
       enabled: effectivePermMode === "bypass" ? false : (config.sandbox?.enabled ?? true),
       workspaceRoot: getProjectWorkdir(),
-      maxOutputBytes: 512 * 1024,
+      // P3: sandbox seviyesinde ham çıktı tavanı 512KB → 64KB. Firar eden komutun
+      // modele giden yükünü baştan kısıtla; config ile ayarlanabilir. Modele giden
+      // asıl budama aşağıda truncateToolOutput ile (50KB/2000 satır) yapılır.
+      maxOutputBytes: (config.sandbox as any)?.max_output_bytes ?? 64 * 1024,
       maxTimeoutMs: config.sandbox?.max_timeout_ms ?? 30000,
       networkRestricted: config.sandbox?.network_restricted ?? false,
       auditLogPath: config.sandbox?.audit_log
@@ -235,8 +239,10 @@ Use execute_bash only when necessary. Prefer purpose-built tools (git_*, file_*)
         ? `${riskBadge("dangerous")} [System Note: This command executed successfully and was logged.]\n`
         : "";
 
-    return (
-      warningPrefix + (result.output || "Command succeeded with no output.")
+    // P0: modele giden çıktıyı buda — taşan kısım diske, önizleme + işaretçi döner.
+    return truncateToolOutput(
+      warningPrefix + (result.output || "Command succeeded with no output."),
+      { label: `bash ${command.slice(0, 40)}` },
     );
   },
 );
@@ -356,34 +362,50 @@ Never ask the user to type "go ahead" after this tool already returned PLAN_APPR
     const { getActiveSessionId } = await import("../project_context.js");
     const sessionId = getActiveSessionId();
 
-    // Persist to disk
-    try {
-      const planFile = getProjectPlanFile();
-      fs.mkdirSync(path.dirname(planFile), { recursive: true });
-      fs.writeFileSync(planFile, planContent, "utf-8");
-    } catch {
-      // Non-fatal — plan still returned in-memory
-    }
+    // Yapılı plan gövdesi — hem canlı yayında hem diskte tek kaynak.
+    const normalizedSteps = steps.map((s) => ({
+      step: s.step,
+      description: s.description,
+      files: s.files,
+      risk: s.risk ?? "low",
+    }));
+    const basePayload = {
+      title,
+      summary,
+      steps: normalizedSteps,
+      estimated_duration,
+      notes,
+      sessionId,
+      createdAt: new Date().toISOString(),
+    };
+
+    // Diske yaz — markdown (okunabilirlik) + JSON (yapılı yeniden yükleme).
+    // getPlan JSON'ı okuyup Plan panelini oturum açılışında geri kurar; markdown
+    // olmadan panel yalnız canlı event'e bağımlı kalıp session geçişinde kaybolur.
+    const planFile = getProjectPlanFile();
+    const planJsonFile = planFile.replace(/\.md$/, ".plan.json");
+    const persistPlan = (
+      markdown: string,
+      status: "pending" | "approved" | "rejected" | "modify",
+    ) => {
+      try {
+        fs.mkdirSync(path.dirname(planFile), { recursive: true });
+        fs.writeFileSync(planFile, markdown, "utf-8");
+        fs.writeFileSync(
+          planJsonFile,
+          JSON.stringify({ ...basePayload, markdown, status }, null, 2),
+          "utf-8",
+        );
+      } catch {
+        // Non-fatal — plan still emitted in-memory
+      }
+    };
+    persistPlan(planContent, "pending");
 
     // Sağ paneldeki Plan bölümüne canlı yayınla — model artık planı ayrıca
     // "anlatmak" zorunda değil; kullanıcı planı doğrudan panelde görür.
     const { emitPlan } = await import("./plan_events.js");
-    emitPlan({
-      title,
-      summary,
-      steps: steps.map((s) => ({
-        step: s.step,
-        description: s.description,
-        files: s.files,
-        risk: s.risk ?? "low",
-      })),
-      estimated_duration,
-      notes,
-      markdown: planContent,
-      status: "pending",
-      sessionId,
-      createdAt: new Date().toISOString(),
-    });
+    emitPlan({ ...basePayload, markdown: planContent, status: "pending" });
 
     // Onay diyaloğunda planın TAM adımlarını göster (yalnız başlık değil).
     const stepDigest = steps
@@ -417,25 +439,16 @@ Never ask the user to type "go ahead" after this tool already returned PLAN_APPR
           awaitingApprovalLine,
           `*Approved in the UI — implementation should continue now.*`,
         );
-        emitPlan({
-          title, summary, steps, estimated_duration, notes,
-          markdown: approvedPlanContent, status: "approved", sessionId,
-          createdAt: new Date().toISOString(),
-        });
+        persistPlan(approvedPlanContent, "approved");
+        emitPlan({ ...basePayload, markdown: approvedPlanContent, status: "approved" });
         return `PLAN_APPROVED_CONTINUE: The user approved this plan in the UI. Continue implementation directly now; do not ask for "go ahead" again.\n\n${approvedPlanContent}`;
       } else if (isOptionSelected(approval, "Modify plan")) {
-        emitPlan({
-          title, summary, steps, estimated_duration, notes,
-          markdown: planContent, status: "modify", sessionId,
-          createdAt: new Date().toISOString(),
-        });
+        persistPlan(planContent, "modify");
+        emitPlan({ ...basePayload, markdown: planContent, status: "modify" });
         return `PLAN MODIFICATION REQUESTED BY USER. Do NOT start implementation. Prompt the user for details on what needs to be changed in the plan.`;
       } else {
-        emitPlan({
-          title, summary, steps, estimated_duration, notes,
-          markdown: planContent, status: "rejected", sessionId,
-          createdAt: new Date().toISOString(),
-        });
+        persistPlan(planContent, "rejected");
+        emitPlan({ ...basePayload, markdown: planContent, status: "rejected" });
         return `PLAN CANCELLED/REJECTED BY USER. Stop execution and do NOT implement.`;
       }
     } catch {

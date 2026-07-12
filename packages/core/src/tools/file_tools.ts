@@ -10,6 +10,15 @@ import fg from "fast-glob";
 import { registerTool } from "./registry.js";
 import { beforeMutation, setCheckpointBase } from "../checkpoints.js";
 import { protectUntrustedContent } from "../context_security.js";
+import { truncateToolOutput, MAX_OUTPUT_LINES } from "./truncate.js";
+
+/** Tek satır char tavanı — minified/tek-satır dosyalar byte'ı patlatmasın. */
+const MAX_LINE_CHARS = 2000;
+function clampLine(line: string): string {
+  return line.length > MAX_LINE_CHARS
+    ? line.slice(0, MAX_LINE_CHARS) + " …(line truncated)"
+    : line;
+}
 
 let _WORKSPACE = path.resolve("./workspace");
 
@@ -39,7 +48,13 @@ function markdownToPlainText(markdown: string): string {
 }
 
 function protectFileReadResult(content: string, relPath: string): string {
-  return protectUntrustedContent(content, `file ${relPath}`);
+  // Önce buda (diske taşır + önizleme), sonra injection tarayıcısıyla sarmala.
+  // Böylece docx/pdf/xlsx/pptx/rtf/html/plain — tüm okuma yolları tek noktada
+  // token-güvenli hale gelir.
+  return protectUntrustedContent(
+    truncateToolOutput(content, { label: `read_file ${relPath}` }),
+    `file ${relPath}`,
+  );
 }
 
 function wrapText(line: string, font: any, fontSize: number, maxWidth: number): string[] {
@@ -161,15 +176,30 @@ registerTool(
   async ({ pattern, cwd, ignore = [] }: { pattern: string; cwd?: string; ignore?: string[] }) => {
     try {
       const baseDir = cwd ? _safePath(cwd) : _WORKSPACE;
+      // Ağır build/dependency dizinlerini traversal dışı bırak. Yalnız
+      // node_modules/.git/dist yetmiyor: web projelerinde .next/out/build/coverage
+      // gibi dizinler `**/*.css` benzeri geniş kalıpları dakikalarca yürütüyor.
+      const DEFAULT_IGNORE = [
+        "**/node_modules/**", "**/.git/**", "**/dist/**", "**/build/**",
+        "**/out/**", "**/.next/**", "**/.nuxt/**", "**/coverage/**",
+        "**/.cache/**", "**/vendor/**", "**/release/**", "**/.venv/**",
+        "**/__pycache__/**",
+      ];
       const matches = await fg(pattern, {
         cwd: baseDir,
-        ignore: ["**/node_modules/**", "**/.git/**", "**/dist/**", ...ignore],
+        ignore: [...DEFAULT_IGNORE, ...ignore],
         dot: false,
         onlyFiles: true,
         unique: true,
+        suppressErrors: true,
       });
       if (matches.length === 0) return `No files matched '${pattern}'.`;
-      return `Found ${matches.length} file(s):\n` + matches.sort().join("\n");
+      // Sonuç tavanı — devasa eşleşmeler modele bir çuval dosya yollamasın.
+      const MAX_GLOB = 500;
+      const sorted = matches.sort();
+      const shown = sorted.slice(0, MAX_GLOB);
+      const header = `Found ${matches.length} file(s)${matches.length > MAX_GLOB ? ` (showing first ${MAX_GLOB} — narrow your pattern)` : ""}:\n`;
+      return header + shown.join("\n");
     } catch (e: any) {
       return `ERROR: ${e.message}`;
     }
@@ -296,16 +326,24 @@ registerTool(
       }
 
       const raw = await fs.readFile(target, "utf-8");
+      const lines = raw.split("\n");
       if (start_line !== undefined || end_line !== undefined) {
-        const lines = raw.split("\n");
         const from = (start_line ?? 1) - 1;
         const to = end_line ?? lines.length;
         return protectFileReadResult(
-          lines.slice(from, to).map((l, i) => `${from + i + 1}: ${l}`).join("\n"),
+          lines.slice(from, to).map((l, i) => `${from + i + 1}: ${clampLine(l)}`).join("\n"),
           relPath,
         );
       }
-      return protectFileReadResult(raw, relPath);
+      // P1: aralık verilmediyse TÜM dosyayı raw döndürme. Numaralı, satır-başı
+      // clamp'li içerik üret; protectFileReadResult ilk MAX_OUTPUT_LINES satırı
+      // gösterir, gerisini diske taşır. Model belirli aralığı start/end ile okur.
+      const numbered = lines.map((l, i) => `${i + 1}: ${clampLine(l)}`).join("\n");
+      const hint =
+        lines.length > MAX_OUTPUT_LINES
+          ? `[file has ${lines.length} lines; showing a window — use start_line/end_line to read more]\n`
+          : "";
+      return protectFileReadResult(hint + numbered, relPath);
     } catch (e: any) {
       return `ERROR reading file: ${e.message}`;
     }
@@ -595,7 +633,10 @@ registerTool(
 
       await scan(target);
       if (!results.length) return `No matches found for '${keyword}'.`;
-      return `Found ${results.length} match(es)${results.length >= max_results ? " (limit reached)" : ""}:\n` + results.join("\n");
+      const header = `Found ${results.length} match(es)${results.length >= max_results ? " (limit reached)" : ""}:\n`;
+      return truncateToolOutput(header + results.map((r) => clampLine(r)).join("\n"), {
+        label: `search ${keyword}`,
+      });
     } catch (e: any) {
       return `ERROR: ${e.message}`;
     }

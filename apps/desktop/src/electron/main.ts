@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url'
 import fixPath from 'fix-path'
 import { initEnvironment, loadEnvironmentVariables } from '@cowrangler/core/init.js'
 
-// Uygulama macOS'ta Finder/Dock üzerinden açıldığında terminal ortam değişkenlerini 
+// Uygulama macOS'ta Finder/Dock üzerinden açıldığında terminal ortam değişkenlerini
 // (`PATH`) miras alması için fixPath() çağrılmalı. Aksi takdirde MCP için `npx` çalışmaz.
 fixPath()
 import { registerAgentIPC } from './ipc/agent.ipc.js'
@@ -70,7 +70,7 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1360,
     height: 860,
-    minWidth: 960,
+    minWidth: 720,
     minHeight: 640,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
     backgroundColor: '#0f0f0f',

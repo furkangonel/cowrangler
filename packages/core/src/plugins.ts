@@ -3,9 +3,9 @@ import path from "path";
 import { execSync } from "child_process";
 import { DIRS, getConfig } from "./init.js";
 import { getProjectWorkdir } from "./project_context.js";
-import { registerTool } from "./tools/registry.js";
+import { registerTool, unregisterTool } from "./tools/registry.js";
 import { SUB_AGENTS } from "./subagents.js";
-import { ModelMeta, registerDynamicModel } from "./model_metadata.js";
+import { ModelMeta, registerDynamicModel, unregisterDynamicModel } from "./model_metadata.js";
 
 export interface PluginDef {
   id: string;
@@ -100,6 +100,10 @@ export class PluginManager {
   private pluginContribs = new Map<string, PluginContribution>();
   /** providerId -> pluginId that registered its interceptor */
   private providerOwner = new Map<string, string>();
+  /** pluginId -> tool names registered by that plugin */
+  private pluginRegisteredTools = new Map<string, string[]>();
+  /** pluginId -> subagent names registered by that plugin */
+  private pluginRegisteredSubAgents = new Map<string, string[]>();
 
   private constructor() {}
 
@@ -181,11 +185,35 @@ export class PluginManager {
     const plugins = this.getAvailablePlugins();
     const config = getConfig();
 
-    // Reset per-plugin bookkeeping so re-initialization (e.g. after install)
-    // reflects the current set of plugins rather than accumulating stale data.
+    // ── Full reset of all plugin-contributed state ──────────────────────────
+    // 1. Remove previously registered plugin tools from the global TOOL_SCHEMAS.
+    for (const [, toolNames] of this.pluginRegisteredTools) {
+      for (const name of toolNames) unregisterTool(name);
+    }
+    this.pluginRegisteredTools.clear();
+
+    // 2. Remove previously registered plugin subagents from SUB_AGENTS.
+    for (const [, agentNames] of this.pluginRegisteredSubAgents) {
+      for (const name of agentNames) delete SUB_AGENTS[name];
+    }
+    this.pluginRegisteredSubAgents.clear();
+
+    // 3. Remove previously registered dynamic models from MODEL_REGISTRY.
+    for (const [, contrib] of this.pluginContribs) {
+      for (const modelId of contrib.models) unregisterDynamicModel(modelId);
+    }
+
+    // 4. Clear provider interceptors so stale plugin fetchers don't linger.
+    this.interceptors.clear();
+
+    // 5. Clear skill paths — will be re-populated by active plugins below.
+    this.pluginSkillPaths = [];
+
+    // 6. Clear remaining per-plugin bookkeeping maps.
     this.pluginActions.clear();
     this.pluginContribs.clear();
     this.providerOwner.clear();
+    // ────────────────────────────────────────────────────────────────────────
 
     for (const plugin of plugins) {
       const indexJs = path.join(plugin.dir, "index.js");
@@ -195,6 +223,8 @@ export class PluginManager {
       const contrib: PluginContribution = { models: [], skills: 0, tools: 0, providers: [], actions: [] };
       this.pluginContribs.set(plugin.id, contrib);
       this.pluginActions.set(plugin.id, []);
+      this.pluginRegisteredTools.set(plugin.id, []);
+      this.pluginRegisteredSubAgents.set(plugin.id, []);
 
       try {
         const mod = await import(`file://${indexJs}`);
@@ -205,9 +235,11 @@ export class PluginManager {
             registerTool: (name, description, parameters, execute) => {
               registerTool(name, description, parameters, execute);
               contrib.tools++;
+              this.pluginRegisteredTools.get(plugin.id)!.push(name);
             },
             registerSubAgent: (name, definition) => {
               SUB_AGENTS[name] = definition;
+              this.pluginRegisteredSubAgents.get(plugin.id)!.push(name);
             },
             registerSkillPath: (dirPath) => {
               this.registerSkillPath(dirPath);

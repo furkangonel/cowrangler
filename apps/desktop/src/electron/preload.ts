@@ -107,7 +107,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     delete: (projectId: string, sessionId: string) => ipcRenderer.invoke('sessions:delete', projectId, sessionId),
     rename: (sessionId: string, title: string) => ipcRenderer.invoke('sessions:rename', sessionId, title),
     pin: (sessionId: string, pinned: boolean) => ipcRenderer.invoke('sessions:pin', sessionId, pinned),
-    dashboardStats: (sinceMs?: number) => ipcRenderer.invoke('sessions:dashboardStats', sinceMs),
+    dashboardStats: (sinceMs?: number, projectId?: string) => ipcRenderer.invoke('sessions:dashboardStats', sinceMs, projectId),
   },
   preview: {
     detect: (workdir?: string) => ipcRenderer.invoke('preview:detect', workdir),

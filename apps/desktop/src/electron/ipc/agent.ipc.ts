@@ -26,6 +26,27 @@ function resolveWorkdir(projectId: string, project: { workdir?: string | null } 
 }
 
 /**
+ * Task/plan diskini OKURKEN kullanılan workdir'i çözer. Yazma anında task manager
+ * `getProjectStoreDir()`'i (aktif workdir) esas alır; okuma da aynı dizine düşmeli.
+ * CODE oturumunda oturuma kayıtlı workdir geçersiz/boşsa aktif Code workdir'ine
+ * düşeriz — böylece yeni/heal edilmemiş oturumda panel boş kalmaz (task/plan
+ * "yanlış yerden okunuyor" hatasının kökü).
+ */
+function resolveTodoWorkdir(projectId: string, sessionId?: string): string | undefined {
+  const project = getProjectDB().get(projectId)
+  let workdir = resolveWorkdir(projectId, project)
+  if (projectId === CODE_PROJECT_ID && sessionId) {
+    const sess = getSessionDB().getSession(sessionId)
+    if (sess && sess.workdir && sess.workdir !== '/' && sess.workdir !== '') {
+      workdir = sess.workdir
+    } else {
+      workdir = getCodeWorkdir() ?? workdir
+    }
+  }
+  return workdir
+}
+
+/**
  * Global sohbet için adanmış çalışma dizini.
  * Böylece file_tools / manage_todo en son açık projenin workdir'ini sızdırmaz;
  * genel sohbet kendi izole klasöründe çalışır.
@@ -66,6 +87,24 @@ function buildSystemPrompt(basePrompt: string, instructions: string): string {
     prompt += `\n\n---\n\n## PROJECT INSTRUCTIONS\n\n${instructions}`
   }
   return prompt
+}
+
+/**
+ * Code sohbetindeki ara çalışma metnini kısa bir durum güncellemesine indirger.
+ * Model talimata uymasa bile uzun analiz/kod blokları ana sohbeti kaplayamaz.
+ */
+function compactStepText(raw: string, limit: number): string {
+  const withoutCode = raw.replace(/```[\s\S]*?```/g, ' ')
+  const oneLine = withoutCode.replace(/\s+/g, ' ').trim()
+  if (!oneLine) return ''
+
+  // İlk anlamlı cümle yeterli. Ondalık ve dosya uzantılarındaki noktalara
+  // takılmamak için yalnız nokta sonrası boşluk/bitişi cümle sınırı say.
+  const firstSentence = oneLine.match(/^.*?[.!?](?:\s|$)/)?.[0]?.trim() ?? oneLine
+  // Final cevaba benzeyen uzun metni ortasından kesip "şek…" olarak gösterme.
+  // agent:done aynı metni eksiksiz yayınlayacak; burada yalnız kısa progress var.
+  if (firstSentence.length > limit) return ''
+  return firstSentence
 }
 
 
@@ -117,6 +156,9 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       'generate_image', 'analyze_image',
       'ask_user',
     ]
+    // Code yüzeyine her kayıtlı aracı göndermek tool şemalarını her model
+    // adımında tekrar tokenlaştırır. Günlük yazılım işi için gereken odaklı set;
+    // niş medya/PDF/computer-use araçları ilgili özel yüzeylerde kalır.
     const allowedTools =
       contextType === 'desktop_design' ? DESIGN_TOOLS
       : undefined
@@ -160,13 +202,22 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       // Design projeleri çok dosyalıdır (her ekran = screen + meta.json sidecar);
       // varsayılan 25 step, 8-10 ekranlık işte ORTADA keser ve "model işi yapmadan
       // gitti" görünümü yaratır. Design'a daha yüksek step bütçesi ver.
-      const maxIterations = contextType === 'desktop_design' ? 60 : undefined
+      // Code'da tek isteğin 25 ardışık model/tool turuna çıkması input context'i
+      // katlayarak yakıyordu. 12 adım çoğu kod görevi için yeterli; kapsamlı iş
+      // gerekiyorsa agent bir sonraki kullanıcı turunda kaldığı yerden sürer.
+      const maxIterations = contextType === 'desktop_design' ? 60
+        : contextType === 'desktop_code' ? 12
+        : contextType === 'desktop_session' ? 16
+        : undefined
       // getOrCreate: mevcut agent'ı döndürür (varsa) + workdir map'ini günceller.
-      agent = agentManager.getOrCreate(projectId, { model, systemPrompt, allowedTools, maxIterations }, workdir)
+      agent = agentManager.getOrCreate(projectId, {
+        model, systemPrompt, allowedTools, maxIterations,
+        sessionSource: contextType,
+      }, workdir)
       // Design turunda thinking'i tercih et: reasoning destekli modelde muhakeme
       // görünür yanıt metnine sızmak yerine "Thought Process" accordion'una gider.
       // (Kullanıcı COWRANGLER_THINKING=0 ile açıkça kapattıysa yine kapalı kalır.)
-      agent.preferThinking = contextType === 'desktop_design'
+      agent.preferThinking = contextType === 'desktop_design' || contextType === 'desktop_session'
       // Desktop tek-kanal düz metin sözleşmesi: send_message YOK. Model asıl
       // yanıtını görünür metin olarak yazar; ikili kanal (anlatı + send_message)
       // karmaşası ve "cevap gizli kaldı / hiç mesaj çıkmadı" sorunları biter.
@@ -277,9 +328,20 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       })
     }
 
-    const onStepText = (text: string) => {
-      sender.send('agent:stepText', text)
-    }
+    // Code yüzeyinde ara adımları tamamen gizlemek yerine tek cümlelik kısa
+    // durum güncellemelerine indirgeriz. Tool kartları ayrıntılı ilerlemeyi,
+    // agent:done ise nihai sonucu taşır. Cowork/Design zengin akışı korur.
+    const onStepText = contextType === 'desktop_code'
+      ? (text: string) => {
+          const compact = compactStepText(text, 180)
+          if (compact) sender.send('agent:stepText', `${compact}\n\n`)
+        }
+      : contextType === 'desktop_session'
+        ? (text: string) => {
+            const compact = compactStepText(text, 240)
+            if (compact) sender.send('agent:stepText', `${compact}\n\n`)
+          }
+      : (text: string) => sender.send('agent:stepText', text)
 
     const onReasoningText = (text: string) => {
       sender.send('agent:reasoningText', text)
@@ -303,6 +365,7 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
         result = await agent.chat(
           '[SYSTEM] You ended the turn without producing any design file. The user expects real screens, not a description. Start NOW: write the first screens/ file (plus its .meta.json sidecar), then keep writing until the request is fully built. Do not reply with plans or promises.',
           undefined, onStepText, undefined, onToolEvent, onReasoningText,
+          { internal: true },
         )
       }
 
@@ -314,6 +377,7 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
         result = await agent.chat(
           '[SYSTEM] The user approved the implementation plan in the UI. Continue implementing it now in this same session. Do not ask for "go ahead", "proceed", or any additional approval unless a separate destructive/irreversible permission prompt is required. Do not write another plan.',
           undefined, onStepText, undefined, onToolEvent, onReasoningText,
+          { internal: true },
         )
       }
 
@@ -325,8 +389,9 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       // devam çalıştıysa ve nihai metin boşsa, BİR kez özet iste. Yalnızca bir kez.
       if ((!askedUser || planApprovedThisTurn) && (!result.text || !result.text.trim())) {
         result = await agent.chat(
-          '[SYSTEM] You ended the turn without any visible reply to the user. Write a brief plain-text message now: if you completed work, summarize what changed and the outcome; if you were blocked, say what you need. Do not call tools — just reply in text.',
+          'Summarize the outcome of the work you just did in one or two short plain-text sentences (what changed, and whether it worked). If you were blocked, say what you need instead. Reply in the user\'s language. Do not call any tools.',
           undefined, onStepText, undefined, onToolEvent, onReasoningText,
+          { internal: true },
         )
       }
 
@@ -416,15 +481,8 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
   // ── agent:getTodo ──────────────────────────────────────────────────────────
   ipcMain.handle('agent:getTodo', async (_, projectId: string, sessionId?: string) => {
     if (!sessionId) return []
-    // Workdir'i project DB'den çöz — agent instance olmadan da çalışır
-    const project = getProjectDB().get(projectId)
-    let workdir = resolveWorkdir(projectId, project)
-    if (projectId === CODE_PROJECT_ID && sessionId) {
-      const sess = getSessionDB().getSession(sessionId)
-      if (sess && sess.workdir && sess.workdir !== '/' && sess.workdir !== '') {
-        workdir = sess.workdir
-      }
-    }
+    // Workdir'i çöz — agent instance olmadan da çalışır (yazma diziniyle hizalı).
+    const workdir = resolveTodoWorkdir(projectId, sessionId)
     if (!workdir) return []
     return AgentManager.readTodo(workdir, sessionId)
   })
@@ -466,18 +524,20 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
   ipcMain.handle('agent:getPlan', async (_, projectId: string, sessionId?: string) => {
     try {
       if (!sessionId) return null
-      const project = getProjectDB().get(projectId)
-      let workdir = resolveWorkdir(projectId, project)
-      if (projectId === CODE_PROJECT_ID && sessionId) {
-        const sess = getSessionDB().getSession(sessionId)
-        if (sess && sess.workdir && sess.workdir !== '/' && sess.workdir !== '') {
-          workdir = sess.workdir
-        }
-      }
+      const workdir = resolveTodoWorkdir(projectId, sessionId)
       if (!workdir) return null
-      const planFile = path.join(workdir, '.cowrangler', 'plans', `${sessionId}.md`)
-      if (!fs.existsSync(planFile)) return null
-      return { markdown: fs.readFileSync(planFile, 'utf-8'), sessionId }
+      const planDir = path.join(workdir, '.cowrangler', 'plans')
+      // Yapılı JSON (title/steps/status) tercih edilir; yoksa markdown'a düş.
+      const jsonFile = path.join(planDir, `${sessionId}.plan.json`)
+      if (fs.existsSync(jsonFile)) {
+        try {
+          const parsed = JSON.parse(fs.readFileSync(jsonFile, 'utf-8'))
+          return { ...parsed, sessionId }
+        } catch { /* bozuk JSON — markdown'a düş */ }
+      }
+      const mdFile = path.join(planDir, `${sessionId}.md`)
+      if (!fs.existsSync(mdFile)) return null
+      return { markdown: fs.readFileSync(mdFile, 'utf-8'), sessionId, status: 'approved' }
     } catch {
       return null
     }

@@ -132,7 +132,7 @@ export function WorkingFoldersPanel({ projectId }: Props) {
     // Check messages just in case
     messages.forEach(m => {
       if (m.role === 'tool_call' && m.content) {
-        try { scanArgs(JSON.parse(m.content), undefined, m.tool_name) } catch {}
+        try { scanArgs(JSON.parse(m.content), undefined, m.tool_name ?? undefined) } catch {}
       } else if (m.role === 'assistant' && m.content) {
         try { scanArgs(JSON.parse(m.content)) } catch {} // fallback if plain text has tool calls embedded somehow
       }

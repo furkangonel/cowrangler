@@ -255,7 +255,6 @@ function CodeMoreMenu({
             icon={<ListTodo size={13} />}
             label="Tasks"
             hint={hasTasks ? undefined : "No tasks yet"}
-            disabled={!hasTasks}
             onClick={() => { setOpen(false); onOpen("task") }}
           />
         </div>

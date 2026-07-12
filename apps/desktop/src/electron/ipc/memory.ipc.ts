@@ -3,7 +3,6 @@ import path from 'path'
 import os from 'os'
 import fs from 'fs'
 import { getProjectDB } from '../project_db.js'
-import { AgentManager } from '../agent_manager.js'
 
 const GLOBAL_DIR = path.join(os.homedir(), '.cowrangler')
 const GLOBAL_MEMORY_FILE = path.join(GLOBAL_DIR, 'memory.md')
@@ -48,8 +47,10 @@ export function registerMemoryIPC(ipcMain: IpcMain): void {
     return { ok: true }
   })
 
-  // TODO progress
+  // TODO progress (legacy) — global AGENT_TODO.md modeli, session-scoped
+  // görevlerle (agent:getTodo) değiştirildi. Bu kanalın canlı bir tüketicisi
+  // yok; API yüzeyini kırmamak için boş liste döndürür.
   ipcMain.handle('memory:readTodo', async () => {
-    return AgentManager.readTodo()
+    return []
   })
 }

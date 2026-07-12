@@ -72,7 +72,8 @@ export function registerSessionsIPC(ipcMain: IpcMain): void {
   })
 
   // Code Home istatistik panosu — All/30d/7d aralığına göre zengin özet.
-  ipcMain.handle('sessions:dashboardStats', async (_, sinceMs?: number) => {
-    return getSessionDB().getDashboardStats(sinceMs)
+  ipcMain.handle('sessions:dashboardStats', async (_, sinceMs?: number, projectId?: string) => {
+    const sessionIds = projectId ? projectDB.getSessionIds(projectId) : undefined
+    return getSessionDB().getDashboardStats(sinceMs, sessionIds)
   })
 }

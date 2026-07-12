@@ -11,7 +11,7 @@ import path from 'path'
 import fs from 'fs'
 import { Agent } from '@cowrangler/core/agent.js'
 import { LLM } from '@cowrangler/core/llm.js'
-import { setProjectContext, getActiveSessionId } from '@cowrangler/core/project_context.js'
+import { setProjectContext, getActiveSessionId, projectStoreDirFor } from '@cowrangler/core/project_context.js'
 import { setWorkspace } from '@cowrangler/core/tools/file_tools.js'
 
 export interface TaskProgress {
@@ -32,7 +32,7 @@ export class AgentManager {
    */
   getOrCreate(
     projectId: string,
-    config: { model: string; systemPrompt: string; allowedTools?: string[]; maxIterations?: number },
+    config: { model: string; systemPrompt: string; allowedTools?: string[]; maxIterations?: number; sessionSource?: string },
     workdir?: string,
   ): Agent {
     if (workdir) {
@@ -42,7 +42,7 @@ export class AgentManager {
     }
     if (!this.agents.has(projectId)) {
       const llm = new LLM(config.model)
-      const agent = new Agent(llm, config.systemPrompt, config.maxIterations ?? 25, config.allowedTools, 'desktop')
+      const agent = new Agent(llm, config.systemPrompt, config.maxIterations ?? 25, config.allowedTools, config.sessionSource ?? 'desktop')
       this.agents.set(projectId, agent)
     } else {
       const existing = this.agents.get(projectId)!
@@ -58,7 +58,7 @@ export class AgentManager {
   /** Agent'ı yeniden oluştur (model/instructions değişti) */
   recreate(
     projectId: string,
-    config: { model: string; systemPrompt: string; allowedTools?: string[]; maxIterations?: number },
+    config: { model: string; systemPrompt: string; allowedTools?: string[]; maxIterations?: number; sessionSource?: string },
     workdir?: string,
   ): Agent {
     this.destroy(projectId)
@@ -131,7 +131,7 @@ export class AgentManager {
     try {
       if (!workdir || !sessionId) return [];
 
-      const dir = path.join(workdir, '.cowrangler', 'tasks', sessionId);
+      const dir = path.join(projectStoreDirFor(workdir), 'tasks', sessionId);
 
       if (!fs.existsSync(dir)) return [];
 
@@ -177,7 +177,7 @@ export class AgentManager {
 
     if (!workdir || !sessionId) return;
 
-    const dir = path.join(workdir, '.cowrangler', 'tasks', sessionId);
+    const dir = path.join(projectStoreDirFor(workdir), 'tasks', sessionId);
 
     let debounce: ReturnType<typeof setTimeout> | null = null;
     try {
@@ -200,7 +200,7 @@ export class AgentManager {
       if (sid && sid !== lastPolledSid) {
         lastPolledSid = sid;
         // Yeni session açıldı — watcher'ı yeni dizine taşı
-        const newDir = path.join(workdir, '.cowrangler', 'tasks', sid);
+        const newDir = path.join(projectStoreDirFor(workdir), 'tasks', sid);
         const w = this.todoWatchers.get(projectId);
         if (w) { try { w.close() } catch { } }
         try {

@@ -263,7 +263,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           currentAsstMsgId = null
         } else if (m.role === 'assistant') {
           currentAsstMsgId = msgIdToAsstId.get(m.id) || m.id
-          if (m.content) {
+          if (m.content && currentAsstMsgId) {
             const segs = newTimelines[currentAsstMsgId] || []
             segs.push({ kind: 'text', id: `t-${currentAsstMsgId}-${segs.length}`, text: m.content })
             newTimelines[currentAsstMsgId] = segs
@@ -450,14 +450,21 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       // send_message zaten bu metni balon olarak gösterdiyse tekrar ekleme.
       const alreadyShown = !!finalText && finalText.trim() === lastSentText.trim()
       if (assistantMsgId) {
-        // Hiç metin akmadıysa ama nihai metin varsa (ör. yalnız send_message),
-        // timeline'a sondan bir metin segmenti ekle.
-        if (finalText && !accText && !alreadyShown) get().timelinePushText(assistantMsgId, finalText)
+        const finalAlreadyStreamed = !!finalText && accText.trim() === finalText.trim()
+        // Ara progress metni mevcut olsa bile nihai cevabı kaybetme. Önceki
+        // davranış accText boş değilse agent:done metnini tamamen atıyordu.
+        if (finalText && !alreadyShown && !finalAlreadyStreamed) {
+          get().timelinePushText(assistantMsgId, `${accText ? '\n\n' : ''}${finalText}`)
+        }
         get().timelineCloseRunning(assistantMsgId)
-        // Kalıcı mesaj içeriği: akan metin + (varsa) send_message metni.
+        // Kalıcı mesaj içeriği: progress + nihai yanıt + varsa send_message.
         const persisted = alreadyShown
           ? (accText || finalText)
-          : [accText, lastSentText && !accText.includes(lastSentText) ? lastSentText : '']
+          : [
+              accText,
+              finalText && !finalAlreadyStreamed ? finalText : '',
+              lastSentText && !accText.includes(lastSentText) ? lastSentText : '',
+            ]
               .filter(Boolean).join('\n\n') || finalText
         if (persisted) callbacks.onFinalize(assistantMsgId, persisted)
       }
