@@ -11,8 +11,7 @@ import { ipc, DashboardStats } from '../../lib/ipc'
 
 const CHART_BLUE = '#5b8def'
 const DAY_MS = 86_400_000
-// War and Peace ≈ 560k kelime ≈ ~750k token (kaba tahmin, eğlence amaçlı).
-const WAR_AND_PEACE_TOKENS = 750_000
+const CODE_PROJECT_ID = '__code__'
 
 type Range = 'all' | '30d' | '7d'
 type Tab = 'overview' | 'models'
@@ -42,13 +41,6 @@ function fmtCount(n: number): string {
   return n.toLocaleString('en-US')
 }
 
-function fmtHour(h: number | null): string {
-  if (h === null) return '—'
-  const period = h < 12 ? 'AM' : 'PM'
-  const hr = h % 12 === 0 ? 12 : h % 12
-  return `${hr} ${period}`
-}
-
 function rangeSince(r: Range): number | undefined {
   if (r === 'all') return undefined
   const days = r === '30d' ? 30 : 7
@@ -65,7 +57,7 @@ export function StatsDashboard({ userName }: { userName?: string | null }) {
     let cancelled = false
     setLoading(true)
     ipc.sessions
-      .dashboardStats(rangeSince(range))
+      .dashboardStats(rangeSince(range), CODE_PROJECT_ID)
       .then((s) => { if (!cancelled) { setStats(s); setLoading(false) } })
       .catch(() => { if (!cancelled) { setStats(null); setLoading(false) } })
     return () => { cancelled = true }
@@ -116,16 +108,14 @@ export function StatsDashboard({ userName }: { userName?: string | null }) {
 function OverviewTab({ stats }: { stats: DashboardStats }) {
   const kpis: Array<{ label: string; value: string }> = [
     { label: 'Sessions', value: fmtCount(stats.totals.sessions) },
-    { label: 'Messages', value: fmtCount(stats.totals.messages) },
-    { label: 'Total tokens', value: fmtTokens(stats.totals.tokens) },
+    { label: 'Prompts', value: fmtCount(stats.totals.messages) },
+    { label: 'API tokens', value: fmtTokens(stats.totals.tokens) },
     { label: 'Active days', value: fmtCount(stats.active_days) },
     { label: 'Current streak', value: `${stats.current_streak}d` },
     { label: 'Longest streak', value: `${stats.longest_streak}d` },
-    { label: 'Peak hour', value: fmtHour(stats.peak_hour) },
+    { label: 'Avg / prompt', value: fmtTokens(Math.round(stats.totals.tokens / Math.max(1, stats.totals.messages))) },
     { label: 'Favorite model', value: stats.favorite_model ? prettyModel(stats.favorite_model) : '—' },
   ]
-
-  const ratio = stats.totals.tokens / WAR_AND_PEACE_TOKENS
 
   return (
     <div className="space-y-4">
@@ -143,12 +133,9 @@ function OverviewTab({ stats }: { stats: DashboardStats }) {
 
       <Heatmap byDay={stats.by_day} />
 
-      {ratio >= 0.1 && (
-        <p className="text-[11px] text-text-muted">
-          You've used ~{ratio >= 1 ? ratio.toFixed(0) : ratio.toFixed(1)}× more tokens than{' '}
-          <span className="italic">War and Peace</span>.
-        </p>
-      )}
+      <p className="text-[11px] text-text-muted">
+        API tokens include the context resent during tool steps; they are not equivalent to generated text length.
+      </p>
     </div>
   )
 }

@@ -119,6 +119,10 @@ const COMPRESS_THRESHOLD = 0.85; // %85 context dolduysa sıkıştır
 const COMPRESS_KEEP_RECENT = 8; // son 8 mesajı koru
 const TOOL_RESULT_MAX_CHARS = 2000; // tool result kırpma limiti
 const SUMMARY_MAX_TOKENS = 800; // özet için max token
+// Büyük context penceresi teknik kapasitedir, ekonomik hedef değildir. Tool
+// kullanan ajanlarda geçmişi yüz binlerce tokena kadar taşımak her adımda aynı
+// içeriği yeniden faturalandırır. Config ile yükseltilebilir.
+const ECONOMIC_CONTEXT_LIMIT_TOKENS = 24_000;
 
 /**
  * Sıkıştırma sonrası yanıt + sonraki tur için ayrılan mutlak token payı.
@@ -203,8 +207,22 @@ export class DefaultContextEngine extends ContextEngine {
       this.thresholdRatio,
       windowSize,
     );
-    const ratio = estimatedContextTokens / windowSize;
-    return ratio >= effectiveThreshold;
+    let softLimit = ECONOMIC_CONTEXT_LIMIT_TOKENS;
+    try {
+      const configured = Number((getConfig().context as any)?.soft_limit_tokens);
+      if (Number.isFinite(configured) && configured >= 8_000) softLimit = configured;
+    } catch { /* varsayılan ekonomik limit */ }
+    const thresholdTokens = Math.min(windowSize * effectiveThreshold, softLimit);
+    return estimatedContextTokens >= thresholdTokens;
+  }
+
+  /**
+   * Her model çağrısından önce tool çıktılarını sınırlar. Önceden budama yalnız
+   * compression tetiklenince çalışıyordu; 1M context modellerinde yüzlerce tool
+   * sonucu tekrar tekrar taşınabiliyordu.
+   */
+  compactForNextTurn(messages: CoreMessage[]): CoreMessage[] {
+    return this._pruneToolResults(messages);
   }
 
   async compress(

@@ -173,6 +173,35 @@ export class SessionDB {
       CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, timestamp);
       CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
       CREATE INDEX IF NOT EXISTS idx_messages_role ON messages(role);
+
+      CREATE TABLE IF NOT EXISTS usage_events (
+        id                 TEXT PRIMARY KEY,
+        session_id         TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        surface            TEXT NOT NULL DEFAULT 'unknown',
+        model              TEXT NOT NULL DEFAULT '',
+        input_tokens       INTEGER NOT NULL DEFAULT 0,
+        output_tokens      INTEGER NOT NULL DEFAULT 0,
+        cache_read_tokens  INTEGER NOT NULL DEFAULT 0,
+        cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+        tool_call_count    INTEGER NOT NULL DEFAULT 0,
+        status             TEXT NOT NULL DEFAULT 'success',
+        timestamp          INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_usage_events_session ON usage_events(session_id, timestamp);
+      CREATE INDEX IF NOT EXISTS idx_usage_events_surface ON usage_events(surface, timestamp);
+      CREATE INDEX IF NOT EXISTS idx_usage_events_model ON usage_events(model, timestamp);
+
+      INSERT INTO usage_events (
+        id, session_id, surface, model, input_tokens, output_tokens,
+        cache_read_tokens, cache_write_tokens, tool_call_count, status, timestamp
+      )
+      SELECT lower(hex(randomblob(16))), s.id, s.source, s.model,
+        s.input_tokens, s.output_tokens, s.cache_read_tokens, s.cache_write_tokens,
+        s.tool_call_count, 'success',
+        COALESCE((SELECT MAX(m.timestamp) FROM messages m WHERE m.session_id = s.id), s.started_at)
+      FROM sessions s
+      WHERE NOT EXISTS (SELECT 1 FROM usage_events e WHERE e.session_id = s.id);
     `);
 
     // Geriye dönük uyumluluk: pinned sütunu eklendi
@@ -591,6 +620,33 @@ export class SessionDB {
     return id;
   }
 
+  appendUsageEvent(opts: {
+    sessionId: string;
+    surface: string;
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+    toolCallCount?: number;
+    status?: "success" | "failed" | "interrupted";
+    timestamp?: number;
+  }): string {
+    const id = crypto.randomUUID();
+    this.db.prepare(`
+      INSERT INTO usage_events (
+        id, session_id, surface, model, input_tokens, output_tokens,
+        cache_read_tokens, cache_write_tokens, tool_call_count, status, timestamp
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id, opts.sessionId, opts.surface, opts.model,
+      opts.inputTokens, opts.outputTokens,
+      opts.cacheReadTokens ?? 0, opts.cacheWriteTokens ?? 0,
+      opts.toolCallCount ?? 0, opts.status ?? "success", opts.timestamp ?? Date.now(),
+    );
+    return id;
+  }
+
   getMessages(
     sessionId: string,
     opts: { limit?: number; offset?: number } = {},
@@ -710,7 +766,7 @@ export class SessionDB {
     };
   }
 
-  getDashboardStats(sinceMs?: number): {
+  getDashboardStats(sinceMs?: number, sessionIds?: string[]): {
     totals: {
       sessions: number;
       messages: number;
@@ -730,49 +786,65 @@ export class SessionDB {
     }>;
   } {
     const since = sinceMs ?? 0;
+    const scopedIds = sessionIds ? [...new Set(sessionIds)] : undefined;
+    if (scopedIds && scopedIds.length === 0) {
+      return {
+        totals: { sessions: 0, messages: 0, tokens: 0 }, active_days: 0,
+        current_streak: 0, longest_streak: 0, peak_hour: null,
+        favorite_model: null, by_day: [], by_model: [],
+      };
+    }
+    const scopeSql = scopedIds ? ` AND s.id IN (${scopedIds.map(() => "?").join(",")})` : "";
+    const scopeParams = scopedIds ?? [];
 
-    // 1. Totals
-    const totalsRow = this.db
-      .prepare(
-        `SELECT
-          COUNT(*) as sessions,
-          SUM(message_count) as messages,
-          SUM(input_tokens + output_tokens) as tokens
-        FROM sessions
-        WHERE started_at >= ?`,
-      )
-      .get(since) as { sessions: number; messages: number; tokens: number } | undefined;
+    // 1. Totals — "messages" kullanıcı promptlarını ifade eder. Ara assistant,
+    // reasoning ve tool kayıtları kullanıcı mesajı gibi şişirilmez.
+    const sessionsRow = this.db.prepare(`
+      SELECT COUNT(DISTINCT s.id) as sessions
+      FROM sessions s JOIN messages m ON m.session_id = s.id
+      WHERE m.timestamp >= ?${scopeSql}
+    `).get(since, ...scopeParams) as { sessions: number } | undefined;
+    const messagesRow = this.db.prepare(`
+      SELECT COUNT(*) as messages
+      FROM messages m JOIN sessions s ON s.id = m.session_id
+      WHERE m.role = 'user' AND m.timestamp >= ?${scopeSql}
+    `).get(since, ...scopeParams) as { messages: number } | undefined;
+    const tokensRow = this.db.prepare(`
+      SELECT SUM(e.input_tokens + e.output_tokens) as tokens
+      FROM usage_events e JOIN sessions s ON s.id = e.session_id
+      WHERE e.timestamp >= ?${scopeSql}
+    `).get(since, ...scopeParams) as { tokens: number } | undefined;
 
     const totals = {
-      sessions: totalsRow?.sessions ?? 0,
-      messages: totalsRow?.messages ?? 0,
-      tokens: totalsRow?.tokens ?? 0,
+      sessions: sessionsRow?.sessions ?? 0,
+      messages: messagesRow?.messages ?? 0,
+      tokens: tokensRow?.tokens ?? 0,
     };
 
     // 2. Daily token usage & active days
     const dailyRows = this.db
       .prepare(
         `SELECT
-          strftime('%Y-%m-%d', started_at / 1000, 'unixepoch', 'localtime') as date,
-          SUM(input_tokens + output_tokens) as tokens
-        FROM sessions
-        WHERE started_at >= ?
+          strftime('%Y-%m-%d', e.timestamp / 1000, 'unixepoch', 'localtime') as date,
+          SUM(e.input_tokens + e.output_tokens) as tokens
+        FROM usage_events e JOIN sessions s ON s.id = e.session_id
+        WHERE e.timestamp >= ?${scopeSql}
         GROUP BY date
         ORDER BY date ASC`,
       )
-      .all(since) as Array<{ date: string; tokens: number }>;
+      .all(since, ...scopeParams) as Array<{ date: string; tokens: number }>;
 
     const active_days = dailyRows.filter((r) => r.tokens > 0).length;
 
     // Streaks
     const allActiveDays = this.db
       .prepare(
-        `SELECT DISTINCT strftime('%Y-%m-%d', started_at / 1000, 'unixepoch', 'localtime') as date
-        FROM sessions
-        WHERE (input_tokens + output_tokens) > 0
+        `SELECT DISTINCT strftime('%Y-%m-%d', e.timestamp / 1000, 'unixepoch', 'localtime') as date
+        FROM usage_events e JOIN sessions s ON s.id = e.session_id
+        WHERE (e.input_tokens + e.output_tokens) > 0${scopeSql}
         ORDER BY date DESC`,
       )
-      .all() as Array<{ date: string }>;
+      .all(...scopeParams) as Array<{ date: string }>;
 
     let current_streak = 0;
     let longest_streak = 0;
@@ -824,15 +896,15 @@ export class SessionDB {
     const peakHourRow = this.db
       .prepare(
         `SELECT
-          CAST(strftime('%H', started_at / 1000, 'unixepoch', 'localtime') AS INTEGER) as hour,
+          CAST(strftime('%H', m.timestamp / 1000, 'unixepoch', 'localtime') AS INTEGER) as hour,
           COUNT(*) as cnt
-        FROM sessions
-        WHERE started_at >= ?
+        FROM messages m JOIN sessions s ON s.id = m.session_id
+        WHERE m.role = 'user' AND m.timestamp >= ?${scopeSql}
         GROUP BY hour
         ORDER BY cnt DESC, hour ASC
         LIMIT 1`,
       )
-      .get(since) as { hour: number } | undefined;
+      .get(since, ...scopeParams) as { hour: number } | undefined;
 
     const peak_hour = peakHourRow !== undefined ? peakHourRow.hour : null;
 
@@ -840,15 +912,15 @@ export class SessionDB {
     const modelStatsRows = this.db
       .prepare(
         `SELECT
-          model,
-          SUM(input_tokens) as input_tokens,
-          SUM(output_tokens) as output_tokens
-        FROM sessions
-        WHERE started_at >= ? AND model IS NOT NULL AND model != ''
-        GROUP BY model
-        ORDER BY (SUM(input_tokens) + SUM(output_tokens)) DESC`,
+          e.model,
+          SUM(e.input_tokens) as input_tokens,
+          SUM(e.output_tokens) as output_tokens
+        FROM usage_events e JOIN sessions s ON s.id = e.session_id
+        WHERE e.timestamp >= ? AND e.model IS NOT NULL AND e.model != ''${scopeSql}
+        GROUP BY e.model
+        ORDER BY (SUM(e.input_tokens) + SUM(e.output_tokens)) DESC`,
       )
-      .all(since) as Array<{ model: string; input_tokens: number; output_tokens: number }>;
+      .all(since, ...scopeParams) as Array<{ model: string; input_tokens: number; output_tokens: number }>;
 
     const favorite_model = modelStatsRows.length > 0 ? modelStatsRows[0].model : null;
     const totalTokens = modelStatsRows.reduce((acc, r) => acc + r.input_tokens + r.output_tokens, 0);

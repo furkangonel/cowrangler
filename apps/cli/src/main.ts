@@ -851,6 +851,9 @@ async function main() {
     configuration.system_prompt,
     configuration.max_iterations,
   );
+  // CLI final metni zaten doğrudan render eder; aynı yanıtı send_message ile
+  // ikinci bir model/tool turunda tekrarlama.
+  agent.sendMessageEnabled = false;
 
   // ── Set view mode and permission mode from CLI flags ──────────────
   if (FLAG_BRIEF) {

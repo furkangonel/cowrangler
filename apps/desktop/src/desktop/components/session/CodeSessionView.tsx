@@ -71,6 +71,7 @@ export function CodeSessionView() {
   } = useUIStore()
   const gitStore = useGitStore()
   const bottomRef = useRef<HTMLDivElement>(null)
+  const previousTaskCountRef = useRef(0)
   const status = agentStore.status
 
   // Workdir: git store'dan al (kod sekmesi boyunca tek workdir)
@@ -102,6 +103,16 @@ export function CodeSessionView() {
     agentStore.setCurrentPlan(null)
     if (activeCodeSessionId && activeCodeSessionId !== NEW_CODE_SESSION) {
       loadMessages(activeCodeSessionId)
+      // Cowork ProgressPanel gibi Code task listesini de diskten geri yükle.
+      // fs.watch event'i uygulama kapalıyken/session geçişinde kaçmış olabilir.
+      ipc.agent.getTodo(CODE_PROJECT_ID, activeCodeSessionId)
+        .then(tasks => agentStore.setProgress(tasks ?? []))
+        .catch(() => agentStore.setProgress([]))
+      // Planı da diskten geri yükle — canlı agent:plan event'i yalnız write_plan
+      // turunda gelir; session geçişi/yeniden açılışta plan aksi halde kaybolur.
+      ipc.agent.getPlan(CODE_PROJECT_ID, activeCodeSessionId)
+        .then(plan => agentStore.setCurrentPlan(plan ?? null))
+        .catch(() => agentStore.setCurrentPlan(null))
       ipc.sessions.get(activeCodeSessionId).then(sess => {
         if (sess && sess.workdir && sess.workdir !== '/' && sess.workdir !== '') {
           gitStore.setWorkdir(sess.workdir)
@@ -115,6 +126,17 @@ export function CodeSessionView() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCodeSessionId])
+
+  // manage_task ilk görevi oluşturduğu anda sağ paneli görünür kıl. Kullanıcı
+  // isterse kapatabilir; sonraki status güncellemeleri paneli zorla açmaz.
+  useEffect(() => {
+    const count = agentStore.progress.length
+    if (count > 0 && previousTaskCountRef.current === 0) {
+      setRightPanelOpen(true)
+      setCodeRightTab('task')
+    }
+    previousTaskCountRef.current = count
+  }, [agentStore.progress.length, setRightPanelOpen, setCodeRightTab])
 
   // Workdir değişince: backend'e bildir (agent bu dizinde çalışsın) + git yenile.
   useEffect(() => {
@@ -143,7 +165,8 @@ export function CodeSessionView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workdir])
 
-  const [devServerRunning, setDevServerRunning] = useState<boolean | null>(null)
+  // Dev server'ın önceki durumu — ref'te tutulur (render tetiklemeye gerek yok).
+  const devServerRunningRef = useRef<boolean | null>(null)
 
   // Dev server tespiti ve otomatik preview tabına geçiş
   useEffect(() => {
@@ -157,16 +180,16 @@ export function CodeSessionView() {
 
       if (!isMounted) return
 
-      setDevServerRunning((prev) => {
-        if (prev !== null) {
-          // Geçiş algılama: Eskiden çalışmıyordu, şimdi çalışıyor -> Sağ paneli aç ve Run sekmesine geç
-          if (!prev && isNowRunning) {
-            setRightPanelOpen(true)
-            setCodeRightTab('run')
-          }
-        }
-        return isNowRunning
-      })
+      const prev = devServerRunningRef.current
+      devServerRunningRef.current = isNowRunning
+      // Geçiş: eskiden çalışmıyordu, şimdi çalışıyor -> sağ paneli aç + Run sekmesi.
+      // Yan etkiler async gövdede (render dışı) yapılır; bir state-updater
+      // fonksiyonu içinde başka store'u güncellemek "render sırasında setState"
+      // uyarısına yol açardı (Sidebar ↔ CodeSessionView).
+      if (prev !== null && !prev && isNowRunning) {
+        setRightPanelOpen(true)
+        setCodeRightTab('run')
+      }
     }
 
     checkServer()
