@@ -5,6 +5,7 @@ import { useProjectsStore } from '../../stores/projects.store'
 import { useSessionsStore } from '../../stores/sessions.store'
 import { useAgentStore } from '../../stores/agent.store'
 import { useSettingsStore } from '../../stores/settings.store'
+import { useModelPool } from '../../hooks/useModelPool'
 import { ipc, SkillDef } from '../../lib/ipc'
 import { formatRelative } from '../../lib/time'
 import { EditProjectModal } from './EditProjectModal'
@@ -176,7 +177,7 @@ export function ProjectHome({ projectId }: Props) {
 function InlineNewTask({ projectId, projectName, projectIcon }: { projectId: string, projectName: string, projectIcon: string }) {
   const { setActiveProject } = useProjectsStore()
   const { setActiveSession } = useSessionsStore()
-  const { getModel, setModel, savedModels } = useSettingsStore()
+  const { getModel, setModel } = useSettingsStore()
 
   const [message, setMessage] = useState('')
   const drop = useFileDrop(projectId)
@@ -187,10 +188,9 @@ function InlineNewTask({ projectId, projectName, projectIcon }: { projectId: str
   const [activeIdx, setActiveIdx] = useState(0)
   const [confirmedSkills, setConfirmedSkills] = useState<SkillDef[]>([])
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
-  const [modelGates, setModelGates] = useState<Record<string, { locked: boolean; reason?: string; pluginId: string; actionId?: string }>>({})
-  const [unlockingModel, setUnlockingModel] = useState<string | null>(null)
-  const [pluginModels, setPluginModels] = useState<string[]>([])
-  
+  // Tek model havuzu (saved ∪ plugin) + gate/unlock — bkz. useModelPool.
+  const { displayModels, modelGates, unlockingModel, unlockModel } = useModelPool(modelPickerOpen)
+
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const modelPickerRef = useRef<HTMLDivElement>(null)
 
@@ -204,33 +204,9 @@ function InlineNewTask({ projectId, projectName, projectIcon }: { projectId: str
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  useEffect(() => {
-    if (modelPickerOpen) {
-      ipc.plugins.modelGates?.().then(g => setModelGates(g || {})).catch(() => {})
-      ipc.plugins.models?.().then(m => setPluginModels(Array.isArray(m) ? m : [])).catch(() => {})
-    }
-  }, [modelPickerOpen])
-
-  const displayModels = React.useMemo(
-    () => [...new Set([...savedModels, ...pluginModels])],
-    [savedModels, pluginModels],
-  )
-
-  async function handleUnlockModel(modelId: string, gate: { pluginId: string; actionId?: string }) {
-    if (!gate.actionId) return
-    setUnlockingModel(modelId)
-    try {
-      const res = await ipc.plugins.runAction(gate.pluginId, gate.actionId)
-      const fresh: Record<string, { locked: boolean; reason?: string; pluginId: string; actionId?: string }> =
-        (await ipc.plugins.modelGates?.().catch(() => ({}))) || {}
-      setModelGates(fresh)
-      if (res?.ok && !fresh[modelId]?.locked) {
-        setModel(modelId)
-        setModelPickerOpen(false)
-      }
-    } finally {
-      setUnlockingModel(null)
-    }
+  async function handleUnlockModel(modelId: string) {
+    const ok = await unlockModel(modelId)
+    if (ok) { setModel(modelId); setModelPickerOpen(false) }
   }
 
   useEffect(() => {
@@ -459,7 +435,7 @@ function InlineNewTask({ projectId, projectName, projectIcon }: { projectId: str
                       <button
                         key={modelId}
                         onClick={() => {
-                          if (locked) { void handleUnlockModel(modelId, gate) }
+                          if (locked) { void handleUnlockModel(modelId) }
                           else { setModel(modelId); setModelPickerOpen(false) }
                         }}
                         disabled={unlocking}

@@ -18,6 +18,7 @@ import { RobotLoader } from '../shared/RobotLoader'
 import { DesignTopBar } from './DesignTopBar'
 import { renderMarkdown } from '../../lib/markdown'
 import { ipc } from '../../lib/ipc'
+import { useModelPool } from '../../hooks/useModelPool'
 
 interface Props { onBack: () => void }
 
@@ -31,7 +32,7 @@ const CONTEXT: { key: Exclude<ContextModal, null>; icon: React.ReactNode; label:
 
 export function DesignEditor({ onBack }: Props) {
   const {
-    activeProject, frames, messages, sessions, sessionId, chatLoading, streamingText, qaPrompt,
+    activeProject, frames, messages, sessions, sessionId, chatLoading, streamingText, qaPrompt, pendingMessage,
     sendMessage, interruptChat, answerQa, clearChat, loadCanvas, loadHistory, switchSession, scanAndMergeScreens,
     renameProject, deleteProject, systems, loadSystems, setPending,
     tweaksOn, setTweaksOn, tweakValues, setTweakValue, resetTweaks, persistTweaks,
@@ -40,12 +41,14 @@ export function DesignEditor({ onBack }: Props) {
     a11yResults, a11yRunning, requestA11y, clearA11y,
   } = useDesignStore()
   const startedRef = useRef<string | null>(null)
-  const { savedModels, getModel } = useSettingsStore()
+  const { getModel } = useSettingsStore()
 
   const [input, setInput] = useState('')
   const drop = useFileDrop(activeProject?.id)
   const [selectedModel, setSelectedModel] = useState<string | null>(null)
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
+  // Ana uygulamayla AYNI model havuzu (saved ∪ plugin) + kilit bilgisi.
+  const { displayModels, modelGates, unlockingModel, unlockModel } = useModelPool(modelPickerOpen)
   const [chatOpen, setChatOpen] = useState(true)
   const [filesOpen, setFilesOpen] = useState(true)
   const [preview, setPreview] = useState<{ name: string; content: string | null } | null>(null)
@@ -81,8 +84,12 @@ export function DesignEditor({ onBack }: Props) {
     loadCanvas(activeProject.id)
     loadCheckpoints(activeProject.id)
     // Restore prior conversation — unless the home screen queued a first message
-    // to auto-send (a brand-new project has no history to load).
-    if (!useDesignStore.getState().pendingMessage) loadHistory(activeProject.id)
+    // to auto-send (a brand-new project has no history to load). Sonrasında
+    // agent hâlâ çalışıyorsa canlı akışa yeniden bağlan (resumeRunning).
+    if (!useDesignStore.getState().pendingMessage) {
+      const pid = activeProject.id
+      loadHistory(pid).then(() => useDesignStore.getState().resumeRunning(pid))
+    }
   }, [activeProject?.id])
 
   // A click in inspect mode adds a targeted element as a chip above the composer
@@ -101,6 +108,8 @@ export function DesignEditor({ onBack }: Props) {
   }, [inspectorPick])
 
   // Auto-send the prompt typed on the home screen so generation starts on open.
+  // `pendingMessage` dep'i: pending mount'tan SONRA set edilse bile tetiklenir
+  // (aynı proje id'siyle ikinci setActiveProject remount yaratmaz).
   useEffect(() => {
     if (!activeProject || startedRef.current === activeProject.id) return
     const pending = useDesignStore.getState().pendingMessage
@@ -110,10 +119,14 @@ export function DesignEditor({ onBack }: Props) {
       if (pending.model) setSelectedModel(pending.model)
       sendMessage(pending.text, pending.model)
     }
-  }, [activeProject?.id])
+  }, [activeProject?.id, pendingMessage])
+  // Boşta (agent çalışmıyorken) dışarıdan dosya değişikliğini yakalamak için
+  // yavaş nabız. Agent çalışırken tarama zaten store'un debounce'lı akışında
+  // yapılıyor — o yüzden burada yalnız !chatLoading iken tara. scanAndMerge
+  // değişiklik yoksa no-op (disk yazmaz, preview yenilemez).
   useEffect(() => {
-    if (!activeProject) return
-    const t = setInterval(() => { if (!chatLoading) scanAndMergeScreens(activeProject.id) }, 5000)
+    if (!activeProject || chatLoading) return
+    const t = setInterval(() => { scanAndMergeScreens(activeProject.id) }, 8000)
     return () => clearInterval(t)
   }, [activeProject?.id, chatLoading])
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages.length, streamingText])
@@ -215,9 +228,12 @@ export function DesignEditor({ onBack }: Props) {
     const { w, h } = dimsFor(activeProject.designType)
     const files = exportFiles.map(f => f.filePath)
     const name = exportFiles.length > 1 ? activeProject.name : exportFiles[0].name.replace(/\.[^.]+$/, '')
+    // Documents paginate (bir bölüm birden çok A4 sayfaya yayılabilir); slaytlar
+    // sayfa=dosya. Bu bayrak export'un doğru modu seçmesini sağlar.
+    const isDocument = activeProject.designType === 'document'
     setPdfModal(null)
-    runExport(files.length > 1 ? `PDF (${files.length} pages)` : 'PDF',
-      ipc.exporter.toPdfAdvanced({ files, name, fitW: w, fitH: h, ...o }))
+    runExport(files.length > 1 ? `PDF (${files.length} ${isDocument ? 'sections' : 'pages'})` : 'PDF',
+      ipc.exporter.toPdfAdvanced({ files, name, fitW: w, fitH: h, document: isDocument, ...o }))
   }
   async function exportAllHtml() {
     setDeckMenu(false)
@@ -491,11 +507,31 @@ export function DesignEditor({ onBack }: Props) {
                         <ChevronDown size={11} />
                       </button>
                       {modelPickerOpen && (
-                        <div className="absolute bottom-full mb-1.5 right-0 z-30 rounded-xl overflow-hidden design-elev-lg w-[28rem] max-w-[calc(100vw-2rem)]" style={{ background: 'var(--d-surface)', border: '1px solid var(--d-line)' }}>
+                        <div className="absolute bottom-full mb-1.5 right-0 z-30 rounded-xl overflow-hidden design-elev-lg w-60 max-w-[calc(100vw-2rem)]" style={{ background: 'var(--d-surface)', border: '1px solid var(--d-line)' }}>
                           <div className="p-1.5 space-y-0.5 max-h-72 overflow-y-auto">
                             <ModelOption label={`Use Global Model (${getModel()?.split('/').pop() ?? 'default'})`} selected={!selectedModel} onClick={() => { setSelectedModel(null); setModelPickerOpen(false) }} />
-                            {savedModels.map(m => <ModelOption key={m} label={m.split('/').pop() ?? m} title={m} selected={selectedModel === m} onClick={() => { setSelectedModel(m); setModelPickerOpen(false) }} />)}
-                            {savedModels.length === 0 && <p className="px-2.5 py-2 text-xs italic" style={{ color: 'var(--d-ink-faint)' }}>No saved models</p>}
+                            {displayModels.map(m => {
+                              const gate = modelGates[m]
+                              const locked = !!gate?.locked
+                              return (
+                                <ModelOption
+                                  key={m}
+                                  label={`${m.split('/').pop() ?? m}${locked ? (unlockingModel === m ? ' — signing in…' : ` — ${gate?.reason || 'sign-in required'}`) : ''}`}
+                                  title={m}
+                                  selected={selectedModel === m}
+                                  locked={locked}
+                                  onClick={async () => {
+                                    if (locked) {
+                                      const ok = await unlockModel(m)
+                                      if (!ok) return
+                                    }
+                                    setSelectedModel(m)
+                                    setModelPickerOpen(false)
+                                  }}
+                                />
+                              )
+                            })}
+                            {displayModels.length === 0 && <p className="px-2.5 py-2 text-xs italic" style={{ color: 'var(--d-ink-faint)' }}>No saved models</p>}
                           </div>
                         </div>
                       )}
@@ -754,6 +790,7 @@ export function DesignEditor({ onBack }: Props) {
           files={pdfModal}
           fitW={dimsFor(activeProject.designType).w}
           fitH={dimsFor(activeProject.designType).h}
+          document={activeProject.designType === 'document'}
           onClose={() => setPdfModal(null)}
           onExport={(o) => runPdfExport(pdfModal, o)}
         />
@@ -1262,9 +1299,9 @@ function DlItem({ label, onClick }: { label: string; onClick: () => void }) {
   )
 }
 
-function ModelOption({ label, title, selected, onClick }: { label: string; title?: string; selected: boolean; onClick: () => void }) {
+function ModelOption({ label, title, selected, locked, onClick }: { label: string; title?: string; selected: boolean; locked?: boolean; onClick: () => void }) {
   return (
-    <button onClick={onClick} title={title ?? label} className="w-full px-2.5 py-1.5 rounded-lg text-xs text-left transition-colors truncate" style={{ background: selected ? 'var(--d-cream-2)' : 'transparent', color: 'var(--d-ink)', fontWeight: selected ? 600 : 400 }}>
+    <button onClick={onClick} title={title ?? label} className="w-full px-2.5 py-1.5 rounded-lg text-xs text-left transition-colors truncate" style={{ background: selected ? 'var(--d-cream-2)' : 'transparent', color: locked ? 'var(--d-ink-faint)' : 'var(--d-ink)', fontWeight: selected ? 600 : 400 }}>
       {label}
     </button>
   )

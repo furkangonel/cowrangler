@@ -3,6 +3,7 @@ import { ArrowUp, Square, Paperclip, BookOpen, CornerDownLeft, X, Plus, Box, Plu
 import { ipc, SkillDef } from '../../lib/ipc'
 import { useFileDrop } from '../../lib/useFileDrop'
 import { useSettingsStore } from '../../stores/settings.store'
+import { useModelPool } from '../../hooks/useModelPool'
 
 interface Props {
   onSend: (message: string) => void
@@ -52,45 +53,15 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelP
   const drop = useFileDrop(projectId)
 
   // Model picker
-  const { getModel, setModel, savedModels } = useSettingsStore()
+  const { getModel, setModel } = useSettingsStore()
   const [modelPickerOpen, setModelPickerOpen] = useState(false)
   const modelPickerRef = useRef<HTMLDivElement>(null)
-  // Per-model gate state (locked plugin models pending an action, e.g. Sign-in)
-  const [modelGates, setModelGates] = useState<Record<string, { locked: boolean; reason?: string; pluginId: string; actionId?: string }>>({})
-  const [unlockingModel, setUnlockingModel] = useState<string | null>(null)
-  // Models contributed by installed plugins — shown in the picker alongside
-  // the user's saved models so they are discoverable right after install.
-  const [pluginModels, setPluginModels] = useState<string[]>([])
+  // Tek model havuzu (saved ∪ plugin) + gate/unlock — bkz. useModelPool.
+  const { displayModels, modelGates, unlockingModel, unlockModel } = useModelPool(modelPickerOpen)
 
-  useEffect(() => {
-    if (modelPickerOpen) {
-      ipc.plugins.modelGates?.().then(g => setModelGates(g || {})).catch(() => {})
-      ipc.plugins.models?.().then(m => setPluginModels(Array.isArray(m) ? m : [])).catch(() => {})
-    }
-  }, [modelPickerOpen])
-
-  // Union of saved + plugin models, saved first, deduped.
-  const displayModels = React.useMemo(
-    () => [...new Set([...savedModels, ...pluginModels])],
-    [savedModels, pluginModels],
-  )
-
-  async function handleUnlockModel(modelId: string, gate: { pluginId: string; actionId?: string }) {
-    if (!gate.actionId) return
-    setUnlockingModel(modelId)
-    try {
-      const res = await ipc.plugins.runAction(gate.pluginId, gate.actionId)
-      const fresh: Record<string, { locked: boolean; reason?: string; pluginId: string; actionId?: string }> =
-        (await ipc.plugins.modelGates?.().catch(() => ({}))) || {}
-      setModelGates(fresh)
-      // If the gate cleared, select the model right away.
-      if (res?.ok && !fresh[modelId]?.locked) {
-        setModel(modelId)
-        setModelPickerOpen(false)
-      }
-    } finally {
-      setUnlockingModel(null)
-    }
+  async function handleUnlockModel(modelId: string) {
+    const ok = await unlockModel(modelId)
+    if (ok) { setModel(modelId); setModelPickerOpen(false) }
   }
 
   // Clicking outside to close plus menu
@@ -541,7 +512,7 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelP
                         <button
                           key={modelId}
                           onClick={() => {
-                            if (locked) { void handleUnlockModel(modelId, gate) }
+                            if (locked) { void handleUnlockModel(modelId) }
                             else { setModel(modelId); setModelPickerOpen(false) }
                           }}
                           disabled={unlocking}

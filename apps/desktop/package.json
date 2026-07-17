@@ -1,6 +1,6 @@
 {
   "name": "@cowrangler/desktop",
-  "version": "2.1.6",
+  "version": "2.1.7",
   "private": true,
   "description": "Cowrangler Desktop — Electron shell (cowork/design/code yüzeyleri).",
   "type": "module",
@@ -12,9 +12,10 @@
     "pack": "npm run build && electron-builder"
   },
   "dependencies": {
-    "@cowrangler/core": "*",
+    "@cowrangler/adapter-code": "*",
     "@cowrangler/adapter-cowork": "*",
     "@cowrangler/adapter-design": "*",
-    "@cowrangler/adapter-code": "*"
+    "@cowrangler/core": "*",
+    "electron": "^31.7.7"
   }
 }

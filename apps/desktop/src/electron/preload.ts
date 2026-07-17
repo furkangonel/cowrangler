@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('agent:chat', projectId, sessionId, message, model),
     interrupt: (projectId: string) =>
       ipcRenderer.invoke('agent:interrupt', projectId),
+    isRunning: (projectId: string) =>
+      ipcRenderer.invoke('agent:isRunning', projectId),
     getContextSnapshot: (projectId: string) =>
       ipcRenderer.invoke('agent:contextSnapshot', projectId),
     newSession: (projectId: string) =>
@@ -230,7 +232,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // accepts width/height so a multi-slide HTML keeps its real aspect ratio
     toImage: (payload: { srcPath?: string; html?: string; name?: string; width?: number; height?: number; format?: 'png' | 'jpeg'; scale?: number; quality?: number }) => ipcRenderer.invoke('export:toImage', payload),
     copyImage: (payload: { srcPath?: string; html?: string; width?: number; height?: number }) => ipcRenderer.invoke('export:copyImage', payload),
-    toPdfAdvanced: (payload: { files: string[]; name?: string; pageSize?: 'fit' | 'a4' | 'letter'; landscape?: boolean; marginIn?: number; scale?: number; fitW?: number; fitH?: number }) => ipcRenderer.invoke('export:toPdfAdvanced', payload),
+    toPdfAdvanced: (payload: { files: string[]; name?: string; pageSize?: 'fit' | 'a4' | 'letter'; landscape?: boolean; marginIn?: number; scale?: number; fitW?: number; fitH?: number; document?: boolean }) => ipcRenderer.invoke('export:toPdfAdvanced', payload),
     fileToPptx: (payload: { srcPath: string; name?: string; width?: number; height?: number }) => ipcRenderer.invoke('export:fileToPptx', payload),
     deckToPdf: (payload: { files: string[]; name?: string; slideW?: number; slideH?: number }) => ipcRenderer.invoke('export:deckToPdf', payload),
     deckToPptx: (payload: { files: string[]; name?: string; slideW?: number; slideH?: number }) => ipcRenderer.invoke('export:deckToPptx', payload),

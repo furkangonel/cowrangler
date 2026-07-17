@@ -6,6 +6,23 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.1.7] — 2026-07-17
+
+### Added
+- Design documents now export to real multi-page A4 PDFs. A section flows across as many sheets as its content needs instead of being clipped to a single page. The export preview and canvas show every page with break guides.
+- Settings → Advanced → "Agent limits": adjustable max turn duration and stream idle timeout (the "turn exceeded 300s" cap is now user-configurable).
+- Live-stream reconnect: returning to a design project whose agent is still working re-attaches the running stream (step text, tool activity, reasoning) instead of showing only saved history.
+
+### Changed
+- Unified the model picker across the design, cowork, and code surfaces onto a single shared model pool (saved + plugin models with sign-in gates); the design pickers previously showed a different, narrower list.
+- Document template now authors real A4 `.page` blocks (one sheet each) instead of one long scrolling page, so what you see matches the printed PDF.
+- Consolidated design screen polling into one debounced, change-checked scan — no more disk churn or preview flicker while idle.
+
+### Fixed
+- Design home: typing a prompt and sending now starts generation immediately instead of opening an empty detail page you had to re-enter.
+- Design chat model picker no longer overflows off-screen in the narrow side panel.
+- Removed two brittle auto-continue heuristics that fired extra model turns.
+
 ## [2.1.6] — 2026-07-12
 
 ### Fixed

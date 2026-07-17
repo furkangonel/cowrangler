@@ -28,6 +28,11 @@ export function AdvancedTab() {
 
   const workspaceRoot = (config.workspace_root as string | undefined) || ''
 
+  // Agent tur limitleri — core agent döngüsündeki sert tavan (max_turn_ms) ve
+  // akış sessizlik eşiği (stream_idle_timeout_ms). Saniye olarak gösterilir.
+  const maxTurnSec = Math.round(((config.max_turn_ms as number | undefined) ?? 300_000) / 1000)
+  const idleTimeoutSec = Math.round(((config.stream_idle_timeout_ms as number | undefined) ?? 120_000) / 1000)
+
   async function pickWorkspaceRoot() {
     const dir = await ipc.fs.pickFolder()
     if (dir) setConfig('workspace_root', dir)
@@ -110,6 +115,44 @@ export function AdvancedTab() {
             format={v => `${Math.round(v * 100)}%`}
             onChange={v => setConfig('cache.hitTarget', v)}
           />
+        </div>
+      </section>
+
+      {/* ── Agent limits ── */}
+      <section>
+        <h4 className="text-sm font-semibold text-text-primary mb-1">Agent limits</h4>
+        <p className="text-xs text-text-muted mb-4">
+          A single agent turn is hard-stopped after the max duration — this is the
+          &ldquo;turn exceeded 300s&rdquo; message on long design/code jobs. Raise it if your
+          tasks legitimately run long. Takes effect on the next turn.
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block">
+            <span className="text-xs text-text-secondary">Max turn duration (seconds)</span>
+            <input
+              type="number"
+              min={30}
+              value={maxTurnSec}
+              onChange={e => {
+                const v = Math.max(30, Number(e.target.value) || 0)
+                setConfig('max_turn_ms', v * 1000)
+              }}
+              className="mt-1 w-full px-3 py-2 rounded-lg bg-bg-tertiary border border-border text-sm text-text-primary"
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs text-text-secondary">Stream idle timeout (seconds)</span>
+            <input
+              type="number"
+              min={15}
+              value={idleTimeoutSec}
+              onChange={e => {
+                const v = Math.max(15, Number(e.target.value) || 0)
+                setConfig('stream_idle_timeout_ms', v * 1000)
+              }}
+              className="mt-1 w-full px-3 py-2 rounded-lg bg-bg-tertiary border border-border text-sm text-text-primary"
+            />
+          </label>
         </div>
       </section>
 
