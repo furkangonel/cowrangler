@@ -159,7 +159,9 @@ interface DesignState {
   updateFramePosition: (id: string, x: number, y: number) => void
   updateFrameSize: (id: string, width: number, height: number) => void
   saveCanvas: (projectId: string) => Promise<void>
-  scanAndMergeScreens: (projectId: string) => Promise<void>
+  /** Diskteki ekranları tara + birleştir. Değişiklik olduysa true döner
+   *  (yalnız o zaman diske yazar ve preview'ları yeniler). */
+  scanAndMergeScreens: (projectId: string) => Promise<boolean>
   setCanvasView: (scale: number, offsetX: number, offsetY: number) => void
   setRefreshTick: () => void
 
@@ -191,6 +193,11 @@ interface DesignState {
 
   // Actions — chat
   sendMessage: (message: string, model?: string) => Promise<void>
+  /**
+   * Proje açılırken agent hâlâ çalışıyorsa (kullanıcı ana sayfaya gidip
+   * döndüyse) canlı akışı yeniden bağlar. Bağlandıysa true döner.
+   */
+  resumeRunning: (projectId: string) => Promise<boolean>
   interruptChat: () => Promise<void>
   answerQa: (answer: string) => Promise<void>
   /** Restore the project's most recent session (messages + sessionId) from disk. */
@@ -207,6 +214,155 @@ function cleanup() {
     removeListeners()
     removeListeners = null
   }
+}
+
+type SetFn = (partial: Partial<DesignState> | ((s: DesignState) => Partial<DesignState>)) => void
+type GetFn = () => DesignState
+
+/**
+ * Agent olay akışını (done/error/step/reasoning/tool/qa) verilen streaming
+ * assistant mesajına bağlar ve ekran taraması poll'unu başlatır. Hem
+ * sendMessage hem resumeRunning kullanır — tek yerde, tek davranış.
+ * Önceki dinleyicileri temizler; global removeListeners'ı günceller.
+ */
+function attachAgentStream(set: SetFn, get: GetFn, projectId: string, assistantMsgId: string) {
+  cleanup()
+
+  let pollInterval: ReturnType<typeof setInterval> | null = null
+  let scanTimer: ReturnType<typeof setTimeout> | null = null
+  let scanning = false
+  let streamBuffer = ''
+  let reasoningBuffer = ''
+
+  // Tek, debounce'lı tarama. Yazma araçları art arda biterken (burst) her
+  // olay için ayrı readdir/readFile + diske yaz yapmak yerine olayları 400ms
+  // penceresinde birleştirir. scanAndMergeScreens zaten yalnız gerçek
+  // değişiklikte diske yazıp preview'ı yeniler — burası çakışan tetikleri toplar.
+  const scheduleScan = () => {
+    if (scanTimer) return
+    scanTimer = setTimeout(async () => {
+      scanTimer = null
+      if (scanning) { scheduleScan(); return }
+      scanning = true
+      try { await get().scanAndMergeScreens(projectId) } catch {}
+      finally { scanning = false }
+    }, 400)
+  }
+
+  const removeDone = ipc.agent.onDone((result) => {
+    if (pollInterval) { clearInterval(pollInterval); pollInterval = null }
+    if (scanTimer) { clearTimeout(scanTimer); scanTimer = null }
+    const finalText = streamBuffer || result.text || 'Done.'
+    set(s => ({
+      messages: s.messages.map(m =>
+        m.id === assistantMsgId ? { ...m, content: finalText, streaming: false } : m
+      ),
+      chatLoading: false,
+      streamingText: '',
+      qaPrompt: null,
+      sessionId: result.sessionId ?? s.sessionId,
+    }))
+    // Final scan — scanAndMergeScreens değişiklik varsa kaydeder + preview yeniler.
+    get().scanAndMergeScreens(projectId)
+  })
+
+  const removeError = ipc.agent.onError((err) => {
+    if (pollInterval) { clearInterval(pollInterval); pollInterval = null }
+    set(s => ({
+      messages: s.messages.map(m =>
+        m.id === assistantMsgId ? { ...m, content: `Error: ${err}`, streaming: false } : m
+      ),
+      chatLoading: false,
+      streamingText: '',
+      qaPrompt: null,
+    }))
+  })
+
+  const removeInterrupted = ipc.agent.onInterrupted(() => {
+    if (pollInterval) { clearInterval(pollInterval); pollInterval = null }
+    if (scanTimer) { clearTimeout(scanTimer); scanTimer = null }
+    set(s => ({
+      messages: s.messages.map(m =>
+        m.id === assistantMsgId ? { ...m, content: streamBuffer || '(interrupted)', streaming: false } : m
+      ),
+      chatLoading: false,
+      streamingText: '',
+      qaPrompt: null,
+    }))
+    get().scanAndMergeScreens(projectId)
+  })
+
+  const removeQa = ipc.agent.onQaPrompt((payload: any) => {
+    // Anlık sessionId ile karşılaştır (capture DEĞİL) — resume sonrası da doğru.
+    const sid = get().sessionId
+    if (payload?.meta?.sessionId && sid && payload.meta.sessionId !== sid) return
+    set({ qaPrompt: payload })
+  })
+
+  const removeStepText = ipc.agent.onStepText((text) => {
+    streamBuffer = text
+    set(s => ({
+      messages: s.messages.map(m =>
+        m.id === assistantMsgId ? { ...m, content: text } : m
+      ),
+      streamingText: text,
+    }))
+  })
+
+  // Reasoning delta olarak gelir → biriktirip mesaja yaz (accordion canlı akar).
+  const removeReasoning = ipc.agent.onReasoningText((delta) => {
+    reasoningBuffer += delta
+    set(s => ({
+      messages: s.messages.map(m =>
+        m.id === assistantMsgId ? { ...m, reasoning: reasoningBuffer } : m
+      ),
+    }))
+  })
+
+  // Yalnız dosya sistemini değiştiren araçlar taramayı tetikler; read/list/search
+  // gibi araçlar boşuna scan başlatmasın.
+  const FS_WRITE_TOOLS = new Set(['write_file', 'create_file', 'edit_file', 'str_replace', 'apply_patch', 'append_to_file', 'move_item', 'delete_file', 'create_folder'])
+
+  // Stack each tool call as a live activity row (append, never overwrite).
+  const removeTool = ipc.agent.onToolCall((ev) => {
+    const key = ev.id ?? `${ev.name}_${ev.timestamp}`
+    set(s => ({
+      messages: s.messages.map(m => {
+        if (m.id !== assistantMsgId) return m
+        const list = m.activity ? [...m.activity] : []
+        const i = list.findIndex(a => a.id === key)
+        const next: DesignActivity = {
+          id: key,
+          name: ev.name,
+          detail: summarizeTool(ev.name, ev.args),
+          status: ev.status,
+          durationMs: ev.durationMs,
+        }
+        if (i >= 0) list[i] = { ...list[i], ...next }
+        else list.push(next)
+        return { ...m, activity: list }
+      }),
+    }))
+    // Yeni ekran yazılmış olabilir — debounce'lı tarama planla (burst'ü topla).
+    if (ev.status === 'done' && FS_WRITE_TOOLS.has(ev.name)) scheduleScan()
+  })
+
+  removeListeners = () => {
+    removeDone()
+    removeError()
+    removeInterrupted()
+    removeStepText()
+    removeReasoning()
+    removeTool()
+    removeQa()
+    if (pollInterval) { clearInterval(pollInterval); pollInterval = null }
+    if (scanTimer) { clearTimeout(scanTimer); scanTimer = null }
+  }
+
+  // Güvenlik ağı: tool olayı kaçarsa (ör. bazı sağlayıcılarda done gelmezse)
+  // 4sn'lik yavaş bir yoklama. scanAndMergeScreens değişiklik yoksa no-op —
+  // eski 2sn + her-tool + 5sn üçlü çakışması yerine tek, ucuz nabız.
+  pollInterval = setInterval(() => { scheduleScan() }, 4000)
 }
 
 export const useDesignStore = create<DesignState>((set, get) => ({
@@ -370,7 +526,12 @@ export const useDesignStore = create<DesignState>((set, get) => ({
 
     // Refresh kind/meta on already-placed frames (the agent may have rewritten
     // a screen or its manifest), and drop frames whose file disappeared.
+    // ÖNEMLİ: yalnız GERÇEKTEN değişiklik olduğunda diske yaz + preview yenile.
+    // Önceden her 2sn poll'de saveCanvas + refreshTick çalışıp bütün iframe'leri
+    // durduk yere reload ediyordu (disk churn + görsel titreme).
+    let changed = false
     set(s => {
+      const before = s.frames
       const merged = [...s.frames, ...newFrames]
         .filter(f => byPath.has(f.filePath))
         .map(f => {
@@ -394,8 +555,22 @@ export const useDesignStore = create<DesignState>((set, get) => ({
             height: nextH
           }
         })
+
+      // Değişiklik tespiti: sayı, yol kümesi, ya da kind/meta/boyut farkı.
+      changed =
+        merged.length !== before.length ||
+        merged.some((m, i) => {
+          const b = before.find(x => x.filePath === m.filePath)
+          return !b ||
+            b.kind !== m.kind ||
+            b.width !== m.width ||
+            b.height !== m.height ||
+            JSON.stringify(b.meta ?? null) !== JSON.stringify(m.meta ?? null)
+        })
+
       // Seed tweak defaults for any screen we haven't tracked yet.
       const tv = { ...s.tweakValues }
+      let tvChanged = false
       for (const sc of screens) {
         const tweaks = sc.meta?.tweaks ?? []
         if (!tweaks.length) continue
@@ -404,13 +579,23 @@ export const useDesignStore = create<DesignState>((set, get) => ({
         for (const t of tweaks) {
           if (seeded[t.id] === undefined) {
             seeded[t.id] = (sc.meta?.values?.[t.id] ?? t.default) as TweakVal
+            tvChanged = true
           }
         }
         tv[sc.filePath] = seeded
       }
-      return { frames: merged, tweakValues: tv }
+
+      if (!changed && !tvChanged) return {}
+      return {
+        frames: changed ? merged : s.frames,
+        tweakValues: tvChanged ? tv : s.tweakValues,
+        // Preview'ları yalnız içerik değiştiyse yeniden yükle.
+        refreshTick: changed ? s.refreshTick + 1 : s.refreshTick,
+      }
     })
-    await get().saveCanvas(projectId)
+    // Diske yalnız değişiklikte yaz — boşta poll churn'ü yok.
+    if (changed) await get().saveCanvas(projectId)
+    return changed
   },
 
   setCanvasView: (scale, offsetX, offsetY) => {
@@ -499,143 +684,18 @@ export const useDesignStore = create<DesignState>((set, get) => ({
       get().saveCheckpoint(activeProject.id, label, true).catch(() => {})
     }
 
-    // Poll for new HTML files while agent works
-    let pollInterval: ReturnType<typeof setInterval> | null = null
-    let streamBuffer = ''
-    let reasoningBuffer = ''
-    let assistantMsgId = `amsg_${Date.now()}`
+    const assistantMsgId = `amsg_${Date.now()}`
 
     // Pre-add streaming assistant message
     set(s => ({
       messages: [...s.messages, { id: assistantMsgId, role: 'assistant', content: '', streaming: true }]
     }))
 
-    cleanup()
-
-    const removeDone = ipc.agent.onDone((result) => {
-      if (pollInterval) { clearInterval(pollInterval); pollInterval = null }
-      const finalText = streamBuffer || result.text || 'Done.'
-      set(s => ({
-        messages: s.messages.map(m =>
-          m.id === assistantMsgId ? { ...m, content: finalText, streaming: false } : m
-        ),
-        chatLoading: false,
-        streamingText: '',
-        qaPrompt: null,
-        sessionId: result.sessionId ?? s.sessionId,
-      }))
-      // Final scan + save + force preview reload (existing files may have changed)
-      get().scanAndMergeScreens(activeProject.id).then(() => {
-        get().saveCanvas(activeProject.id)
-        set(s => ({ refreshTick: s.refreshTick + 1 }))
-      })
-    })
-
-    const removeError = ipc.agent.onError((err) => {
-      if (pollInterval) { clearInterval(pollInterval); pollInterval = null }
-      set(s => ({
-        messages: s.messages.map(m =>
-          m.id === assistantMsgId ? { ...m, content: `Error: ${err}`, streaming: false } : m
-        ),
-        chatLoading: false,
-        streamingText: '',
-        qaPrompt: null,
-      }))
-    })
-
-    const removeInterrupted = ipc.agent.onInterrupted(() => {
-      if (pollInterval) { clearInterval(pollInterval); pollInterval = null }
-      set(s => ({
-        messages: s.messages.map(m =>
-          m.id === assistantMsgId ? { ...m, content: streamBuffer || '(interrupted)', streaming: false } : m
-        ),
-        chatLoading: false,
-        streamingText: '',
-        qaPrompt: null,
-        refreshTick: s.refreshTick + 1,
-      }))
-      get().scanAndMergeScreens(activeProject.id)
-    })
-
-    const removeQa = ipc.agent.onQaPrompt((payload: any) => {
-      if (payload?.meta?.sessionId) {
-        if (payload.meta.sessionId !== sessionId) {
-          return;
-        }
-      }
-      set({ qaPrompt: payload })
-    })
-
-    const removeStepText = ipc.agent.onStepText((text) => {
-      streamBuffer = text
-      set(s => ({
-        messages: s.messages.map(m =>
-          m.id === assistantMsgId ? { ...m, content: text } : m
-        ),
-        streamingText: text,
-      }))
-    })
-
-    // Reasoning delta olarak gelir → biriktirip mesaja yaz (accordion canlı akar).
-    const removeReasoning = ipc.agent.onReasoningText((delta) => {
-      reasoningBuffer += delta
-      set(s => ({
-        messages: s.messages.map(m =>
-          m.id === assistantMsgId ? { ...m, reasoning: reasoningBuffer } : m
-        ),
-      }))
-    })
-
-    // Stack each tool call as a live activity row (append, never overwrite).
-    const removeTool = ipc.agent.onToolCall((ev) => {
-      const key = ev.id ?? `${ev.name}_${ev.timestamp}`
-      set(s => ({
-        messages: s.messages.map(m => {
-          if (m.id !== assistantMsgId) return m
-          const list = m.activity ? [...m.activity] : []
-          const i = list.findIndex(a => a.id === key)
-          const next: DesignActivity = {
-            id: key,
-            name: ev.name,
-            detail: summarizeTool(ev.name, ev.args),
-            status: ev.status,
-            durationMs: ev.durationMs,
-          }
-          if (i >= 0) list[i] = { ...list[i], ...next }
-          else list.push(next)
-          return { ...m, activity: list }
-        }),
-      }))
-      // New screens may have just been written — refresh promptly.
-      if (ev.status === 'done') {
-        get().scanAndMergeScreens(activeProject.id).then(() => {
-          set(s => ({ refreshTick: s.refreshTick + 1 }))
-        })
-      }
-    })
-
-    removeListeners = () => {
-      removeDone()
-      removeError()
-      removeInterrupted()
-      removeStepText()
-      removeReasoning()
-      removeTool()
-      removeQa()
-      if (pollInterval) { clearInterval(pollInterval); pollInterval = null }
-    }
-
-    // Poll every 2s for new HTML files
-    pollInterval = setInterval(() => {
-      get().scanAndMergeScreens(activeProject.id).then(() => {
-        set(s => ({ refreshTick: s.refreshTick + 1 }))
-      })
-    }, 2000)
+    attachAgentStream(set, get, activeProject.id, assistantMsgId)
 
     try {
       await ipc.agent.chat(activeProject.id, sessionId, message, model)
     } catch (e: any) {
-      if (pollInterval) { clearInterval(pollInterval); pollInterval = null }
       set(s => ({
         messages: s.messages.map(m =>
           m.id === assistantMsgId ? { ...m, content: `Error: ${e.message}`, streaming: false } : m
@@ -644,6 +704,31 @@ export const useDesignStore = create<DesignState>((set, get) => ({
         streamingText: '',
       }))
       cleanup()
+    }
+  },
+
+  // Agent bu proje için hâlâ çalışıyorsa (ana sayfaya gidip dönüldü) canlı
+  // akışı yeni bir streaming mesajına yeniden bağla. Önceden dinleyiciler
+  // setActiveProject(null) ile ölüyor, kullanıcı dönünce yalnız DB'ye yazılmış
+  // geçmişi görüyordu — süreç arka planda sürerken ekran donuk kalıyordu.
+  resumeRunning: async (projectId) => {
+    try {
+      if (!ipc.agent.isRunning) return false
+      const st = await ipc.agent.isRunning(projectId)
+      if (!st?.running) return false
+      if (get().activeProject?.id !== projectId || get().chatLoading) return false
+
+      const assistantMsgId = `amsg_${Date.now()}`
+      set(s => ({
+        messages: [...s.messages, { id: assistantMsgId, role: 'assistant', content: '', streaming: true }],
+        chatLoading: true,
+        streamingText: '',
+        sessionId: st.sessionId ?? s.sessionId,
+      }))
+      attachAgentStream(set, get, projectId, assistantMsgId)
+      return true
+    } catch {
+      return false
     }
   },
 

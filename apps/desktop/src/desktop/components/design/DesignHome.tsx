@@ -33,6 +33,7 @@ import { DesignTopBar, DesignAvatar } from "./DesignTopBar";
 import { FAN_TEMPLATES, ALL_TEMPLATES, TemplateMeta } from "./DesignTemplates";
 import { ipc } from "../../lib/ipc";
 import { useDeferredFileDrop } from "../../lib/useDeferredFileDrop";
+import { useModelPool } from "../../hooks/useModelPool";
 
 const PLACEHOLDERS = [
   "Create a loading animation",
@@ -60,7 +61,7 @@ export function DesignHome({ onOpen }: Props) {
     createSystem,
     setPending,
   } = useDesignStore();
-  const { savedModels, getModel } = useSettingsStore();
+  const { getModel } = useSettingsStore();
   const drop = useDeferredFileDrop();
 
   const [input, setInput] = useState("");
@@ -128,13 +129,16 @@ export function DesignHome({ onOpen }: Props) {
         type,
         systemId ?? undefined,
       );
-      setActiveProject(project);
       // Sürüklenen dosyaları yeni projenin workdir'ine kopyala, ref metni al.
       const attach = await drop.flush(project.id);
       drop.clear();
       const finalPrompt = [prompt, attach].filter(Boolean).join("\n\n");
-      // Hand the typed prompt (and chosen model) to the editor so it starts
-      // generating immediately instead of opening an empty chat.
+      // ÖNEMLİ SIRA: pending, editöre GEÇMEDEN önce set edilmeli. Önceden
+      // setActiveProject(project) burada erkenden çağrılıyordu → editör
+      // pendingMessage boşken mount oluyor, auto-send hiç tetiklenmiyordu
+      // (aynı proje id'siyle ikinci setActiveProject effect'leri yeniden
+      // çalıştırmaz). Kullanıcı ancak ana sayfaya dönüp projeyi yeniden
+      // açınca üretimin başladığını görüyordu.
       setPending(finalPrompt ? { text: finalPrompt, model: model ?? undefined } : null);
       onOpen(project);
     } finally {
@@ -231,7 +235,6 @@ export function DesignHome({ onOpen }: Props) {
             displayTemplate={hoverTemplate ?? template}
             setTemplate={setTemplate}
             modelLabel={modelLabel}
-            savedModels={savedModels}
             creating={creating}
             onSubmit={submitComposer}
             drop={drop}
@@ -437,7 +440,6 @@ function Composer(props: {
   displayTemplate: DesignTemplateType;
   setTemplate: (t: DesignTemplateType) => void;
   modelLabel: string;
-  savedModels: string[];
   creating: boolean;
   onSubmit: () => void;
   systems: DesignSystemRecord[];
@@ -458,7 +460,6 @@ function Composer(props: {
     displayTemplate,
     setTemplate,
     modelLabel,
-    savedModels,
     creating,
     onSubmit,
     drop,
@@ -473,6 +474,8 @@ function Composer(props: {
   const [tplOpen, setTplOpen] = useState(false);
   const [dsOpen, setDsOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
+  // Ana uygulamayla AYNI model havuzu (saved ∪ plugin) + kilit bilgisi.
+  const { displayModels, modelGates, unlockingModel, unlockModel } = useModelPool(modelOpen);
   const tplRef = useRef<HTMLDivElement>(null);
   const dsRef = useRef<HTMLDivElement>(null);
   const modelRef = useRef<HTMLDivElement>(null);
@@ -670,19 +673,32 @@ function Composer(props: {
                   Use Global Model ({globalModel?.split("/").pop() ?? "default"}
                   )
                 </DropdownItem>
-                {savedModels.map((m) => (
-                  <DropdownItem
-                    key={m}
-                    selected={props.model === m}
-                    onClick={() => {
-                      setModel(m);
-                      setModelOpen(false);
-                    }}
-                  >
-                    {m.split("/").pop() ?? m}
-                  </DropdownItem>
-                ))}
-                {savedModels.length === 0 && (
+                {displayModels.map((m) => {
+                  const gate = modelGates[m];
+                  const locked = !!gate?.locked;
+                  return (
+                    <DropdownItem
+                      key={m}
+                      selected={props.model === m}
+                      onClick={async () => {
+                        if (locked) {
+                          const ok = await unlockModel(m);
+                          if (!ok) return;
+                        }
+                        setModel(m);
+                        setModelOpen(false);
+                      }}
+                    >
+                      {(m.split("/").pop() ?? m) +
+                        (locked
+                          ? unlockingModel === m
+                            ? " — signing in…"
+                            : ` — ${gate?.reason || "sign-in required"}`
+                          : "")}
+                    </DropdownItem>
+                  );
+                })}
+                {displayModels.length === 0 && (
                   <p
                     className="px-3 py-2 text-xs italic"
                     style={{ color: "var(--d-ink-faint)" }}

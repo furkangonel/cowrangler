@@ -261,20 +261,29 @@ async function imagesToPdf(pngs: Buffer[], w: number, h: number): Promise<Buffer
 }
 
 /**
- * Print a self-contained HTML file straight to a VECTOR PDF at a fixed page size
- * (default A4). Unlike the raster path (capturePage → PNG → PDF), this keeps text
- * selectable and the layout pixel-exact — no scaling/clipping "drift". Used for
- * documents so the exported PDF is the file itself, not a screenshot of it.
+ * Print a self-contained HTML document to a VECTOR PDF, PAGINATED across as many
+ * A4 pages as the content needs. Keeps text selectable and layout pixel-exact
+ * (no screenshot drift). This is the document path.
+ *
+ * Pagination model — handles BOTH authoring styles without clipping:
+ *  • Explicit pages: content wrapped in `.page` blocks (794×1123 each). Each
+ *    `.page` maps 1:1 to a PDF sheet via `break-after:page`. WYSIWYG.
+ *  • Long single flow (legacy): no `.page` blocks → Chromium's paged-media engine
+ *    slices the tall body into A4 sheets automatically. Nothing is lost.
+ *
+ * The old behaviour clamped the root to ONE 1123px page with `overflow:hidden`
+ * and kept only the first PDF page — so anything past the first sheet was
+ * silently thrown away. That was the "document scrolls too long → broken PDF"
+ * bug. We now emit every page.
  */
 async function fileToPdfVector(
   filePath: string,
-  opts: { landscape?: boolean; widthPx?: number; heightPx?: number } = {},
+  opts: { landscape?: boolean; widthPx?: number; heightPx?: number; marginIn?: number; scale?: number } = {},
 ): Promise<Buffer> {
-  // Design pages are authored at 794×1123 CSS px (A4 @96dpi). Print at EXACTLY
-  // that size (converted to inches) so `100vh`, centering and fixed layouts map
-  // 1:1 — a "pageSize:'A4'" string drifts by a hair and shifts vh-based layouts.
+  // Design pages are authored at 794×1123 CSS px (A4 @96dpi).
   const wPx = opts.widthPx ?? 794
   const hPx = opts.heightPx ?? 1123
+  const marginIn = Math.max(0, opts.marginIn ?? 0)
   // printToPDF needs a real (offscreen-positioned) window, not OSR.
   const win = offscreenWindow(wPx, hPx, false)
   const wc = win.webContents
@@ -283,6 +292,15 @@ async function fileToPdfVector(
     await win.loadFile(filePath)
     win.setContentSize(wPx, hPx)
     await settle(win)
+    // Inject sibling shared.css (theme vars) so the export matches the canvas.
+    try {
+      const sharedPath = filePath.replace(/[^/\\]+$/, 'shared.css')
+      if (fs.existsSync(sharedPath)) {
+        const shared = fs.readFileSync(sharedPath, 'utf-8')
+        await wc.executeJavaScript(`(function(){var s=document.createElement('style');s.textContent=${JSON.stringify(shared)};document.head.insertBefore(s,document.head.firstChild);return true;})()`)
+        await new Promise(r => setTimeout(r, 40))
+      }
+    } catch { /* no shared.css → file is self-contained */ }
     // CRITICAL: the canvas preview renders SCREEN styles. printToPDF defaults to
     // PRINT media, so any `@media print` overrides in the file make the PDF look
     // different from the canvas. Force screen emulation so export == preview.
@@ -292,18 +310,24 @@ async function fileToPdfVector(
       await wc.debugger.sendCommand('Emulation.setEmulatedMedia', { media: 'screen' })
     } catch { /* debugger unavailable → fall back to print media */ }
 
-    // Keep EACH design page to EXACTLY ONE PDF page. A few px of overflow (body
-    // margins, sub-pixel borders) otherwise spills into a near-blank 2nd page.
-    // The canvas already shows each page inside a fixed ${wPx}×${hPx} frame with
-    // overflow clipped, so we reproduce that exactly: zero margins + clamp the
-    // root box to one page + hide the sliver. No scaling → export == canvas,
-    // and never more than one page per file.
+    // Paged-media setup. Drive page size via CSS `@page` + preferCSSPageSize so
+    // both `.page` blocks and long flow content paginate at exactly wPx×hPx.
+    // Do NOT clamp html/body height or set overflow:hidden — that is what
+    // truncated multi-page documents before.
     await wc.executeJavaScript(`(function(){
       var s=document.createElement('style');
-      s.textContent='html,body{margin:0!important;padding:0!important;'+
-        'width:${wPx}px!important;height:${hPx}px!important;'+
-        'max-height:${hPx}px!important;overflow:hidden!important;}';
+      s.textContent=
+        '@page{size:${wPx}px ${hPx}px;margin:0;}'+
+        'html,body{margin:0!important;padding:0!important;background:#fff;}'+
+        // Explicit page blocks map 1:1 to sheets.
+        '.page{box-sizing:border-box;width:${wPx}px;min-height:${hPx}px;overflow:hidden;'+
+        'break-after:page;page-break-after:always;break-inside:avoid;}'+
+        '.page:last-child{break-after:auto;page-break-after:auto;}'+
+        // For legacy long-flow docs, avoid ugly splits mid-element.
+        'tr,img,figure,pre,table,blockquote{break-inside:avoid;}'+
+        'h1,h2,h3,h4{break-after:avoid;}';
       document.head.appendChild(s);
+      window.scrollTo(0,0);
       return true;
     })()`)
     await new Promise(r => setTimeout(r, 60))
@@ -311,9 +335,11 @@ async function fileToPdfVector(
     return (await wc.printToPDF({
       printBackground: true,
       landscape: !!opts.landscape,
+      // preferCSSPageSize honours the injected @page size; pageSize is a fallback.
       pageSize: { width: wPx / 96, height: hPx / 96 }, // inches
-      margins: { top: 0, bottom: 0, left: 0, right: 0 },
-      preferCSSPageSize: false,
+      margins: { top: marginIn, bottom: marginIn, left: marginIn, right: marginIn },
+      preferCSSPageSize: true,
+      scale: Math.min(2, Math.max(0.1, opts.scale ?? 1)),
     })) as Buffer
   } finally {
     if (attached) { try { wc.debugger.detach() } catch {} }
@@ -422,7 +448,7 @@ async function writePptx(filePath: string, pngs: Buffer[], w: number, h: number)
 
 interface Payload { srcPath?: string; html?: string; name?: string; landscape?: boolean; width?: number; height?: number; document?: boolean; format?: 'png' | 'jpeg'; scale?: number; quality?: number }
 interface DeckPayload { files: string[]; name?: string; slideW?: number; slideH?: number; document?: boolean }
-interface AdvPdfPayload { files: string[]; name?: string; pageSize?: 'fit' | 'a4' | 'letter'; landscape?: boolean; marginIn?: number; scale?: number; fitW?: number; fitH?: number }
+interface AdvPdfPayload { files: string[]; name?: string; pageSize?: 'fit' | 'a4' | 'letter'; landscape?: boolean; marginIn?: number; scale?: number; fitW?: number; fitH?: number; document?: boolean }
 
 export function registerExportIPC(): void {
   // Plain "Save a copy" of the source HTML file.
@@ -445,8 +471,9 @@ export function registerExportIPC(): void {
       // pixel-exact). Skip the raster/slide-detection path that caused drift and
       // wrongly split a page's <section>s into separate rasterized "slides".
       if (p.document && p.srcPath && fs.existsSync(p.srcPath)) {
-        fs.writeFileSync(filePath, await fileToPdfVector(p.srcPath, { landscape: false, widthPx: 794, heightPx: 1123 }))
-        return { ok: true, path: filePath, count: 1 }
+        const pdf = await fileToPdfVector(p.srcPath, { landscape: false, widthPx: 794, heightPx: 1123 })
+        fs.writeFileSync(filePath, pdf)
+        return { ok: true, path: filePath, count: await countPdfPages(pdf) }
       }
       if (p.srcPath && fs.existsSync(p.srcPath)) {
         const det = await detectAndCaptureSlides(p.srcPath, p.landscape ? 1280 : 794, p.landscape ? 720 : 1123)
@@ -512,6 +539,38 @@ export function registerExportIPC(): void {
     if (files.length === 0) return { ok: false, error: 'No screens to export' }
     const filePath = await askSavePath(baseName(undefined, p.name) + '.pdf', 'PDF', ['pdf'])
     if (!filePath) return { ok: false }
+
+    // ── Documents: paginate ────────────────────────────────────────────────
+    // A document section is NOT one fixed page — it flows across as many A4
+    // sheets as its content needs. Print each file paginated, merge in order,
+    // and do NOT enforce "one page per file" (that check clipped long docs).
+    if (p.document) {
+      try {
+        const parts: Buffer[] = []
+        const failures: string[] = []
+        for (const f of files) {
+          try {
+            parts.push(await fileToPdfVector(f, {
+              landscape: !!p.landscape,
+              widthPx: p.fitW ?? 794,
+              heightPx: p.fitH ?? 1123,
+              marginIn: p.marginIn,
+              scale: p.scale,
+            }))
+          } catch (e: any) {
+            failures.push(`${path.basename(f)}: ${e?.message ?? e}`)
+          }
+        }
+        if (failures.length > 0) return { ok: false, error: `PDF export incomplete: ${failures.join('; ')}` }
+        const merged = await mergePdfs(parts)
+        fs.writeFileSync(filePath, merged)
+        return { ok: true, path: filePath, count: await countPdfPages(merged) }
+      } catch (e: any) {
+        return { ok: false, error: e.message }
+      }
+    }
+
+    // ── Slides / screens: exactly one page per file ─────────────────────────
     // ONE reused offscreen window + one debugger session for the whole deck.
     const win = offscreenWindow(p.fitW ?? 794, p.fitH ?? 1123, false)
     const wc = win.webContents
@@ -558,8 +617,10 @@ export function registerExportIPC(): void {
       if (p.document) {
         const parts: Buffer[] = []
         for (const f of files) parts.push(await fileToPdfVector(f, { landscape: false, widthPx: 794, heightPx: 1123 }))
-        fs.writeFileSync(filePath, await mergePdfs(parts))
-        return { ok: true, path: filePath, count: files.length }
+        const merged = await mergePdfs(parts)
+        fs.writeFileSync(filePath, merged)
+        // Her dosya artık birden çok A4 sayfaya bölünebilir — gerçek sayfa sayısını döndür.
+        return { ok: true, path: filePath, count: await countPdfPages(merged) }
       }
       const pngs: Buffer[] = []
       for (const f of files) pngs.push(await fileToPng(f, w, h))

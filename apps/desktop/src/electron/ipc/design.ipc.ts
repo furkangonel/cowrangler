@@ -103,10 +103,32 @@ const TEMPLATE_PROMPTS: Record<string, string> = {
 - Each slide is exactly 1280×720 (16:9). Use a shared master layout: consistent margins, a title zone, and a body zone.
 - One idea per slide. Large, confident display type. Minimal text per slide.`,
 
-  document: `THIS PROJECT IS A DOCUMENT.
-- One .html file per section, named in reading order: cover.html, intro.html, section-1.html, … meta \`device\` = null.
-- Each page is 794×1123px (A4 at 96dpi). Design for continuous vertical reading and printing.
-- Strong editorial typography: clear hierarchy, comfortable measure (~70 chars), real headings, captions, and pull quotes.`,
+  document: `THIS PROJECT IS A PRINTABLE DOCUMENT (exports to a multi-page A4 PDF).
+
+PAGE MODEL — THIS IS THE MOST IMPORTANT RULE (follow it exactly):
+- The unit of layout is the PRINTED A4 PAGE (794×1123px @96dpi), NOT one long scroll. NEVER write a single tall page that scrolls far past 1123px — that breaks the PDF export.
+- Inside each .html file, wrap EVERY printed page in its own block:  \`<section class="page"> … </section>\`. Each \`.page\` is exactly 794×1123px and becomes exactly ONE sheet in the PDF.
+- When content fills a page, CLOSE that \`<section class="page">\` and START A NEW ONE. A 3-page section = three \`<section class="page">\` blocks stacked in the same file. There is no limit on how many pages a file may contain.
+- Every file MUST include this exact page CSS in its <style> (it makes on-screen pages match the printed sheets and drives pagination):
+  \`\`\`css
+  @page { size: A4; margin: 0; }
+  body { margin: 0; background: #eee; }
+  .page {
+    width: 794px; min-height: 1123px; box-sizing: border-box;
+    margin: 0 auto 24px; padding: 64px 72px;      /* page + comfortable print margins */
+    background: #fff; overflow: hidden;
+    break-after: page; page-break-after: always;
+  }
+  .page:last-child { break-after: auto; page-break-after: auto; margin-bottom: 0; }
+  \`\`\`
+  (The 24px gap and grey body show page boundaries on the canvas; the export strips them so sheets are clean.)
+
+STRUCTURE
+- One .html file per major section, named in reading order: cover.html, intro.html, section-1.html, … meta \`device\` = null. Each file holds one OR MORE \`.page\` blocks.
+- Keep content from being cut mid-element: put \`break-inside: avoid\` on figures, tables, and cards; keep headings with the text that follows.
+
+TYPOGRAPHY
+- Strong editorial type: clear hierarchy, comfortable measure (~70 chars), real headings, captions, and pull quotes. Drive themeable values through CSS variables per the Tweaks contract.`,
 
   wireframe: `THIS PROJECT IS A WIREFRAME.
 - Deliberately low-fidelity: greyscale, boxes and placeholder blocks, simple labels, dashed containers for undecided areas. .html is fine.

@@ -1285,7 +1285,8 @@ export class Agent {
           if (turnTimedOut) {
             const toErr = new Error(
               `TURN_TIMEOUT: turn exceeded ${Math.round(maxTurnMs / 1000)}s and was stopped. ` +
-              `The model/provider was too slow or stuck on this step. Try a smaller request, a faster model, or raise COWRANGLER_MAX_TURN_MS.`,
+              `The model/provider was too slow or stuck on this step. Try a smaller request, a faster model, ` +
+              `or raise the limit in Settings → Advanced → "Max turn duration" (config key max_turn_ms, env COWRANGLER_MAX_TURN_MS).`,
             );
             toErr.name = "TurnTimeoutError";
             throw toErr;
@@ -1348,8 +1349,9 @@ export class Agent {
             });
             const msg = new Error(
               `Tur ${Math.round(maxTurnMs / 1000)} saniyeyi aştı ve durduruldu. ` +
-              `Model/sağlayıcı bu adımda çok yavaştı veya takıldı. Daha küçük bir istek, ` +
-              `daha hızlı bir model deneyin ya da COWRANGLER_MAX_TURN_MS değerini yükseltin.`,
+              `Model/sağlayıcı bu adımda çok yavaştı veya takıldı. Daha küçük bir istek ya da ` +
+              `daha hızlı bir model deneyin — veya limiti Ayarlar → Advanced → "Max turn duration" ` +
+              `alanından yükseltin (config: max_turn_ms, env: COWRANGLER_MAX_TURN_MS).`,
             );
             msg.name = "TurnTimeoutError";
             throw msg;

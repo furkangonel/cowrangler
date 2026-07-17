@@ -19,6 +19,9 @@ interface Props {
   /** Content (frame) intrinsic size in px. */
   fitW: number
   fitH: number
+  /** Document projects paginate: each file flows across as many A4 sheets as
+   *  its content needs, so the preview shows page-break guides. */
+  document?: boolean
   onExport: (opts: PdfExportOptions) => void
 }
 
@@ -133,8 +136,83 @@ function PagePreview({ file, opts, fitW, fitH }: { file: ExportFile; opts: PdfEx
   )
 }
 
-export function PdfExportModal({ open, onClose, files, fitW, fitH, onExport }: Props) {
-  const [pageSize, setPageSize] = useState<PdfExportOptions['pageSize']>('fit')
+const A4 = { w: 794, h: 1123 }
+
+/**
+ * Document preview — shows the file's FULL content at A4 width with dashed
+ * page-break guides every A4 height, so the user sees exactly how it paginates
+ * (matching the multi-page vector PDF the exporter produces). This is the
+ * WYSIWYG counterpart to the "one long scroll silently clipped" old behaviour.
+ */
+function DocPreview({ file, opts }: { file: ExportFile; opts: PdfExportOptions }) {
+  const rootRef = useRef<HTMLDivElement>(null)
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+  const inView = useInView(rootRef)
+  const srcDoc = useSrcDoc(file, inView)
+  const pageW = opts.landscape ? A4.h : A4.w
+  const pageH = opts.landscape ? A4.w : A4.h
+  const disp = PREVIEW_W / pageW
+  const [contentH, setContentH] = useState(pageH)
+
+  // Measure the rendered content height (same-origin sandbox lets us read it).
+  const measure = () => {
+    try {
+      const d = iframeRef.current?.contentDocument
+      if (!d) return
+      const h = Math.max(pageH, d.documentElement?.scrollHeight ?? 0, d.body?.scrollHeight ?? 0)
+      setContentH(prev => (Math.abs(prev - h) > 2 ? h : prev))
+    } catch { /* cross-origin fallback: keep one page */ }
+  }
+  useEffect(() => { if (srcDoc != null) { const t = setTimeout(measure, 200); return () => clearTimeout(t) } }, [srcDoc, pageH])
+
+  const pages = Math.max(1, Math.ceil(contentH / pageH))
+
+  return (
+    <div ref={rootRef} className="flex flex-col items-center gap-1.5">
+      <div
+        className="relative shadow-md"
+        style={{ width: pageW * disp, height: contentH * disp, background: '#fff', border: '1px solid var(--d-line)' }}
+      >
+        {srcDoc == null ? (
+          <div className="w-full h-full flex items-center justify-center text-[10px]" style={{ color: 'var(--d-ink-faint)' }}>Loading…</div>
+        ) : (
+          <iframe
+            ref={iframeRef}
+            title={file.name}
+            srcDoc={srcDoc}
+            scrolling="no"
+            sandbox="allow-scripts allow-same-origin"
+            onLoad={() => { measure(); setTimeout(measure, 200) }}
+            style={{
+              width: pageW,
+              height: contentH,
+              border: 'none',
+              background: '#fff',
+              transform: `scale(${disp})`,
+              transformOrigin: 'top left',
+              pointerEvents: 'none',
+            }}
+          />
+        )}
+        {/* Page-break guides — one dashed line at each A4 boundary. */}
+        {Array.from({ length: pages - 1 }).map((_, i) => (
+          <div
+            key={i}
+            className="absolute left-0 right-0 pointer-events-none"
+            style={{ top: (i + 1) * pageH * disp, borderTop: '1px dashed var(--d-clay)' }}
+          />
+        ))}
+      </div>
+      <span className="text-[10px] truncate max-w-[300px]" style={{ color: 'var(--d-ink-muted)' }}>
+        {file.name.replace(/\.[^.]+$/, '')} · {pages} {pages === 1 ? 'page' : 'pages'}
+      </span>
+    </div>
+  )
+}
+
+export function PdfExportModal({ open, onClose, files, fitW, fitH, document: isDocument, onExport }: Props) {
+  // Documents are inherently A4-paginated; slides/screens default to fit-to-frame.
+  const [pageSize, setPageSize] = useState<PdfExportOptions['pageSize']>(isDocument ? 'a4' : 'fit')
   const [landscape, setLandscape] = useState(false)
   const [marginIn, setMarginIn] = useState(0)
   const [scale, setScale] = useState(1)
@@ -164,7 +242,9 @@ export function PdfExportModal({ open, onClose, files, fitW, fitH, onExport }: P
           {/* Preview */}
           <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center gap-6" style={{ background: 'var(--d-cream-2)' }}>
             {files.map(f => (
-              <PagePreview key={f.filePath} file={f} opts={opts} fitW={fitW} fitH={fitH} />
+              isDocument
+                ? <DocPreview key={f.filePath} file={f} opts={opts} />
+                : <PagePreview key={f.filePath} file={f} opts={opts} fitW={fitW} fitH={fitH} />
             ))}
           </div>
 
@@ -172,7 +252,7 @@ export function PdfExportModal({ open, onClose, files, fitW, fitH, onExport }: P
           <div className="w-[260px] flex-shrink-0 p-5 flex flex-col gap-5 overflow-y-auto" style={{ borderLeft: '1px solid var(--d-line)' }}>
             <Field label="Page size">
               <div className="flex flex-col gap-1.5">
-                {(['fit', 'a4', 'letter'] as const).map(s => (
+                {(isDocument ? (['a4', 'letter'] as const) : (['fit', 'a4', 'letter'] as const)).map(s => (
                   <button
                     key={s}
                     onClick={() => setPageSize(s)}

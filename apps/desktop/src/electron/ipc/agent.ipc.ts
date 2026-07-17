@@ -18,6 +18,12 @@ const CODE_PROJECT_ID = '__code__'
 /** Plan events core'dan yalnız sessionId ile gelir; UI filtresi için proje eşlemesi. */
 const sessionProjectMap = new Map<string, string>()
 
+/**
+ * Şu an turu süren agent'lar (projectId → sessionId). Renderer, bir projeye
+ * geri dönerken canlı akışa yeniden bağlanmak için `agent:isRunning` sorar.
+ */
+const runningAgents = new Map<string, string | null>()
+
 /** Verilen projeId + proje kaydı için agent çalışma dizinini çözer. */
 function resolveWorkdir(projectId: string, project: { workdir?: string | null } | null | undefined): string | undefined {
   if (project?.workdir) return project.workdir
@@ -75,10 +81,6 @@ function friendlyError(raw: string): string {
     return `Desteklenmeyen model: ${unsupported[1]}. Ayarlar → Modeller & API'den geçerli bir model seçin.`
   }
   return raw
-}
-
-function isPlanApprovedResult(result: unknown): boolean {
-  return typeof result === 'string' && result.startsWith('PLAN_APPROVED_CONTINUE:')
 }
 
 function buildSystemPrompt(basePrompt: string, instructions: string): string {
@@ -255,6 +257,7 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
 
     // Session'ı projeye bağla + başlığı ilk promptun ilk 20 karakterinden ata
     const currentSessionId = agent.currentSessionId
+    runningAgents.set(projectId, currentSessionId ?? sessionId ?? null)
     if (currentSessionId) {
       sessionProjectMap.set(currentSessionId, projectId)
       const { setActiveSessionId } = await import('@cowrangler/core/project_context.js')
@@ -282,14 +285,9 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
 
     // Per-tool events — each tool reports its own start/done/error independently,
     // with a stable id (SDK toolCallId), so loaders/checkmarks update one by one.
-    // Design guard: turda hiç dosya yazıldı mı? (bkz. no-output nudge aşağıda)
-    const WRITE_TOOLS = new Set(['write_file', 'edit_file', 'apply_patch', 'append_to_file'])
-    let writeCount = 0
     // ask_user / write_plan bu turda kullanıcıya bir diyalog açtı mı? Açtıysa
     // "boş yanıt" fallback'i tetiklenmez — soru/onay diyaloğu zaten görünür çıktıdır.
     let askedUser = false
-    let planApprovedThisTurn = false
-    let actionsAfterPlanApproval = 0
 
     const onToolEvent = (e: {
       id: string
@@ -300,19 +298,6 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       result?: any
       error?: string
     }) => {
-      if (e.phase === 'done' && WRITE_TOOLS.has(e.name)) writeCount++
-      if (
-        e.phase === 'done' &&
-        planApprovedThisTurn &&
-        e.name !== 'ask_user' &&
-        e.name !== 'write_plan' &&
-        e.name !== 'send_message'
-      ) {
-        actionsAfterPlanApproval++
-      }
-      if (e.phase === 'done' && e.name === 'write_plan' && isPlanApprovedResult(e.result)) {
-        planApprovedThisTurn = true
-      }
       if (e.name === 'ask_user' || e.name === 'write_plan') askedUser = true
       sender.send('agent:toolCall', {
         projectId,
@@ -348,46 +333,16 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
     }
 
     try {
-      const isFirstTurn = agent.contextLength === 0
       let result = await agent.chat(message, undefined, onStepText, undefined, onToolEvent, onReasoningText)
-
-      // ── Design no-output guard ────────────────────────────────────────────
-      // Zayıf modeller ilk istekte bazen plan anlatıp HİÇ dosya yazmadan turu
-      // bitiriyor. İlk turda sıfır araç çağrısı + sıfır yazma varsa BİR kez
-      // otomatik dürt: hemen üretime başlasın. (Soru sorması gerekiyorsa
-      // ask_user çağırırdı — o durumda toolCallCount > 0 olur, nudge atlanır.)
-      if (
-        contextType === 'desktop_design' &&
-        isFirstTurn &&
-        writeCount === 0 &&
-        result.toolCallCount === 0
-      ) {
-        result = await agent.chat(
-          '[SYSTEM] You ended the turn without producing any design file. The user expects real screens, not a description. Start NOW: write the first screens/ file (plus its .meta.json sidecar), then keep writing until the request is fully built. Do not reply with plans or promises.',
-          undefined, onStepText, undefined, onToolEvent, onReasoningText,
-          { internal: true },
-        )
-      }
-
-      // ── Plan approval continuation guard ─────────────────────────────────
-      // write_plan zaten UI içinde onay aldıysa kullanıcıya tekrar "go ahead"
-      // yazdırma. Model onaydan sonra gerçek bir tool çalıştırmadan turu
-      // kapatırsa aynı konuşma içinde tek otomatik devam turu başlat.
-      if (planApprovedThisTurn && actionsAfterPlanApproval === 0) {
-        result = await agent.chat(
-          '[SYSTEM] The user approved the implementation plan in the UI. Continue implementing it now in this same session. Do not ask for "go ahead", "proceed", or any additional approval unless a separate destructive/irreversible permission prompt is required. Do not write another plan.',
-          undefined, onStepText, undefined, onToolEvent, onReasoningText,
-          { internal: true },
-        )
-      }
 
       // ── Empty-reply guard (tüm desktop bağlamları) ─────────────────────────
       // Tek-kanal düz metin modunda tur, kullanıcıya HİÇ görünür metin
       // üretmeden bitebilir (model sadece araç çağırıp durdu). Bu, "agent bir
       // anda hiçbir şey yazmıyor" şikâyetinin ta kendisi. Kullanıcıya bir soru/
-      // onay diyaloğu açılmadıysa (askedUser) veya plan onayı sonrası otomatik
-      // devam çalıştıysa ve nihai metin boşsa, BİR kez özet iste. Yalnızca bir kez.
-      if ((!askedUser || planApprovedThisTurn) && (!result.text || !result.text.trim())) {
+      // onay diyaloğu açılmadıysa (askedUser) ve nihai metin boşsa, BİR kez
+      // özet iste. Yalnızca bir kez. (Not: eski "design no-output" ve "plan
+      // onayı devamı" dürtme heuristikleri kaldırıldı — kırılgan + ekstra tur.)
+      if (!askedUser && (!result.text || !result.text.trim())) {
         result = await agent.chat(
           'Summarize the outcome of the work you just did in one or two short plain-text sentences (what changed, and whether it worked). If you were blocked, say what you need instead. Reply in the user\'s language. Do not call any tools.',
           undefined, onStepText, undefined, onToolEvent, onReasoningText,
@@ -413,7 +368,19 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
         console.error('[agent:chat] Fatal Error:', err)
         sender.send('agent:error', friendlyError(err.message || String(err)))
       }
+    } finally {
+      runningAgents.delete(projectId)
     }
+  })
+
+  // ── agent:isRunning ────────────────────────────────────────────────────────
+  // Proje için bir agent turu hâlâ sürüyor mu? (Design: ana sayfaya gidip
+  // dönen kullanıcı canlı akışa yeniden bağlanabilsin.)
+  ipcMain.handle('agent:isRunning', async (_, projectId: string) => {
+    const sid = runningAgents.get(projectId)
+    return runningAgents.has(projectId)
+      ? { running: true, sessionId: sid ?? null }
+      : { running: false, sessionId: null }
   })
 
   // ── agent:interrupt ────────────────────────────────────────────────────────

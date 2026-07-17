@@ -452,6 +452,44 @@ function StageCanvas({ kind, viewMode }: { kind: 'slides' | 'animation'; viewMod
 
 /* ── Document — vertical paged scroll ──────────────────────────────────────── */
 
+/**
+ * One document file on the canvas. A file may hold MANY \`.page\` blocks, so the
+ * sheet grows to the content's natural height instead of clamping to a single
+ * A4 page (the old fixed-1123 + overflow:hidden box hid every page after the
+ * first — the same clipping that broke the PDF). The file's own page CSS
+ * (white \`.page\` on a grey body) draws the page boundaries.
+ */
+function DocumentSheet({ frame, index, pageW, pageH, scale }: {
+  frame: DesignFrame; index: number; pageW: number; pageH: number; scale: number
+}) {
+  const kind = frame.kind ?? kindFromName(frame.name)
+  const [naturalH, setNaturalH] = useState(pageH)
+  const h = Math.max(pageH, naturalH)
+  const pages = Math.max(1, Math.round(h / pageH))
+  return (
+    <div className="relative">
+      <div
+        className="rounded-lg overflow-hidden design-elev-lg"
+        style={{ width: pageW * scale, height: h * scale, background: '#fff', border: '1px solid var(--d-line)' }}
+      >
+        <ScaledScreen
+          filePath={frame.filePath} kind={kind} meta={frame.meta}
+          intrinsicW={pageW} intrinsicH={h} scale={scale} interactive
+          onNatural={(_w, nh) => setNaturalH(prev => (Math.abs(prev - nh) > 2 ? nh : prev))}
+        />
+      </div>
+      <span className="absolute -left-12 top-2 text-xs tabular-nums" style={{ color: 'var(--d-ink-faint)' }}>
+        {String(index + 1).padStart(2, '0')}
+      </span>
+      {pages > 1 && (
+        <span className="absolute -left-12 top-8 text-[10px] tabular-nums" style={{ color: 'var(--d-ink-faint)' }}>
+          {pages}p
+        </span>
+      )}
+    </div>
+  )
+}
+
 function DocumentCanvas({ viewMode }: { viewMode?: 'preview' | 'code' }) {
   const { frames, canvasScale, canvasOffsetX, canvasOffsetY, setCanvasView } = useDesignStore()
   // A4 @96dpi (210×297mm) — sayfa render alanı.
@@ -486,17 +524,9 @@ function DocumentCanvas({ viewMode }: { viewMode?: 'preview' | 'code' }) {
         style={{ background: 'var(--d-cream)' }}
         onWheel={onWheel}
       >
-        {frames.map((f, i) => {
-          const kind = f.kind ?? kindFromName(f.name)
-          return (
-            <div key={f.id} className="relative">
-              <div className="rounded-lg overflow-hidden design-elev-lg" style={{ width: pageW * canvasScale, height: pageH * canvasScale, background: '#fff', border: '1px solid var(--d-line)' }}>
-                <ScaledScreen filePath={f.filePath} kind={kind} meta={f.meta} intrinsicW={pageW} intrinsicH={pageH} scale={canvasScale} interactive />
-              </div>
-              <span className="absolute -left-12 top-2 text-xs tabular-nums" style={{ color: 'var(--d-ink-faint)' }}>{String(i + 1).padStart(2, '0')}</span>
-            </div>
-          )
-        })}
+        {frames.map((f, i) => (
+          <DocumentSheet key={f.id} frame={f} index={i} pageW={pageW} pageH={pageH} scale={canvasScale} />
+        ))}
       </div>
 
       {/* Floating zoom controls */}
