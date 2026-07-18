@@ -188,8 +188,9 @@ export function DirectoryPage() {
         )}
 
         {/* Sidebar */}
-        <div className="w-56 flex-shrink-0 border-r border-border-subtle p-4 flex flex-col gap-1 bg-bg-secondary">
-          <h2 className="text-xl font-semibold mb-6 px-2 brand-serif">Customize</h2>
+        <div className="w-56 flex-shrink-0 border-r border-border-subtle p-4 flex flex-col gap-1 bg-bg-secondary capability-sidebar">
+          <p className="control-eyebrow px-2">Workspace</p>
+          <h2 className="text-xl font-semibold mb-6 px-2 brand-serif">Capabilities</h2>
           <SidebarItem active={tab === 'skills' && !selectedSkill && !selectedConnector} icon={<BookOpen size={16} />} label="Skills" onClick={() => { setTab('skills'); setSelectedSkill(null); setSelectedConnector(null); setQuery('') }} />
           <SidebarItem active={tab === 'connectors' && !selectedSkill && !selectedConnector} icon={<Box size={16} />} label="Connectors" onClick={() => { setTab('connectors'); setSelectedSkill(null); setSelectedConnector(null); setQuery('') }} />
           <SidebarItem active={tab === 'plugins' && !selectedSkill && !selectedConnector} icon={<Plug size={16} />} label="Plugins" onClick={() => { setTab('plugins'); setSelectedSkill(null); setSelectedConnector(null); setQuery('') }} />
@@ -226,8 +227,19 @@ export function DirectoryPage() {
               }}
             />
           ) : (
-            <div className="flex-1 flex flex-col p-8 overflow-y-auto">
+            <div className="flex-1 flex flex-col p-8 overflow-y-auto capability-directory">
               <div className="max-w-4xl w-full mx-auto space-y-5">
+                <div className="control-page-heading">
+                  <div>
+                    <p className="control-eyebrow">Capability directory</p>
+                    <h1>{tab === 'skills' ? 'Skills' : tab === 'connectors' ? 'Connectors' : 'Plugins'}</h1>
+                    <p>{tab === 'skills' ? 'Reusable instructions the agent can invoke.' : tab === 'connectors' ? 'Live tools and data exposed through MCP.' : 'Installable capability bundles.'}</p>
+                  </div>
+                  <div className="control-metrics">
+                    <span><strong>{tab === 'skills' ? skills.length : tab === 'connectors' ? connectors.length : Object.keys(installedPlugins).length}</strong><small>available</small></span>
+                    <span><strong>{tab === 'skills' ? skills.filter(skill => skill.active !== false).length : tab === 'connectors' ? connectors.filter(connector => connector.connected).length : Object.values(installedPlugins).filter(Boolean).length}</strong><small>{tab === 'connectors' ? 'connected' : 'active'}</small></span>
+                  </div>
+                </div>
                 {/* Search + Add button */}
                 {tab !== 'plugins' && (
                   <div className="flex items-center gap-3">
@@ -453,10 +465,12 @@ function AddCustomMcpModal({ onClose, onSuccess }: { onClose: () => void, onSucc
       if (type === 'stdio') {
         if (!command.trim()) throw new Error('Command is required for stdio.')
         config.command = command.trim()
-        config.args = args.trim().split(' ').filter(a => a)
+        config.args = splitCommandArgs(args)
       } else {
         if (!url.trim()) throw new Error('URL is required for http/sse.')
-        config.url = url.trim()
+        const endpoint = new URL(url.trim())
+        if (!['http:', 'https:'].includes(endpoint.protocol)) throw new Error('URL must use http or https.')
+        config.url = endpoint.toString()
       }
       
       const res = await ipc.mcp.add(config)
@@ -473,9 +487,11 @@ function AddCustomMcpModal({ onClose, onSuccess }: { onClose: () => void, onSucc
   }
 
   return (
-    <div className="bg-bg-secondary border border-border rounded-xl p-6 shadow-2xl w-[440px] max-w-full relative" onClick={e => e.stopPropagation()}>
+    <div className="bg-bg-secondary border border-border rounded-2xl p-6 shadow-2xl w-[520px] max-w-full relative control-modal" onClick={e => e.stopPropagation()}>
       <button onClick={onClose} className="absolute top-4 right-4 text-text-muted hover:text-text-primary transition-colors"><X size={16} /></button>
-      <h3 className="text-base font-semibold mb-6">Add custom connector</h3>
+      <p className="control-eyebrow">Manual MCP setup</p>
+      <h3 className="text-lg font-semibold mt-1">Add custom connector</h3>
+      <p className="text-xs text-text-muted mt-1 mb-6">Choose transport, enter endpoint, then Cowrangler verifies server during first connection.</p>
       
       <div className="space-y-4 mb-6">
         <div>
@@ -487,15 +503,15 @@ function AddCustomMcpModal({ onClose, onSuccess }: { onClose: () => void, onSucc
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-text-muted mb-1">Type</label>
-          <select 
-            value={type} onChange={e => setType(e.target.value as any)}
-            className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary focus:border-accent transition-colors"
-          >
-            <option value="stdio">stdio</option>
-            <option value="sse">sse</option>
-            <option value="http">http</option>
-          </select>
+          <label className="block text-xs font-medium text-text-muted mb-2">Transport</label>
+          <div className="grid grid-cols-3 gap-2">
+            {(['stdio', 'http', 'sse'] as const).map(transport => (
+              <button key={transport} onClick={() => setType(transport)} className={`transport-choice ${type === transport ? 'is-active' : ''}`}>
+                <strong>{transport.toUpperCase()}</strong>
+                <small>{transport === 'stdio' ? 'Local process' : transport === 'http' ? 'Remote request' : 'Event stream'}</small>
+              </button>
+            ))}
+          </div>
         </div>
 
         {type === 'stdio' ? (
@@ -509,11 +525,11 @@ function AddCustomMcpModal({ onClose, onSuccess }: { onClose: () => void, onSucc
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-text-muted mb-1">Args (space separated)</label>
+              <label className="block text-xs font-medium text-text-muted mb-1">Arguments</label>
               <input 
                 value={args} onChange={e => setArgs(e.target.value)}
                 className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary focus:border-accent transition-colors"
-                placeholder="-y @modelcontextprotocol/server-postgres"
+                placeholder={'-y @scope/server "path with spaces"'}
               />
             </div>
           </>
@@ -523,11 +539,15 @@ function AddCustomMcpModal({ onClose, onSuccess }: { onClose: () => void, onSucc
             <input 
               value={url} onChange={e => setUrl(e.target.value)}
               className="w-full px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-primary focus:border-accent transition-colors"
-              placeholder="http://localhost:3000/sse"
+              placeholder={type === 'http' ? 'https://example.com/mcp' : 'https://example.com/sse'}
             />
           </div>
         )}
 
+        <div className="mcp-config-preview">
+          <span>Configuration preview</span>
+          <code>{type === 'stdio' ? `${command || 'command'} ${args}`.trim() : (url || 'https://server/endpoint')}</code>
+        </div>
         {error && <p className="text-xs text-warning mt-2">{error}</p>}
       </div>
 
@@ -539,6 +559,15 @@ function AddCustomMcpModal({ onClose, onSuccess }: { onClose: () => void, onSucc
       </div>
     </div>
   )
+}
+
+function splitCommandArgs(value: string): string[] {
+  const parts: string[] = []
+  value.replace(/"([^"]*)"|'([^']*)'|([^\s]+)/g, (_match, doubleQuoted, singleQuoted, plain) => {
+    parts.push(doubleQuoted ?? singleQuoted ?? plain)
+    return ''
+  })
+  return parts
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
@@ -1099,5 +1128,4 @@ function ConnectorDetailView({ connector, onBack, onUpdate }: { connector: Conne
     </div>
   )
 }
-
 

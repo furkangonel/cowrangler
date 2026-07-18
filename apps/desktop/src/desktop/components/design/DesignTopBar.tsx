@@ -1,4 +1,5 @@
-import React from 'react'
+import React, { useState } from 'react'
+import { Moon, Sun } from 'lucide-react'
 
 /**
  * Draggable window chrome for the Design window.
@@ -24,6 +25,10 @@ interface Props {
 }
 
 export function DesignTopBar({ left, right, center, border = false, surface = 'transparent' }: Props) {
+  const [dark, setDark] = useState(() => {
+    const saved = localStorage.getItem('cowrangler-design-theme')
+    return saved ? saved === 'dark' : document.documentElement.dataset.theme === 'dark'
+  })
   const bg =
     surface === 'white' ? 'var(--d-surface)' : surface === 'paper' ? 'var(--d-paper)' : 'transparent'
   return (
@@ -38,7 +43,22 @@ export function DesignTopBar({ left, right, center, border = false, surface = 't
     >
       <div className="flex items-center min-w-0 flex-shrink-0">{left}</div>
       <div className="flex-1 flex items-center justify-center min-w-0">{center}</div>
-      <div className="flex items-center gap-2 flex-shrink-0">{right}</div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <button
+          className="design-theme-toggle no-drag"
+          onClick={() => {
+            const next = !dark
+            setDark(next)
+            localStorage.setItem('cowrangler-design-theme', next ? 'dark' : 'light')
+            window.dispatchEvent(new CustomEvent('cowrangler-design-theme', { detail: next ? 'dark' : 'light' }))
+          }}
+          title={dark ? 'Use light theme' : 'Use dark theme'}
+          aria-label={dark ? 'Use light theme' : 'Use dark theme'}
+        >
+          {dark ? <Sun size={14} /> : <Moon size={14} />}
+        </button>
+        {right}
+      </div>
     </div>
   )
 }

@@ -203,8 +203,8 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelP
   }
 
   return (
-    <div className="flex-shrink-0 px-4 pb-4 pt-2 bg-bg-primary">
-      <div className="max-w-3xl mx-auto relative">
+    <div className="flex-shrink-0 px-4 pb-4 pt-2 bg-bg-primary chat-composer-dock">
+      <div className="max-w-3xl mx-auto relative chat-composer-frame">
 
         {/* ── Slash skill dropdown ── */}
         {slashOpen && filtered.length > 0 && (
@@ -322,7 +322,7 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelP
         <div
           {...drop.dropBind}
           data-testid="composer-drop-zone"
-          className={`relative flex flex-col bg-bg-elevated border rounded-2xl composer-shadow focus-within:border-accent/45 focus-within:composer-shadow-focus transition-all ${drop.isDragging ? 'border-accent border-dashed' : 'border-border'}`}
+          className={`relative flex flex-col bg-bg-elevated border rounded-2xl composer-shadow focus-within:border-accent/45 focus-within:composer-shadow-focus transition-all agent-composer ${drop.isDragging ? 'border-accent border-dashed' : 'border-border'}`}
         >
           {/* Sürükle-bırak kaplaması */}
           {drop.isDragging && (

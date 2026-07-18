@@ -22,18 +22,27 @@ interface DesignSystemRecord {
   createdAt: number
 }
 
+const BUILTIN_SYSTEMS: DesignSystemRecord[] = [
+  { id: 'builtin_modernist', name: 'Modernist', blurb: 'High contrast, geometric type, sharp hierarchy.', notes: 'Use strict grids, primary accents, hard edges, and asymmetric composition. Avoid decorative gradients.', createdAt: 0 },
+  { id: 'builtin_organic', name: 'Organic', blurb: 'Human, tactile, calm, and naturally irregular.', notes: 'Use botanical neutrals, soft geometry, generous rhythm, and warm editorial type. Keep texture subtle.', createdAt: 0 },
+  { id: 'builtin_broadsheet', name: 'Broadsheet', blurb: 'Dense editorial storytelling with strong information structure.', notes: 'Use compact serif-led hierarchy, rules that encode sections, restrained color, captions, and disciplined columns.', createdAt: 0 },
+  { id: 'builtin_industry', name: 'Industry', blurb: 'Practical, technical, durable product language.', notes: 'Use robust sans type, cool utilitarian colors, compact controls, explicit status, and squared construction.', createdAt: 0 },
+]
+
 function listSystems(): DesignSystemRecord[] {
   try {
-    return fs.readdirSync(DESIGN_SYSTEMS_DIR)
+    const custom = fs.readdirSync(DESIGN_SYSTEMS_DIR)
       .filter(f => f.endsWith('.json'))
       .map(f => JSON.parse(fs.readFileSync(path.join(DESIGN_SYSTEMS_DIR, f), 'utf-8')) as DesignSystemRecord)
       .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
-  } catch { return [] }
+    return [...custom, ...BUILTIN_SYSTEMS]
+  } catch { return [...BUILTIN_SYSTEMS] }
 }
 
 function systemInstructions(id: string): string {
   try {
-    const s = JSON.parse(fs.readFileSync(path.join(DESIGN_SYSTEMS_DIR, `${id}.json`), 'utf-8')) as DesignSystemRecord
+    const s = BUILTIN_SYSTEMS.find(system => system.id === id)
+      ?? JSON.parse(fs.readFileSync(path.join(DESIGN_SYSTEMS_DIR, `${id}.json`), 'utf-8')) as DesignSystemRecord
     return `\n\nDESIGN SYSTEM — "${s.name}":\n${s.blurb}${s.notes ? `\n\nBrand notes: ${s.notes}` : ''}\nApply this brand consistently across every screen: its palette, typography, voice, and component style.`
   } catch { return '' }
 }
@@ -93,6 +102,12 @@ QUALITY BAR (aim to make the user say "wow"):
 The user works on a canvas: each file appears framed appropriately for its kind (device mockup, slide stage, page, or bare artifact). Think in discrete screens/assets, not one giant page.`
 
 const TEMPLATE_PROMPTS: Record<string, string> = {
+  'mobile-app': `THIS PROJECT IS A MOBILE APP DESIGN — a complete, tappable product flow.
+- Create one .jsx file per screen. Set every meta device to "mobile". The canvas provides the phone frame; never draw a fake device, status bar, or browser chrome.
+- Build real interactions: navigation, form validation, empty/loading/error/success states, keyboard-safe inputs, and sensible touch targets.
+- Start with the smallest coherent flow (normally 3–6 screens), then keep shared tokens and components visually identical across files.
+- Optimize for 390×844 while remaining fluid from 360–430px. Use realistic product content, not placeholder cards.`,
+
   prototype: `THIS PROJECT IS A PROTOTYPE — a coherent, interactive multi-screen product flow.
 - Prefer .jsx component files for app screens so interactions (tabs, toggles, navigation state) actually work. Use .html only for purely static screens.
 - Decide the device target with the user's intent: a mobile app → "mobile" (390×844), a web app/site → "desktop", a tablet app → "tablet". Set it in each screen's meta \`device\`. The canvas renders the matching device mockup automatically — do NOT draw your own phone frame, status bar, or browser chrome in the design itself.
@@ -150,6 +165,48 @@ TYPOGRAPHY
 - Use GSAP via CDN for a real timeline: \`<script src="https://unpkg.com/gsap@3/dist/gsap.min.js"></script>\` then \`const tl = gsap.timeline();\` and chain steps. Animate along paths where it fits (motionPath/SVG \`<path>\`, stroke-dashoffset draw-on). Keep easing tasteful (power2/expo).
 - Go for spectacle with craft: layered depth, soft shadows, gradient lighting, a moving subject, labels that pop in on cue. Real content, no placeholders. Make it the kind of thing someone screen-records and shares.`,
 
+  'ui-mockups': `THIS PROJECT IS A HIGH-FIDELITY UI MOCKUP SET.
+- Use .jsx for interactive app views and .html for content-led pages. Set meta device per target: desktop for web products, mobile for phone experiences, tablet only when requested.
+- Create production-level screens with consistent navigation, responsive layout, hover/focus/pressed/disabled states, data density, and realistic empty/error/loading conditions.
+- Screens must look like one shipped product. Put shared tokens in screens/shared.css and reuse exact component geometry across every file.`,
+
+  resume: `THIS PROJECT IS A RÉSUMÉ.
+- Create one resume.html containing exactly one A4 .page (794×1123px) unless user explicitly asks for two pages. meta device = null.
+- Keep it ATS-aware: selectable text, semantic headings, plain chronological reading order, no skill bars, no photo by default, no information hidden in icons.
+- Edit content for impact: concise role summaries, quantified bullets, consistent dates, useful links. Design may be distinctive but must remain legible when printed in greyscale.
+- Include @page A4 CSS and prevent section breaks. Expose only meaningful type/accent/density tweaks.`,
+
+  '3d-object': `THIS PROJECT IS AN INTERACTIVE 3D OBJECT STUDY.
+- Output one index.html on a 1280×720 stage, meta device = null. Use Three.js from a pinned CDN version; include a polished CSS fallback silhouette if WebGL or network loading fails.
+- Build deliberate camera, materials, lighting, floor/contact shadow, orbit interaction, and a reset-view control. Avoid a default spinning cube.
+- Auto-introduce the object once, then let user control it. Respect reduced motion. Keep GPU cost modest and resize correctly.`,
+
+  research: `THIS PROJECT IS A RESEARCH REPORT.
+- Create paginated A4 HTML: cover.html, findings.html, evidence.html, recommendations.html as needed. Each printed sheet is a 794×1123 .page; meta device = null.
+- Never invent citations. Clearly label provided evidence, inference, open questions, and recommendations. Use footnotes or a source list with full readable URLs.
+- Lead with an executive summary, then organize findings by decision relevance. Charts must include units, legends, source notes, and accessible table equivalents when useful.
+- Use editorial hierarchy and calm density. Prevent tables, figures, and citations from splitting across pages.`,
+
+  'html-email': `THIS PROJECT IS AN HTML EMAIL.
+- Output one self-contained email.html previewed at 600px. meta device = null. Use nested tables for structural layout, inline critical styles, absolute HTTPS image URLs, and a hidden preheader.
+- Include subject line and preheader in an HTML comment at top. Build a clear hierarchy, one primary CTA, bulletproof button, meaningful alt text, and plain-text-friendly reading order.
+- Support 320–600px, dark-mode client hints, Outlook-safe fallbacks, and Gmail clipping limits. No JavaScript, forms, video, SVG-only critical content, or web-font dependency.`,
+
+  'color-type': `THIS PROJECT IS A COLOR + TYPE PAIRING SYSTEM.
+- Create one responsive specimen.html, meta device = null. Show palette roles (not random swatches), type roles, scale, spacing rhythm, and real component examples.
+- Include HEX and RGB values, WCAG contrast results for intended foreground/background pairs, font fallbacks, loading guidance, and do/don't examples.
+- Make choices specific to user's subject. Explain each pairing briefly inside the artifact. Use CSS custom properties so every swatch and specimen stays synchronized.`,
+
+  diagram: `THIS PROJECT IS A DIAGRAM.
+- Prefer .mermaid for flows, sequences, architecture, ERD, state, and journeys. Use .svg only when spatial composition or custom illustration materially improves comprehension. meta device = null.
+- Pick diagram grammar from relationships, not aesthetics. Keep labels short, group real boundaries, distinguish state/action/data visually, and avoid crossing lines.
+- For complex systems, split overview and detail into separate files. Include a legend only when encoding is not self-evident.`,
+
+  flier: `THIS PROJECT IS A PRINT-READY FLIER.
+- Create one flier.html with exactly one A4 portrait .page (794×1123px), meta device = null. Add 3mm visual bleed guidance while keeping live text inside safe margins.
+- One message, one focal point, one action. Use real event/product details, strong display hierarchy, and a working QR destination rendered with a readable fallback URL.
+- Include print-safe colors, high-resolution or vector artwork, @page CSS, and a restrained screen preview background. Avoid tiny body text and generic decorative confetti.`,
+
   blank: `THIS IS A BLANK PROJECT.
 - Infer the right format and file kind (.html / .jsx / .svg / .mermaid) from the user's request and follow the canvas + tweaks contracts. Set meta \`device\` only when the design is an app/site screen.`,
 }
@@ -181,6 +238,7 @@ export function registerDesignIPC(): void {
     return rec
   })
   ipcMain.handle('design:deleteSystem', (_, id: string) => {
+    if (id.startsWith('builtin_')) return { ok: false, error: 'Included systems cannot be deleted' }
     try { fs.rmSync(path.join(DESIGN_SYSTEMS_DIR, `${id}.json`), { force: true }) } catch {}
     return { ok: true }
   })
