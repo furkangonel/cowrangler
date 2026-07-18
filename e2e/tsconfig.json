@@ -1,0 +1,10 @@
+{
+  "extends": "../apps/desktop/tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "@playwright/test"]
+  },
+  "include": [
+    "./**/*.ts",
+    "../apps/desktop/src/desktop/electron-api.d.ts"
+  ]
+}

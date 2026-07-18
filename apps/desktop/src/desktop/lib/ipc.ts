@@ -51,12 +51,6 @@ export interface MarketplacePlugin {
   repositoryUrl: string
 }
 
-declare global {
-  interface Window {
-    electronAPI: ElectronAPI
-  }
-}
-
 export interface TaskProgress {
   id: string
   text: string
@@ -365,6 +359,11 @@ export interface ConnectorCatalogInfo {
   supportUrl?: string
   privacyUrl?: string
   capabilities?: string[]
+  /** User-authored raw MCP entry rather than a curated catalog connector. */
+  custom?: boolean
+  command?: string
+  args?: string[]
+  url?: string
 }
 
 export interface FileNode {
@@ -469,7 +468,7 @@ export interface PlanPayload {
   createdAt: string
 }
 
-interface ElectronAPI {
+export interface ElectronAPI {
   agent: {
     chat: (projectId: string, sessionId: string | null, message: string, model?: string) => Promise<void>
     interrupt: (projectId: string) => Promise<{ ok: boolean }>
@@ -621,7 +620,7 @@ interface ElectronAPI {
   }
   mcp: {
     list: () => Promise<MCPServerInfo[]>
-    add: (config: any) => Promise<{ ok: boolean }>
+    add: (config: any) => Promise<{ ok: boolean; summary?: string; error?: string }>
     remove: (name: string) => Promise<{ ok: boolean }>
     testConnection: (name: string) => Promise<{ ok: boolean; message?: string; error?: string }>
   }

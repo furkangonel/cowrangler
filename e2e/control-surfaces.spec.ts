@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test'
+import fs from 'node:fs'
+import path from 'node:path'
 import { closeApp, launchApp, type LaunchedApp } from './fixtures'
 
 let launched: LaunchedApp
@@ -25,4 +27,14 @@ test('model, skill, and manual MCP controls share the capability workspace', asy
   await expect(page.getByRole('button', { name: /STDIO/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /HTTP/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /SSE/ })).toBeVisible()
+
+  await page.getByPlaceholder('my-connector').fill('manual-e2e-mcp')
+  await page.getByPlaceholder('npx').fill('/definitely/missing/mcp-command')
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+
+  await expect(page.getByText('Manual MCP setup', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('manual-e2e-mcp', { exact: true })).toBeVisible()
+  const config = fs.readFileSync(path.join(launched.homeDir, '.cowrangler', 'config.yaml'), 'utf8')
+  expect(config).toContain('manual-e2e-mcp:')
+  expect(config).toContain('/definitely/missing/mcp-command')
 })

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Search, Plus, Settings, Upload, X, Box, Plug, BookOpen, ChevronRight, ChevronLeft, ChevronDown, Eye, Code, Copy, FolderOpen, FileText, FileCode, FileJson, FolderIcon, FolderOpenIcon, Github, ExternalLink, Trash2 } from 'lucide-react'
-import { ipc, ConnectorCatalogInfo, SkillDef } from '../../lib/ipc'
+import { ipc, ConnectorCatalogInfo, MCPServerInfo, SkillDef } from '../../lib/ipc'
 import { useUIStore } from '../../stores/ui.store'
 import { MarkdownRenderer } from '../shared/MarkdownRenderer'
 
@@ -11,16 +11,38 @@ const SKILL_CATEGORY_LABELS: Record<SkillCategory, string> = {
   all: 'All', bundled: 'Bundled', global: 'Global',
 }
 
-const CONNECTOR_CATEGORIES = ['all', 'dev', 'web', 'data', 'ai', 'files', 'productivity', 'communication', 'design', 'business'] as const
+const CONNECTOR_CATEGORIES = ['all', 'custom', 'dev', 'web', 'data', 'ai', 'files', 'productivity', 'communication', 'design', 'business'] as const
 type ConnectorCategory = typeof CONNECTOR_CATEGORIES[number]
 const CONNECTOR_CATEGORY_LABELS: Record<string, string> = {
-  all: 'All', dev: 'Dev', web: 'Web', data: 'Data', ai: 'AI', files: 'Files',
+  all: 'All', custom: 'Custom', dev: 'Dev', web: 'Web', data: 'Data', ai: 'AI', files: 'Files',
   productivity: 'Productivity', communication: 'Communication', design: 'Design', business: 'Business',
 }
 
 import { PluginsView } from './PluginsView'
 
 type Tab = 'skills' | 'connectors' | 'plugins'
+
+function manualConnectorFromServer(server: MCPServerInfo): ConnectorCatalogInfo {
+  const target = server.type === 'stdio'
+    ? [server.command, ...(server.args ?? [])].filter(Boolean).join(' ')
+    : server.url
+  return {
+    id: server.name,
+    name: server.name,
+    description: target ? `Custom ${server.type.toUpperCase()} MCP · ${target}` : `Custom ${server.type.toUpperCase()} MCP server`,
+    category: 'custom',
+    transport: server.type,
+    auth: 'none',
+    connected: true,
+    live: server.status === 'connected',
+    toolCount: server.toolCount,
+    error: server.error,
+    custom: true,
+    command: server.command,
+    args: server.args,
+    url: server.url,
+  }
+}
 
 export function DirectoryPage() {
   const { customizeOpen, closeCustomize } = useUIStore()
@@ -51,12 +73,18 @@ export function DirectoryPage() {
   async function loadData() {
     setLoading(true)
     try {
-      const [slist, clist] = await Promise.all([
+      const [slist, clist, serverList] = await Promise.all([
         ipc.skills.list(),
         ipc.connectors.catalog(),
+        ipc.connectors.list(),
       ])
+      const catalog = Array.isArray(clist) ? clist : []
+      const catalogIds = new Set(catalog.map(connector => connector.id))
+      const custom = (Array.isArray(serverList) ? serverList : [])
+        .filter(server => !catalogIds.has(server.name))
+        .map(manualConnectorFromServer)
       setSkills(Array.isArray(slist) ? slist : [])
-      setConnectors(Array.isArray(clist) ? clist : [])
+      setConnectors([...catalog, ...custom])
     } catch (e) {
       console.error(e)
     } finally {
@@ -222,6 +250,11 @@ export function DirectoryPage() {
               connector={selectedConnector} 
               onBack={() => setSelectedConnector(null)} 
               onUpdate={(updated) => {
+                if (updated.custom && !updated.connected) {
+                  setSelectedConnector(null)
+                  void loadData()
+                  return
+                }
                 setSelectedConnector(updated)
                 setConnectors(c => c.map(x => x.id === updated.id ? updated : x))
               }}
@@ -477,7 +510,7 @@ function AddCustomMcpModal({ onClose, onSuccess }: { onClose: () => void, onSucc
       if (res.ok) {
         onSuccess()
       } else {
-        setError('Failed to add custom connector. Check your config.')
+        setError(res.error || 'Failed to add custom connector. Check your config.')
       }
     } catch (e: any) {
       setError(e.message)
@@ -1128,4 +1161,3 @@ function ConnectorDetailView({ connector, onBack, onUpdate }: { connector: Conne
     </div>
   )
 }
-

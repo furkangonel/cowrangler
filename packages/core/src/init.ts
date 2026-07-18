@@ -227,7 +227,18 @@ export function getConfig() {
   }
   if (fs.existsSync(DIRS.local.config)) {
     const raw = yaml.load(fs.readFileSync(DIRS.local.config, "utf-8")) as any;
-    if (raw) config = { ...config, ...raw };
+    if (raw) {
+      config = {
+        ...config,
+        ...raw,
+        // Project-scoped servers override same-name global entries, but must
+        // not hide unrelated global/manual connectors from the live manager.
+        mcp_servers: {
+          ...(config.mcp_servers ?? {}),
+          ...(raw.mcp_servers ?? {}),
+        },
+      };
+    }
   }
 
   // Ensure defaults
