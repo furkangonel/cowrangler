@@ -30,7 +30,7 @@ export function AdvancedTab() {
 
   // Agent tur limitleri — core agent döngüsündeki sert tavan (max_turn_ms) ve
   // akış sessizlik eşiği (stream_idle_timeout_ms). Saniye olarak gösterilir.
-  const maxTurnSec = Math.round(((config.max_turn_ms as number | undefined) ?? 300_000) / 1000)
+  const maxTurnSec = Math.round(((config.max_turn_ms as number | undefined) ?? 1_800_000) / 1000)
   const idleTimeoutSec = Math.round(((config.stream_idle_timeout_ms as number | undefined) ?? 120_000) / 1000)
 
   async function pickWorkspaceRoot() {
@@ -123,7 +123,7 @@ export function AdvancedTab() {
         <h4 className="text-sm font-semibold text-text-primary mb-1">Agent limits</h4>
         <p className="text-xs text-text-muted mb-4">
           A single agent turn is hard-stopped after the max duration — this is the
-          &ldquo;turn exceeded 300s&rdquo; message on long design/code jobs. Raise it if your
+          &ldquo;turn exceeded 1800s&rdquo; message on long design/code jobs. Raise it if your
           tasks legitimately run long. Takes effect on the next turn.
         </p>
         <div className="grid grid-cols-2 gap-3">

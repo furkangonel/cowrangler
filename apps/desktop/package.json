@@ -1,6 +1,6 @@
 {
   "name": "@cowrangler/desktop",
-  "version": "2.1.7",
+  "version": "2.1.8",
   "private": true,
   "description": "Cowrangler Desktop — Electron shell (cowork/design/code yüzeyleri).",
   "type": "module",

@@ -1222,7 +1222,7 @@ export class Agent {
           const envMaxTurn = parseInt(process.env.COWRANGLER_MAX_TURN_MS ?? "", 10);
           maxTurnMs = Number.isFinite(envMaxTurn)
             ? envMaxTurn
-            : ((cfg as any)?.max_turn_ms ?? 300_000); // 5 dk default
+            : ((cfg as any)?.max_turn_ms ?? 1_800_000); // 30 dk default
           const turnDeadline = Date.now() + maxTurnMs;
           this._lastStreamActivity = Date.now();
           if (idleTimeoutMs > 0 || maxTurnMs > 0) {

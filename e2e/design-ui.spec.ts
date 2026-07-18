@@ -57,6 +57,8 @@ test('Design home exposes 13 render-specific templates, systems, and theme switc
     return cardBounds.left >= railBounds.left && cardBounds.right <= railBounds.right
   })).toBe(true)
 
+  await design.mouse.move(5, 5)
+  await design.locator('.design-home-shell').evaluate(element => element.scrollTo(0, 0))
   await design.waitForTimeout(500)
   await design.screenshot({ path: '/tmp/cowrangler-design-light.png', fullPage: true })
 

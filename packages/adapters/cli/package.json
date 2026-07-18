@@ -1,6 +1,6 @@
 {
   "name": "@cowrangler/adapter-cli",
-  "version": "2.1.4",
+  "version": "2.1.8",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
