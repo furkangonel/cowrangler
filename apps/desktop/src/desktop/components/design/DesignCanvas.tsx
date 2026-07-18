@@ -15,7 +15,7 @@ interface Props {
 
 /** Templates whose screens live in a device/browser mockup on an infinite canvas. */
 export function isDeviceTemplate(mode?: string): boolean {
-  return mode === 'prototype' || mode === 'wireframe' || mode === 'live-artifact' || mode === 'blank'
+  return mode === 'mobile-app' || mode === 'ui-mockups' || mode === 'prototype' || mode === 'wireframe' || mode === 'live-artifact' || mode === 'blank'
 }
 
 /** Mode router — each design template arranges its screens differently. */
@@ -23,7 +23,12 @@ export function DesignCanvas({ projectId, mode, viewport, viewMode = 'preview' }
   switch (mode) {
     case 'slides': return <StageCanvas kind="slides" viewMode={viewMode} />
     case 'document': return <DocumentCanvas viewMode={viewMode} />
+    case 'resume': return <DocumentCanvas viewMode={viewMode} />
+    case 'research': return <DocumentCanvas viewMode={viewMode} />
+    case 'flier': return <DocumentCanvas viewMode={viewMode} />
+    case 'html-email': return <EmailCanvas viewMode={viewMode} />
     case 'animation': return <StageCanvas kind="animation" viewMode={viewMode} />
+    case '3d-object': return <StageCanvas kind="artifact" viewMode={viewMode} />
     case 'hyperframes': return <StageCanvas kind="animation" viewMode={viewMode} />
     default: return <FreeformCanvas projectId={projectId} mode={mode} viewport={viewport} viewMode={viewMode} />
   }
@@ -401,7 +406,7 @@ function FreeformCard({ frame, mode, viewport, scale, onMove, onMoveEnd, onEnlar
 
 /* ── Stage canvas (slides / animation / hyperframes) ───────────────────────── */
 
-function StageCanvas({ kind, viewMode }: { kind: 'slides' | 'animation'; viewMode?: 'preview' | 'code' }) {
+function StageCanvas({ kind, viewMode }: { kind: 'slides' | 'animation' | 'artifact'; viewMode?: 'preview' | 'code' }) {
   const frames = useDesignStore(s => s.frames)
   const refreshTick = useDesignStore(s => s.refreshTick)
   const [idx, setIdx] = useState(0)
@@ -418,7 +423,7 @@ function StageCanvas({ kind, viewMode }: { kind: 'slides' | 'animation'; viewMod
   const curKind = cur ? (cur.kind ?? kindFromName(cur.name)) : 'html'
   const go = (d: number) => { const n = idx + d; if (n >= 0 && n < frames.length) setIdx(n) }
 
-  if (frames.length === 0) return <div className="flex-1 relative design-canvas-dots"><EmptyCanvas hint={kind === 'slides' ? 'Slides appear here as the agent creates them.' : 'Press play to watch motion render.'} /></div>
+  if (frames.length === 0) return <div className="flex-1 relative design-canvas-dots"><EmptyCanvas hint={kind === 'slides' ? 'Slides appear here as the agent creates them.' : kind === 'animation' ? 'Press play to watch motion render.' : 'Interactive object appears here when ready.'} /></div>
 
   if (viewMode === 'code' && cur) {
     return <div className="flex-1"><CodeEditor filePath={cur.filePath} /></div>
@@ -438,9 +443,9 @@ function StageCanvas({ kind, viewMode }: { kind: 'slides' | 'animation'; viewMod
 
       {/* Filmstrip / scene picker */}
       <div className="flex items-center gap-3 px-6 py-3 overflow-x-auto flex-shrink-0" style={{ borderTop: '1px solid var(--d-line)', background: 'var(--d-paper)' }}>
-        {kind === 'animation' && <button onClick={() => setReload(r => r + 1)} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold text-white flex-shrink-0 transition-transform active:scale-95" style={{ background: 'var(--d-clay)' }}><Play size={13} className="fill-current" /> Play</button>}
+        {(kind === 'animation' || kind === 'artifact') && <button onClick={() => setReload(r => r + 1)} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold text-white flex-shrink-0 transition-transform active:scale-95" style={{ background: 'var(--d-clay)' }}><Play size={13} className="fill-current" /> {kind === 'animation' ? 'Replay' : 'Reset view'}</button>}
         {frames.map((f, i) => (
-          <button key={f.id} onClick={() => { setIdx(i); if (kind === 'animation') setReload(r => r + 1) }} className="relative rounded overflow-hidden flex-shrink-0 transition-transform" style={{ width: 132, height: 74, background: '#fff', border: idx === i ? '2px solid var(--d-blue)' : '1px solid var(--d-line)', transform: idx === i ? 'scale(1.05)' : 'scale(1)' }}>
+          <button key={f.id} onClick={() => { setIdx(i); if (kind !== 'slides') setReload(r => r + 1) }} className="relative rounded overflow-hidden flex-shrink-0 transition-transform" style={{ width: 132, height: 74, background: '#fff', border: idx === i ? '2px solid var(--d-blue)' : '1px solid var(--d-line)', transform: idx === i ? 'scale(1.05)' : 'scale(1)' }}>
             <Thumb frame={f} boxW={132} boxH={74} />
             <span className="absolute bottom-1 right-1.5 text-[9px] font-medium" style={{ color: 'var(--d-ink-soft)', textShadow: '0 1px 2px rgba(255,255,255,0.8)' }}>{i + 1}</span>
           </button>
@@ -534,6 +539,34 @@ function DocumentCanvas({ viewMode }: { viewMode?: 'preview' | 'code' }) {
         <button onClick={() => zoom(-1)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-black/5" style={{ color: 'var(--d-ink-soft)' }}><Minus size={14} /></button>
         <span className="text-xs font-medium w-10 text-center tabular-nums" style={{ color: 'var(--d-ink-soft)' }}>{Math.round(canvasScale * 100)}%</span>
         <button onClick={() => zoom(1)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-black/5" style={{ color: 'var(--d-ink-soft)' }}><Plus size={14} /></button>
+      </div>
+    </div>
+  )
+}
+
+/* ── Email — inbox-width, natural-height preview ─────────────────────────── */
+
+function EmailCanvas({ viewMode }: { viewMode?: 'preview' | 'code' }) {
+  const frames = useDesignStore(s => s.frames)
+  const [naturalH, setNaturalH] = useState(900)
+  const frame = frames[0]
+  if (!frame) return <div className="flex-1 relative design-canvas-dots"><EmptyCanvas hint="Email appears at true inbox width with mobile-safe content." /></div>
+  if (viewMode === 'code') return <div className="h-full"><CodeEditor filePath={frame.filePath} /></div>
+  const kind = frame.kind ?? kindFromName(frame.name)
+  const width = 600
+  const height = Math.max(640, naturalH)
+  return (
+    <div className="flex-1 min-h-0 overflow-y-auto py-10 px-6" style={{ background: 'var(--d-cream)' }}>
+      <div className="mx-auto mb-3 flex items-center justify-between" style={{ width }}>
+        <span className="text-xs font-semibold" style={{ color: 'var(--d-ink-soft)' }}>Inbox preview</span>
+        <span className="text-[10px]" style={{ color: 'var(--d-ink-faint)' }}>600 px · natural height</span>
+      </div>
+      <div className="mx-auto overflow-hidden design-elev-lg" style={{ width, height, background: '#fff', border: '1px solid var(--d-line)', borderRadius: 8 }}>
+        <ScaledScreen
+          filePath={frame.filePath} kind={kind} meta={frame.meta}
+          intrinsicW={width} intrinsicH={height} scale={1} interactive
+          onNatural={(_w, nextH) => setNaturalH(previous => Math.abs(previous - nextH) > 2 ? nextH : previous)}
+        />
       </div>
     </div>
   )

@@ -104,7 +104,7 @@ export function SessionView({ projectId, sessionId }: Props) {
   return (
     <div className="flex flex-col h-full overflow-hidden bg-bg-primary">
       {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-border-subtle flex-shrink-0 bg-bg-primary">
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-border-subtle flex-shrink-0 bg-bg-primary session-command-bar">
         <button
           onClick={() => setActiveSession(null)}
           className="p-1.5 text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors rounded-lg"
@@ -115,6 +115,7 @@ export function SessionView({ projectId, sessionId }: Props) {
         <span className="flex-1 text-sm text-text-secondary font-medium truncate">
           {isNew ? 'New chat' : (uiMessages[0]?.content?.slice(0, 60) || 'Chat')}
         </span>
+        <span className={`session-state ${agentStore.status === 'thinking' ? 'is-working' : ''}`}><i />{agentStore.status === 'thinking' ? 'Working' : 'Ready'}</span>
         <div className="flex items-center gap-1.5">
           {agentStore.status === 'thinking' && (
             <button

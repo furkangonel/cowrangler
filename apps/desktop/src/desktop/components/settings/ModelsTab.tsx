@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Eye, EyeOff, Check, Plus, Trash2, AlertCircle, Database, Wrench, Image, Brain } from 'lucide-react'
+import { Eye, EyeOff, Check, Plus, Trash2, AlertCircle, Database, Wrench, Image, Brain, Cpu, KeyRound, Server } from 'lucide-react'
 import { useSettingsStore } from '../../stores/settings.store'
 import { ipc, ModelCapabilities } from '../../lib/ipc'
 
@@ -79,14 +79,25 @@ export function ModelsTab() {
   }
 
   return (
-    <div className="p-6 space-y-8 max-w-2xl">
+    <div className="p-6 space-y-6 max-w-3xl control-page">
+      <div className="control-page-heading">
+        <div>
+          <p className="control-eyebrow">Inference control</p>
+          <h1>Models</h1>
+          <p>One verified pool for chat, code, and Design.</p>
+        </div>
+        <div className="control-metrics">
+          <span><Cpu size={13} /><strong>{savedModels.length}</strong><small>models</small></span>
+          <span><KeyRound size={13} /><strong>{apiKeys.filter(key => key.set).length}</strong><small>providers</small></span>
+        </div>
+      </div>
 
       {/* Saved Models */}
-      <section>
-        <h4 className="text-sm font-semibold text-text-primary mb-1">Saved Models</h4>
+      <section className="control-section">
+        <div className="control-section-title"><span><Server size={14} /></span><div><h4>Model pool</h4><p>Saved models appear in every picker.</p></div></div>
         <div className="text-xs text-text-muted mb-3 space-y-1.5">
           <p>
-            Models you've saved appear in all model pickers. Enter a full provider/model-id (e.g.{' '}
+            Enter full provider/model-id (e.g.{' '}
             <code className="font-mono text-2xs">anthropic/claude-opus-4-6</code>).
           </p>
           <p className="p-2.5 bg-bg-secondary rounded-lg border border-border leading-relaxed">
@@ -157,12 +168,11 @@ export function ModelsTab() {
       </section>
 
       {/* API Keys */}
-      <section>
-        <h4 className="text-sm font-semibold text-text-primary mb-1">API Keys</h4>
-        <p className="text-xs text-text-muted mb-3">Keys are stored locally on your machine.</p>
-        <div className="space-y-3">
+      <section className="control-section">
+        <div className="control-section-title"><span><KeyRound size={14} /></span><div><h4>Provider access</h4><p>Keys stay local and are verified before save.</p></div></div>
+        <div className="grid grid-cols-2 gap-3 provider-grid">
           {apiKeys.map(key => (
-            <div key={key.id} className="p-3.5 bg-bg-tertiary border border-border rounded-xl">
+            <div key={key.id} className="p-3.5 bg-bg-tertiary border border-border rounded-xl provider-card">
               <div className="flex items-center justify-between mb-2.5">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-medium text-text-primary">{key.label}</span>

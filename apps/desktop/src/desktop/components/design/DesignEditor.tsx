@@ -81,6 +81,8 @@ export function DesignEditor({ onBack }: Props) {
 
   useEffect(() => {
     if (!activeProject) return
+    setViewportTouched(false)
+    setViewport(activeProject.designType === 'mobile-app' ? 'mobile' : 'desktop')
     loadCanvas(activeProject.id)
     loadCheckpoints(activeProject.id)
     // Restore prior conversation — unless the home screen queued a first message
@@ -180,8 +182,10 @@ export function DesignEditor({ onBack }: Props) {
   // Natural page size per template — keeps the native dialog and the rendered
   // output in the right format (16:9 slides, A4 docs, desktop screens).
   function dimsFor(type?: string): { w: number; h: number; landscape: boolean } {
-    if (type === 'slides' || type === 'animation') return { w: 1280, h: 720, landscape: true }
-    if (type === 'document') return { w: 794, h: 1123, landscape: false }
+    if (type === 'slides' || type === 'animation' || type === '3d-object') return { w: 1280, h: 720, landscape: true }
+    if (type === 'document' || type === 'research' || type === 'resume' || type === 'flier') return { w: 794, h: 1123, landscape: false }
+    if (type === 'html-email') return { w: 600, h: 900, landscape: false }
+    if (type === 'mobile-app') return { w: 390, h: 844, landscape: false }
     return { w: 1280, h: 800, landscape: false }
   }
   function showToast(t: { ok: boolean; msg: string; path?: string; busy?: boolean }, hold = 5000) {
@@ -230,7 +234,7 @@ export function DesignEditor({ onBack }: Props) {
     const name = exportFiles.length > 1 ? activeProject.name : exportFiles[0].name.replace(/\.[^.]+$/, '')
     // Documents paginate (bir bölüm birden çok A4 sayfaya yayılabilir); slaytlar
     // sayfa=dosya. Bu bayrak export'un doğru modu seçmesini sağlar.
-    const isDocument = activeProject.designType === 'document'
+    const isDocument = ['document', 'research', 'resume', 'flier'].includes(activeProject.designType)
     setPdfModal(null)
     runExport(files.length > 1 ? `PDF (${files.length} ${isDocument ? 'sections' : 'pages'})` : 'PDF',
       ipc.exporter.toPdfAdvanced({ files, name, fitW: w, fitH: h, document: isDocument, ...o }))
@@ -790,7 +794,7 @@ export function DesignEditor({ onBack }: Props) {
           files={pdfModal}
           fitW={dimsFor(activeProject.designType).w}
           fitH={dimsFor(activeProject.designType).h}
-          document={activeProject.designType === 'document'}
+          document={['document', 'research', 'resume', 'flier'].includes(activeProject.designType)}
           onClose={() => setPdfModal(null)}
           onExport={(o) => runPdfExport(pdfModal, o)}
         />

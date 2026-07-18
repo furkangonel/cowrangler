@@ -6,6 +6,28 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.1.8] — 2026-07-18
+
+### Added
+- Rebuilt Cowrangler Design around 13 purpose-built starting points: Mobile app design, Slides, Document, Wireframe, Animation, UI mockups, Résumé, 3D object, Research, HTML email, Color + type pairing, Diagram, and Flier. Each template now carries its own render path, presentation metadata, and creation behavior.
+- Added a full light/dark appearance switch to the Design workspace and expanded the Design Systems library with included presets alongside user-created systems.
+- Added Electron E2E coverage for the Design template experience and manual MCP persistence, including viewport bounds, selection visibility, config-file persistence, and connector-list refresh.
+
+### Changed
+- Reimagined the Design home, project library, editor controls, and canvas chrome around a quieter, more focused creation flow with the new “Make the idea in your head visible.” prompt.
+- Reworked the template picker into a responsive two-column menu that chooses its opening direction from available viewport space; the horizontal template rail now snaps by full cards and centers the active selection.
+- Refined the shared capability surfaces for Models, Skills, Connectors, and chat-level connector controls so configuration and selection follow the same interaction language.
+- Increased the default hard limit for a single agent turn from 5 minutes to 30 minutes. The stream-idle watchdog remains at 120 seconds so genuinely stalled providers are still detected early.
+- Synchronized every workspace package and the lockfile to version `2.1.8`, and refreshed the Design screenshot used by the documentation.
+- Limited production dependency-audit failures to critical findings while the pinned Electron major-version upgrade is handled separately.
+
+### Fixed
+- Manual stdio, HTTP, and SSE MCP servers now appear in the Connectors directory under the Custom category immediately after they are saved.
+- Saving a manual MCP no longer blocks the UI on a slow or unreachable server handshake; configuration is persisted first and the live connection starts in the background.
+- Global and project-local `mcp_servers` maps now merge by server name instead of a local config hiding unrelated global/manual connectors.
+- Added a shared `window.electronAPI` declaration and an E2E TypeScript project, fixing “Property 'electronAPI' does not exist on type 'Window'” in renderer-adjacent tests and tooling.
+- Fixed template-menu clipping, oversized option glyphs, stacking conflicts, and misalignment across short or narrow Design windows.
+
 ## [2.1.7] — 2026-07-17
 
 ### Added

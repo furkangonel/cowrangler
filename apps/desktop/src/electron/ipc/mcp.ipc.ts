@@ -68,9 +68,14 @@ export function registerMCPIPC(ipcMain: IpcMain): void {
     const config = readConfig()
     if (!config.mcp_servers) config.mcp_servers = {}
 
-    const { name, type, command, args, url, headers, env, timeout } = serverConfig
+    const { type, args, headers, env, timeout } = serverConfig
+    const name = String(serverConfig?.name ?? '').trim()
+    const command = String(serverConfig?.command ?? '').trim()
+    const url = String(serverConfig?.url ?? '').trim()
+    if (!name) return { ok: false, error: 'Server name is required' }
 
     if (type === 'stdio') {
+      if (!command) return { ok: false, error: 'Command is required for stdio' }
       config.mcp_servers[name] = {
         command,
         args: args || [],
@@ -78,6 +83,7 @@ export function registerMCPIPC(ipcMain: IpcMain): void {
         timeout: timeout || 120,
       }
     } else {
+      if (!url) return { ok: false, error: 'URL is required for http/sse' }
       config.mcp_servers[name] = {
         url,
         ...(headers ? { headers } : {}),
@@ -87,9 +93,12 @@ export function registerMCPIPC(ipcMain: IpcMain): void {
     }
 
     writeConfig(config)
-    // Canlı uygula — yeniden başlatma gerekmez.
-    const summary = await reloadMcp().catch((e: any) => `reload failed: ${e?.message ?? e}`)
-    return { ok: true, summary }
+    // Persistence must not wait for a slow/unreachable MCP handshake. The UI
+    // can list the saved config immediately while live status updates later.
+    void reloadMcp().catch((error: any) => {
+      console.error(`[mcp] background reload after adding ${name} failed:`, error)
+    })
+    return { ok: true, summary: 'Saved; connection is starting in the background' }
   })
 
   ipcMain.handle('mcp:remove', async (_, name: string) => {

@@ -289,13 +289,17 @@ function ManualAddForm({ onAdded }: { onAdded: () => void }) {
     if (type !== 'stdio' && !url.trim()) { setError('URL required'); return }
     setBusy(true); setError('')
     try {
-      await ipc.mcp.add({
+      const result = await ipc.mcp.add({
         name: name.trim(),
         type,
         command: type === 'stdio' ? command.trim() : undefined,
         args: type === 'stdio' ? args.split(' ').map(s => s.trim()).filter(Boolean) : undefined,
         url: type !== 'stdio' ? url.trim() : undefined,
       })
+      if (!result.ok) {
+        setError(result.error || 'Could not save connector')
+        return
+      }
       onAdded()
     } catch (e: any) {
       setError(e?.message ?? 'Error')

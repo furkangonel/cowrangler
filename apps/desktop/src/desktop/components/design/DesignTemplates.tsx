@@ -1,116 +1,120 @@
 import React from 'react'
+import {
+  AppWindow, Box, FileText, LayoutTemplate, Mail, MonitorPlay, Network,
+  Palette, Presentation, Search, Smartphone, Sparkles, UserRound,
+} from 'lucide-react'
 import { DesignTemplateType } from '../../stores/design.store'
+
+export type TemplateRenderMode = 'device' | 'stage' | 'pages' | 'email' | 'artifact'
 
 export interface TemplateMeta {
   type: Exclude<DesignTemplateType, 'blank'>
   label: string
+  shortLabel: string
   blurb: string
+  renderMode: TemplateRenderMode
+  renderLabel: string
+  format: string
+  accent: string
+  starterPrompt: string
   thumb: React.ReactNode
 }
 
-const stroke = 'rgba(33,29,24,0.42)'
-const fill = 'rgba(33,29,24,0.10)'
+function glyph(icon: React.ReactNode, accent: string) {
+  return (
+    <span className="design-template-glyph" style={{ color: accent }}>
+      {icon}
+    </span>
+  )
+}
 
-export const FAN_TEMPLATES: TemplateMeta[] = [
-  {
-    type: 'prototype',
-    label: 'Prototype',
-    blurb: 'Interactive product flows',
-    thumb: (
-      <svg viewBox="0 0 60 44" width="100%" height="100%" fill="none">
-        <rect x="6" y="6" width="48" height="32" rx="3" stroke={stroke} strokeWidth="1.5" />
-        <rect x="10" y="10" width="18" height="4" rx="2" fill={fill} />
-        <rect x="10" y="18" width="28" height="3" rx="1.5" fill={fill} />
-        <rect x="10" y="24" width="22" height="3" rx="1.5" fill={fill} />
-        <rect x="40" y="10" width="10" height="24" rx="2" stroke={stroke} strokeWidth="1.5" />
-      </svg>
-    ),
-  },
-  {
-    type: 'slides',
-    label: 'Slides',
-    blurb: 'Presentation decks',
-    thumb: (
-      <svg viewBox="0 0 60 44" width="100%" height="100%" fill="none">
-        <rect x="4" y="9" width="40" height="26" rx="3" fill={fill} />
-        <rect x="9" y="6" width="44" height="29" rx="3" stroke={stroke} strokeWidth="1.5" fill="#fff" />
-        <rect x="14" y="12" width="16" height="4" rx="2" fill={fill} />
-        <rect x="14" y="20" width="34" height="3" rx="1.5" fill={fill} />
-        <rect x="14" y="26" width="26" height="3" rx="1.5" fill={fill} />
-      </svg>
-    ),
-  },
-  {
-    type: 'document',
-    label: 'Document',
-    blurb: 'Long-form rich content',
-    thumb: (
-      <svg viewBox="0 0 60 44" width="100%" height="100%" fill="none">
-        <path d="M16 5h20l8 8v26H16z" stroke={stroke} strokeWidth="1.5" fill="#fff" />
-        <path d="M36 5v8h8" stroke={stroke} strokeWidth="1.5" />
-        <rect x="21" y="20" width="18" height="2.5" rx="1.25" fill={fill} />
-        <rect x="21" y="26" width="18" height="2.5" rx="1.25" fill={fill} />
-        <rect x="21" y="32" width="12" height="2.5" rx="1.25" fill={fill} />
-      </svg>
-    ),
-  },
-  {
-    type: 'wireframe',
-    label: 'Wireframe',
-    blurb: 'Low-fidelity layouts',
-    thumb: (
-      <svg viewBox="0 0 60 44" width="100%" height="100%" fill="none">
-        <rect x="6" y="6" width="48" height="32" rx="3" stroke={stroke} strokeWidth="1.5" strokeDasharray="3 2.5" />
-        <path d="M6 14h48" stroke={stroke} strokeWidth="1.5" strokeDasharray="3 2.5" />
-        <path d="M30 14v24" stroke={stroke} strokeWidth="1.5" strokeDasharray="3 2.5" />
-        <path d="M10 24l8-6 6 5" stroke={stroke} strokeWidth="1.5" />
-      </svg>
-    ),
-  },
-  {
-    type: 'animation',
-    label: 'Animation',
-    blurb: 'Motion & micro-interactions',
-    thumb: (
-      <svg viewBox="0 0 60 44" width="100%" height="100%" fill="none">
-        <rect x="6" y="6" width="48" height="32" rx="3" stroke={stroke} strokeWidth="1.5" />
-        <circle cx="30" cy="20" r="7" stroke={stroke} strokeWidth="1.5" />
-        <path d="M28 17l5 3-5 3z" fill={stroke} />
-        <rect x="12" y="32" width="36" height="2.5" rx="1.25" fill={fill} />
-        <circle cx="20" cy="33.25" r="2.5" fill={stroke} />
-      </svg>
-    ),
-  },
-  {
-    type: 'live-artifact',
-    label: 'Live Artifact',
-    blurb: 'Real-time rendering components',
-    thumb: (
-      <svg viewBox="0 0 60 44" width="100%" height="100%" fill="none">
-        <rect x="6" y="6" width="48" height="32" rx="3" stroke={stroke} strokeWidth="1.5" />
-        <circle cx="16" cy="16" r="4" fill={fill} />
-        <rect x="24" y="14" width="20" height="4" rx="2" fill={fill} />
-        <path d="M16 26h24" stroke={stroke} strokeWidth="1.5" strokeDasharray="2 2" />
-        <circle cx="44" cy="26" r="2" fill={stroke} />
-      </svg>
-    ),
-  },
-  {
-    type: 'hyperframes',
-    label: 'Hyperframes',
-    blurb: 'Advanced structured frames',
-    thumb: (
-      <svg viewBox="0 0 60 44" width="100%" height="100%" fill="none">
-        <rect x="6" y="6" width="48" height="32" rx="3" stroke={stroke} strokeWidth="1.5" />
-        <path d="M20 6v32" stroke={stroke} strokeWidth="1.5" />
-        <path d="M20 22h34" stroke={stroke} strokeWidth="1.5" />
-        <rect x="26" y="10" width="8" height="8" rx="1" fill={fill} />
-        <rect x="40" y="28" width="8" height="8" rx="1" fill={fill} />
-      </svg>
-    ),
-  },
-]
-
+/**
+ * Canonical Design template registry. Order matches home carousel and stays
+ * stable so recent projects, prompt routing, and visual rendering agree.
+ */
 export const ALL_TEMPLATES: TemplateMeta[] = [
-  ...FAN_TEMPLATES,
+  {
+    type: 'mobile-app', label: 'Mobile app design', shortLabel: 'Mobile app',
+    blurb: 'Complete, tappable product flows', renderMode: 'device', renderLabel: 'Interactive device canvas',
+    format: 'React · 390 × 844', accent: '#577a70', starterPrompt: 'Design a complete mobile app flow with realistic states and interactions.',
+    thumb: glyph(<Smartphone size={34} strokeWidth={1.45} />, '#577a70'),
+  },
+  {
+    type: 'slides', label: 'Slides', shortLabel: 'Slides',
+    blurb: 'Narrative presentation decks', renderMode: 'stage', renderLabel: '16:9 stage + filmstrip',
+    format: 'HTML · 1280 × 720', accent: '#7a6c9d', starterPrompt: 'Create a clear presentation deck with one strong idea per slide.',
+    thumb: glyph(<Presentation size={36} strokeWidth={1.4} />, '#7a6c9d'),
+  },
+  {
+    type: 'document', label: 'Document', shortLabel: 'Document',
+    blurb: 'Polished, printable long-form work', renderMode: 'pages', renderLabel: 'Paginated A4 sheets',
+    format: 'HTML · A4', accent: '#607c98', starterPrompt: 'Create a structured document with editorial typography and true pagination.',
+    thumb: glyph(<FileText size={35} strokeWidth={1.4} />, '#607c98'),
+  },
+  {
+    type: 'wireframe', label: 'Wireframe', shortLabel: 'Wireframe',
+    blurb: 'Low-fidelity layouts and flows', renderMode: 'device', renderLabel: 'Greyscale flow canvas',
+    format: 'HTML · responsive', accent: '#77736c', starterPrompt: 'Map the core user flow as clear low-fidelity wireframes.',
+    thumb: glyph(<LayoutTemplate size={36} strokeWidth={1.35} />, '#77736c'),
+  },
+  {
+    type: 'animation', label: 'Animation', shortLabel: 'Animation',
+    blurb: 'Motion studies and logo reveals', renderMode: 'stage', renderLabel: 'Replayable motion stage',
+    format: 'HTML · timeline', accent: '#aa654d', starterPrompt: 'Create a refined motion study with purposeful timing and a clean loop.',
+    thumb: glyph(<MonitorPlay size={36} strokeWidth={1.35} />, '#aa654d'),
+  },
+  {
+    type: 'ui-mockups', label: 'UI mockups', shortLabel: 'UI mockups',
+    blurb: 'High-fidelity responsive screens', renderMode: 'device', renderLabel: 'Responsive screen canvas',
+    format: 'React · responsive', accent: '#50758b', starterPrompt: 'Design high-fidelity product screens with production-ready interaction states.',
+    thumb: glyph(<AppWindow size={37} strokeWidth={1.35} />, '#50758b'),
+  },
+  {
+    type: 'resume', label: 'Résumé', shortLabel: 'Résumé',
+    blurb: 'Focused, ATS-aware career stories', renderMode: 'pages', renderLabel: 'Print-safe single page',
+    format: 'HTML · A4', accent: '#8a654d', starterPrompt: 'Create a distinctive, ATS-aware résumé with concise, measurable content.',
+    thumb: glyph(<UserRound size={35} strokeWidth={1.35} />, '#8a654d'),
+  },
+  {
+    type: '3d-object', label: '3D object', shortLabel: '3D object',
+    blurb: 'Interactive product and object studies', renderMode: 'stage', renderLabel: 'Interactive 3D stage',
+    format: 'Three.js · 1280 × 720', accent: '#6f7290', starterPrompt: 'Create an interactive 3D object study with crafted materials and lighting.',
+    thumb: glyph(<Box size={38} strokeWidth={1.25} />, '#6f7290'),
+  },
+  {
+    type: 'research', label: 'Research', shortLabel: 'Research',
+    blurb: 'Evidence-led reports and syntheses', renderMode: 'pages', renderLabel: 'Cited report pages',
+    format: 'HTML · A4', accent: '#537469', starterPrompt: 'Create a research brief that separates evidence, findings, and recommendations.',
+    thumb: glyph(<Search size={35} strokeWidth={1.4} />, '#537469'),
+  },
+  {
+    type: 'html-email', label: 'HTML email', shortLabel: 'HTML email',
+    blurb: 'Inbox-safe campaigns and receipts', renderMode: 'email', renderLabel: 'Inbox width preview',
+    format: 'HTML · 600 px', accent: '#a2614e', starterPrompt: 'Create a responsive HTML email with robust table layout and clear fallback styles.',
+    thumb: glyph(<Mail size={36} strokeWidth={1.35} />, '#a2614e'),
+  },
+  {
+    type: 'color-type', label: 'Color + type pairing', shortLabel: 'Color + type',
+    blurb: 'Brand-ready palette and typography', renderMode: 'artifact', renderLabel: 'Specimen board',
+    format: 'HTML · adaptive board', accent: '#ad715e', starterPrompt: 'Create a usable color and typography system with accessibility guidance.',
+    thumb: glyph(<Palette size={37} strokeWidth={1.35} />, '#ad715e'),
+  },
+  {
+    type: 'diagram', label: 'Diagram', shortLabel: 'Diagram',
+    blurb: 'Clear systems, flows, and maps', renderMode: 'artifact', renderLabel: 'Auto-fit diagram canvas',
+    format: 'Mermaid / SVG', accent: '#626b91', starterPrompt: 'Turn the idea into a legible diagram with meaningful hierarchy and labels.',
+    thumb: glyph(<Network size={38} strokeWidth={1.35} />, '#626b91'),
+  },
+  {
+    type: 'flier', label: 'Flier', shortLabel: 'Flier',
+    blurb: 'Print-ready promotional artwork', renderMode: 'pages', renderLabel: 'Portrait print preview',
+    format: 'HTML · A4 portrait', accent: '#bd6448', starterPrompt: 'Create a bold print-ready flier with one clear message and strong hierarchy.',
+    thumb: glyph(<Sparkles size={36} strokeWidth={1.35} />, '#bd6448'),
+  },
 ]
+
+export const FAN_TEMPLATES = ALL_TEMPLATES
+
+export function templateFor(type?: string | null): TemplateMeta | undefined {
+  return ALL_TEMPLATES.find(template => template.type === type)
+}
