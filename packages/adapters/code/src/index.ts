@@ -1,7 +1,7 @@
 /**
  * Adapters — public yüzey.
  *
- * Arayüzler (CLI/Cowork/Design/Code) core'u BURADAN tüketir; core'un derin
+ * Arayüzler (CLI/Design/Code) core'u BURADAN tüketir; core'un derin
  * modüllerini doğrudan import etmez. Fiziksel monorepo split'inde bu klasör
  * `packages/adapters/*` olur.
  */

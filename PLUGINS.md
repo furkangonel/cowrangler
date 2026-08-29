@@ -2,7 +2,7 @@
     <img src="assets/octopuses/cowrangler_plugins.png" width="200" alt="Octopus" />
 </p>
 
-<h1 align="center">Writing Cowrangler Plugins</h1>
+<h1 align="center">Writing Co-Wrangler Plugins</h1>
 
 <p align="center">
   <strong>Extend the agent with your own tools, models, providers, skills, and actions</strong>
@@ -10,13 +10,13 @@
 
 ---
 
-A **plugin** is a self-contained folder that Cowrangler loads at startup and lets register new capabilities into the same agent engine used by the CLI, Desktop, and Design surfaces. One plugin can contribute any mix of:
+A **plugin** is a self-contained folder that Co-Wrangler loads at startup, registering new capabilities into the same agent engine that runs behind all three surfaces — Code, Design and the CLI. Write it once and it works in every one of them. One plugin can contribute any mix of:
 
 - **Tools** — new functions the agent can call.
 - **Models & providers** — extra models in the picker, backed by a custom (often OpenAI-compatible) endpoint, with optional sign-in gating.
 - **Skills** — reusable SOP/skill folders.
 - **Sub-agents** — specialized agents for `spawn_subagent`.
-- **Actions** — user-triggerable buttons (e.g. "Sign in") surfaced in the Desktop UI.
+- **Actions** — user-triggerable buttons (e.g. "Sign in") shown in the desktop UI.
 
 The reference implementation is [`cowrangler-antigravity-auth`](./.cowrangler/plugins/cowrangler-antigravity-auth) (OAuth login + provider + gated models).
 
@@ -24,7 +24,7 @@ The reference implementation is [`cowrangler-antigravity-auth`](./.cowrangler/pl
 
 ## Where plugins live
 
-Cowrangler discovers plugins from two directories. Local plugins override global ones with the same `id`.
+Co-Wrangler discovers plugins from two directories. Local plugins override global ones with the same `id`.
 
 | Scope | Path | Use for |
 |---|---|---|
@@ -189,6 +189,30 @@ export async function setup(ctx) {
 ```
 
 Drop the folder into `~/.cowrangler/plugins/hello-tool/` and restart Cowrangler — the `say_hello` tool is now available to the agent, and the plugin appears (with a "1 tool" badge) in the Extensions list.
+
+---
+
+## Permissions and plugin tools
+
+A tool registered by a plugin goes through the same permission engine as a
+built-in one. Nothing special is needed to opt in — but a few things are worth
+knowing so your tool behaves predictably:
+
+- **Name your tool for what it does to the world.** The engine classifies an
+  unknown tool as reversible and sandboxes it, which is the safe default. If your
+  tool has an external effect (publishes, deploys, sends), say so in its
+  description so a person reading a prompt understands what they are approving.
+- **Rules can name your tool directly.** `"deny": ["my_deploy_tool"]` works, as
+  does `"ask": ["my_deploy_tool(environment:production)"]` — a `Tool(param:value)`
+  rule matches any top-level scalar field of your tool's input.
+- **Put the important input in a field called `path`, `command` or `url`** when
+  it is one of those things. The engine reads those fields to work out what a
+  rule specifier should match against, and to show the person what they are
+  approving.
+- **MCP tools** are matched by `mcp__<server>__<tool>`, so an administrator can
+  allow or deny a whole server at once.
+
+See [docs/permissions.md](./docs/permissions.md) for the full model.
 
 ---
 

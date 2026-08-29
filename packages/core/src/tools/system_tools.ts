@@ -17,9 +17,11 @@ import {
 } from "../sandbox.js";
 import {
   checkPermission,
+  normalizePermissionMode,
   riskBadge,
   PermissionMode,
   isOptionSelected,
+  resolvePermissionSettings,
 } from "../permissions.js";
 import { truncateToolOutput } from "./truncate.js";
 
@@ -156,26 +158,48 @@ Use execute_bash only when necessary. Prefer purpose-built tools (git_*, file_*)
       .default(30000)
       .describe("Timeout in ms (max: 30000 in sandbox, 60000 direct)"),
     permission_mode: z
-      .enum(["ask", "accept", "plan", "auto", "bypass", "default"])
+      .enum([
+        "default", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions",
+        // Pre-2.2 spellings, still accepted so an older config keeps working.
+        "ask", "accept", "bypass",
+      ])
       .optional()
       .describe("Override permission mode for this call"),
+    dangerouslyDisableSandbox: z
+      .boolean()
+      .optional()
+      .describe(
+        "Retry a command OUTSIDE the sandbox. Only use this after a command " +
+        "already failed with SANDBOX BLOCKED and the block is the reason it " +
+        "failed — the error names what was blocked. Never use it pre-emptively, " +
+        "and never to get around a permission denial: it always asks the user, " +
+        "and it is refused outright in strict sandbox mode.",
+      ),
   }),
   async ({
     command,
     cwd,
     timeout,
     permission_mode,
+    dangerouslyDisableSandbox,
+    // Set on the arguments object by the permission engine after validation,
+    // deliberately absent from the schema above: a parameter the model can see
+    // is a parameter the model will reason about and try to set.
+    __useSandbox,
   }: {
     command: string;
     cwd?: string;
     timeout: number;
-    permission_mode?: PermissionMode;
+    permission_mode?: string;
+    dangerouslyDisableSandbox?: boolean;
+    __useSandbox?: boolean;
   }) => {
     const config = getConfig();
+    const permissionSettings = resolvePermissionSettings({ legacyConfig: config });
     const effectiveCwd = cwd ?? getProjectWorkdir();
-    const effectivePermMode = (permission_mode ??
-      config.permission_mode ??
-      "default") as PermissionMode;
+    const effectivePermMode: PermissionMode = normalizePermissionMode(
+      permission_mode ?? config.permission_mode ?? "default",
+    );
 
     // ── Permission check ────────────────────────────────────────────────────
     const permResult = checkPermission(
@@ -211,8 +235,26 @@ Use execute_bash only when necessary. Prefer purpose-built tools (git_*, file_*)
 
     // ── Configure sandbox from config ───────────────────────────────────────
      configureSandbox({
-      enabled: effectivePermMode === "bypass" ? false : (config.sandbox?.enabled ?? true),
+      // The permission engine already decided whether this call is confined;
+      // when it says nothing, fall back to the configured default. Bypass mode
+      // is the one place the sandbox is off by definition.
+      // The permission engine already decided whether this call is confined;
+      // when it says nothing, fall back to the configured default. An approved
+      // unsandboxed retry and bypass mode are the two ways the sandbox is off.
+      enabled:
+        effectivePermMode === "bypassPermissions" || dangerouslyDisableSandbox === true
+          ? false
+          : (__useSandbox ?? permissionSettings.sandbox.enabled),
       workspaceRoot: getProjectWorkdir(),
+      // Permission engine and OS sandbox must agree on what counts as a
+      // workspace. Previously additionalDirectories passed permission checks
+      // then failed here with "outside the allowed sandbox paths".
+      allowedPaths: [
+        ...permissionSettings.additionalDirectories,
+        os.tmpdir(),
+        "/tmp",
+        "/var/tmp",
+      ],
       // P3: sandbox seviyesinde ham çıktı tavanı 512KB → 64KB. Firar eden komutun
       // modele giden yükünü baştan kısıtla; config ile ayarlanabilir. Modele giden
       // asıl budama aşağıda truncateToolOutput ile (50KB/2000 satır) yapılır.
@@ -230,7 +272,23 @@ Use execute_bash only when necessary. Prefer purpose-built tools (git_*, file_*)
     const result = await runInSandbox(command, effectiveCwd, timeout);
 
     if (result.blocked) {
-      return result.output;
+      // A bare "SANDBOX BLOCKED" leaves the model at a dead end, and a capable
+      // model reacts to a dead end by improvising its way around the boundary.
+      // Naming the sanctioned route keeps the workaround inside the permission
+      // system instead of outside it.
+      const strict = !permissionSettings.sandbox.allowUnsandboxedCommands;
+      const alreadyUnsandboxed = dangerouslyDisableSandbox === true;
+      const guidance = alreadyUnsandboxed
+        ? "\n\nThis already ran outside the sandbox, so the block is not a sandbox " +
+          "restriction. Do not retry — read the reason above and change the command."
+        : strict
+          ? "\n\nStrict sandbox mode is on, so there is no unsandboxed retry. Either " +
+            "adjust the command to stay inside the boundary, or tell the user which " +
+            "`sandbox.filesystem` / `sandbox.network` entry it needs."
+          : "\n\nIf the sandbox boundary is genuinely the reason this failed, retry the " +
+            "same command with dangerouslyDisableSandbox: true — the user is asked " +
+            "before it runs. If it failed for any other reason, fix the command instead.";
+      return `${result.output}${guidance}`;
     }
 
     // Risky ama izin verilen komutlar için uyarı prefix ekle

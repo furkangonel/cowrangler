@@ -688,6 +688,7 @@ import path from "path";
 import { Agent } from "@cowrangler/core/agent.js";
 import { LLM } from "@cowrangler/core/llm.js";
 import { runCLI } from "./ui/cli.js";
+import { Theme } from "./ui/theme.js";
 import { setWorkspace } from "@cowrangler/core/tools/file_tools.js";
 import { configureSandbox } from "@cowrangler/core/sandbox.js";
 
@@ -867,13 +868,23 @@ async function main() {
       | "transcript";
   }
 
-  // Permission mode log
-  const permMode =
-    FLAG_PERMISSION_MODE ?? configuration.permission_mode ?? "default";
-  if (permMode === "bypass") {
+  // Warn once, at startup, when the session is running with the checks off.
+  const { normalizePermissionMode } = await import(
+    "@cowrangler/core/permissions.js"
+  );
+  const permMode = normalizePermissionMode(
+    FLAG_PERMISSION_MODE ?? configuration.permission_mode ?? "default",
+  );
+  if (permMode === "bypassPermissions") {
     console.log(
-      chalk.hex("#FF9500")(
-        "\n  ⚠ bypass mode active — security checks are disabled\n",
+      Theme.warn(
+        "\n  ⚠ bypassPermissions — permission checks are off for this session\n",
+      ),
+    );
+  } else if (permMode === "dontAsk") {
+    console.log(
+      Theme.dim(
+        "\n  dontAsk — nothing will prompt; calls not covered by an allow rule are refused\n",
       ),
     );
   }

@@ -21,12 +21,11 @@ function fakeCore(): { core: CoreServices; captured: { last?: any } } {
 describe("interface adapters", () => {
   it("her arayüz kendi politikasını taşır", () => {
     expect(createAdapter("cli").policy.thinkingDefault).toBe(false);
-    expect(createAdapter("cowork").policy.thinkingDefault).toBe(true);
     expect(createAdapter("design").policy.tools).toContain("read_file");
     expect(createAdapter("code").policy.tools).toBe("*");
   });
 
-  it("design/cowork/code turu thinking varsayılanını enjekte eder", async () => {
+  it("design/code turu thinking varsayılanını enjekte eder", async () => {
     const { core, captured } = fakeCore();
     const design = createAdapter("design", core);
     await design.runTurn({ modelId: "m", system: "", history: [], tools: {}, maxSteps: 1 });
@@ -47,14 +46,14 @@ describe("interface adapters", () => {
     expect(captured.last.thinking).toEqual({ enabled: true, budgetTokens: 3000 });
   });
 
-  it("createAllAdapters tek core üstünde dört yüzeyi kurar", () => {
+  it("createAllAdapters tek core üstünde üç yüzeyi kurar", () => {
     const all = createAllAdapters();
-    expect(Object.keys(all).sort()).toEqual(["cli", "code", "cowork", "design"]);
+    expect(Object.keys(all).sort()).toEqual(["cli", "code", "design"]);
     // hepsi aynı core facade'ı paylaşır
     expect(all.cli.core).toBe(all.design.core);
   });
 
-  it("INTERFACE_POLICIES dört arayüzü kapsar", () => {
-    expect(Object.keys(INTERFACE_POLICIES).sort()).toEqual(["cli", "code", "cowork", "design"]);
+  it("INTERFACE_POLICIES üç arayüzü kapsar", () => {
+    expect(Object.keys(INTERFACE_POLICIES).sort()).toEqual(["cli", "code", "design"]);
   });
 });

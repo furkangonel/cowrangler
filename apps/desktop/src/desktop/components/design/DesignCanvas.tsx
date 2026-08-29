@@ -36,18 +36,29 @@ export function DesignCanvas({ projectId, mode, viewport, viewMode = 'preview' }
 
 /* ── Primitives ────────────────────────────────────────────────────────────── */
 
-function useScreenContent(filePath: string): string | null {
+/**
+ * Ekran kaynağı.
+ *
+ * `rendered = true` (canvas önizlemesi): tasarımın içindeki YEREL görsel/stil
+ * referansları data: URL olarak gömülü gelir. srcDoc iframe'inin base URL'i
+ * olmadığı ve CSP `file:` şemasına izin vermediği için kullanıcının eklediği
+ * görseller ancak böyle görünür.
+ * `rendered = false` (kod editörü): ham içerik — kaydederken base64 yazmayalım.
+ */
+function useScreenContent(filePath: string, rendered = false): string | null {
   const refreshTick = useDesignStore(s => s.refreshTick)
   const [content, setContent] = useState<string | null>(null)
   useEffect(() => {
     let alive = true
-    ipc.design.readFile(filePath).then(r => {
+    // readRendered eski preload'larda olmayabilir → readFile'a düş.
+    const read = rendered ? (ipc.design.readRendered ?? ipc.design.readFile) : ipc.design.readFile
+    read(filePath).then(r => {
       if (!alive) return
       const next = r.content ?? null
       setContent(prev => (prev === next ? prev : next))
     })
     return () => { alive = false }
-  }, [filePath, refreshTick])
+  }, [filePath, refreshTick, rendered])
   return content
 }
 
@@ -88,7 +99,7 @@ function ScaledScreen({ filePath, kind, meta, intrinsicW, intrinsicH, scale, rel
   interactive?: boolean
   onNatural?: (w: number, h: number) => void
 }) {
-  const raw = useScreenContent(filePath)
+  const raw = useScreenContent(filePath, true)
   const sharedCss = useSharedCss(filePath, kind)
   const liveVars = useLiveVars(filePath, meta)
   const iframeRef = useRef<HTMLIFrameElement>(null)
@@ -236,6 +247,7 @@ function EmptyCanvas({ hint }: { hint: string }) {
 
 function FreeformCanvas({ projectId, mode, viewport, viewMode }: { projectId: string; mode: string; viewport?: DesignDevice; viewMode?: 'preview' | 'code' }) {
   const { frames, canvasScale, canvasOffsetX, canvasOffsetY, updateFramePosition, saveCanvas, setCanvasView } = useDesignStore()
+  const canvasRef = useRef<HTMLDivElement>(null)
   const isPanning = useRef(false)
   const panStart = useRef({ x: 0, y: 0, ox: 0, oy: 0 })
   const [enlarged, setEnlarged] = useState<DesignFrame | null>(null)
@@ -253,13 +265,46 @@ function FreeformCanvas({ projectId, mode, viewport, viewMode }: { projectId: st
   const onPointerUp = () => { isPanning.current = false }
   const onWheel = (e: React.WheelEvent) => {
     if (e.ctrlKey || e.metaKey) {
+      e.preventDefault()
       const next = Math.max(0.2, Math.min(3, canvasScale + (-e.deltaY * 0.0025) * canvasScale))
-      setCanvasView(next, canvasOffsetX, canvasOffsetY)
+      const rect = e.currentTarget.getBoundingClientRect()
+      const pointerX = e.clientX - rect.left
+      const pointerY = e.clientY - rect.top
+      const worldX = (pointerX - canvasOffsetX) / canvasScale
+      const worldY = (pointerY - canvasOffsetY) / canvasScale
+      setCanvasView(next, pointerX - worldX * next, pointerY - worldY * next)
     } else {
       setCanvasView(canvasScale, canvasOffsetX - e.deltaX, canvasOffsetY - e.deltaY)
     }
   }
   const zoom = (dir: 1 | -1) => setCanvasView(Math.max(0.2, Math.min(3, canvasScale + dir * 0.15)), canvasOffsetX, canvasOffsetY)
+  const fitAll = useCallback(() => {
+    const host = canvasRef.current
+    if (!host || frames.length === 0) return
+    const padding = 72
+    const minX = Math.min(...frames.map(frame => frame.x))
+    const minY = Math.min(...frames.map(frame => frame.y - 28))
+    const maxX = Math.max(...frames.map(frame => frame.x + frame.width))
+    const maxY = Math.max(...frames.map(frame => frame.y + frame.height))
+    const contentW = Math.max(1, maxX - minX)
+    const contentH = Math.max(1, maxY - minY)
+    const next = Math.max(0.2, Math.min(1.5, Math.min(
+      (host.clientWidth - padding * 2) / contentW,
+      (host.clientHeight - padding * 2) / contentH,
+    )))
+    setCanvasView(
+      next,
+      (host.clientWidth - contentW * next) / 2 - minX * next,
+      (host.clientHeight - contentH * next) / 2 - minY * next,
+    )
+  }, [frames, setCanvasView])
+
+  const onCanvasKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === '0') { e.preventDefault(); fitAll() }
+    if (e.key === '1') { e.preventDefault(); setCanvasView(1, 40, 40) }
+    if (e.key === '+' || e.key === '=') { e.preventDefault(); zoom(1) }
+    if (e.key === '-') { e.preventDefault(); zoom(-1) }
+  }
 
   // Auto-open the code editor only when ENTERING code mode — not continuously,
   // otherwise closing the modal (enlarged → null) immediately reopens it.
@@ -273,6 +318,8 @@ function FreeformCanvas({ projectId, mode, viewport, viewMode }: { projectId: st
 
   return (
     <div
+      ref={canvasRef}
+      tabIndex={0}
       className="flex-1 relative overflow-hidden design-canvas-dots select-none cursor-grab active:cursor-grabbing"
       style={{
         touchAction: 'none',
@@ -284,6 +331,7 @@ function FreeformCanvas({ projectId, mode, viewport, viewMode }: { projectId: st
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
       onWheel={onWheel}
+      onKeyDown={onCanvasKeyDown}
       onContextMenu={e => e.preventDefault()}
     >
       <div style={{ transform: `translate3d(${canvasOffsetX}px, ${canvasOffsetY}px, 0) scale(${canvasScale})`, transformOrigin: '0 0', position: 'absolute', inset: 0, willChange: 'transform' }}>
@@ -306,8 +354,10 @@ function FreeformCanvas({ projectId, mode, viewport, viewMode }: { projectId: st
       {enlarged && <Lightbox frame={enlarged} onClose={() => setEnlarged(null)} viewMode={viewMode} variant={mode === 'wireframe' ? 'wireframe' : 'realistic'} />}
 
       <div onPointerDown={e => e.stopPropagation()} className="absolute bottom-4 right-4 flex items-center gap-1 rounded-xl p-1 design-elev cursor-default" style={{ background: 'var(--d-surface)', border: '1px solid var(--d-line)' }}>
+        <button onClick={fitAll} disabled={frames.length === 0} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-black/5 disabled:opacity-40" style={{ color: 'var(--d-ink-soft)' }} title="Fit all screens (0)"><Frame size={14} /></button>
+        <span className="h-4 w-px mx-0.5" style={{ background: 'var(--d-line)' }} />
         <button onClick={() => zoom(-1)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-black/5" style={{ color: 'var(--d-ink-soft)' }}><Minus size={14} /></button>
-        <span className="text-xs font-medium w-10 text-center tabular-nums" style={{ color: 'var(--d-ink-soft)' }}>{Math.round(canvasScale * 100)}%</span>
+        <button onClick={() => setCanvasView(1, 40, 40)} className="text-xs font-medium w-10 h-7 rounded-lg text-center tabular-nums hover:bg-black/5" style={{ color: 'var(--d-ink-soft)' }} title="Reset to 100% (1)">{Math.round(canvasScale * 100)}%</button>
         <button onClick={() => zoom(1)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-black/5" style={{ color: 'var(--d-ink-soft)' }}><Plus size={14} /></button>
       </div>
     </div>

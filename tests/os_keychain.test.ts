@@ -8,7 +8,9 @@ import {
 
 // Bu testler yalnızca macOS/Linux'ta gerçek bir OS keychain aracı (security /
 // secret-tool) kuruluysa anlamlıdır — CI/geliştirme makinesine göre atlanır.
-const available = isOSKeychainAvailable();
+const probeAccount = `cowrangler-test-probe-${process.pid}-${Date.now()}`;
+const available = isOSKeychainAvailable() && osKeychainSet(probeAccount, "probe");
+if (available) osKeychainDelete(probeAccount);
 const d = available ? describe : describe.skip;
 
 d("os_keychain (gerçek OS keychain entegrasyonu)", () => {

@@ -91,8 +91,17 @@ function writeStore(store: Store): void {
   }
 }
 
-function encryptCell(plain: string, account: string, forcePlain = false): Cell {
+function encryptCell(plain: string, account: string, forcePlain = false, crossProcess = false): Cell {
   if (!forcePlain) {
+    // Provider API keys must be readable by both Electron and the terminal CLI.
+    // Prefer the real OS keychain before Electron safeStorage for that case.
+    if (crossProcess) {
+      if (isOSKeychainAvailable() && osKeychainSet(account, plain)) {
+        return { m: "os", d: account };
+      }
+      restrictFileToCurrentUserWindows(SECRETS_FILE);
+      return { m: "plain", d: Buffer.from(plain, "utf-8").toString("base64") };
+    }
     const ss = safeStorage();
     if (ss) {
       try {
@@ -142,6 +151,8 @@ interface SetSecretsOpts {
    * forcePlain:true ile yazılmalı.
    */
   forcePlain?: boolean;
+  /** Store where both Electron and the standalone CLI can read it. */
+  crossProcess?: boolean;
 }
 
 /** Bir namespace (ör. connector id) için verilen anahtarları şifreleyip yazar (merge). */
@@ -160,7 +171,7 @@ export function setSecrets(
       continue;
     }
     const account = keychainAccount(namespace, k);
-    const next = encryptCell(v, account, opts?.forcePlain);
+    const next = encryptCell(v, account, opts?.forcePlain, opts?.crossProcess);
     // Mod değiştiyse (ör. os → plain), keychain'de yetim kayıt kalmasın.
     if (previous?.m === "os" && previous.d !== next.d) osKeychainDelete(previous.d);
     bucket[k] = next;

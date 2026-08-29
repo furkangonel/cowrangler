@@ -6,6 +6,137 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.2.0] — 2026-08-28
+
+A breaking release on two fronts: the permission system is replaced wholesale,
+and the product is now two surfaces instead of three.
+
+### Changed — permissions
+
+- **Adopted Anthropic's permission model in full.** The six Claude Code modes
+  (`default`/`manual`, `acceptEdits`, `plan`, `auto`, `dontAsk`,
+  `bypassPermissions`) replace the old four. The previous spellings still work:
+  `ask` → `default`, `accept` → `acceptEdits`, `bypass` → `bypassPermissions`,
+  so an existing `config.yaml` keeps its meaning.
+- **Rules replace pattern lists.** `deny`, `ask` and `allow` lists now use the
+  `Tool(specifier)` grammar: Bash wildcard patterns with Anthropic's exact
+  matching semantics, gitignore path syntax for `Read`/`Edit` with `//`, `~/`,
+  `/` and relative anchoring, `WebFetch(domain:…)` with label-scoped wildcards,
+  `mcp__server__tool` rules, `Agent(Name)`, and `Tool(param:value)` for deny and
+  ask. Rules may be written with Co-Wrangler's tool names or Claude Code's
+  capability names, so a policy is portable between the two.
+- **Layered settings.** Policy resolves from managed → session → local →
+  project → user, in `settings.json` / `settings.local.json` alongside the
+  existing `config.yaml`. Scalars take the highest scope that sets them; rule
+  lists are the union of every scope, so a managed `deny` cannot be lifted
+  locally. `disableBypassPermissionsMode` and `disableAutoMode` take the two
+  riskiest modes off the table.
+- **Protected paths.** Writes to files that could widen the agent's own
+  permissions — `.cowrangler/settings*.json`, `.cowrangler/hooks`, `.mcp.json`,
+  `.git/config`, `.git/hooks`, shell startup files, everything under
+  `~/.cowrangler` — always require an answer, are never covered by an allow
+  rule, and never offer "always allow".
+- **The sandbox became an independent axis.** Rules decide whether a command
+  runs; the sandbox decides what it can touch while it runs. A command the
+  sandbox can fully contain now runs without a prompt in any mode except `plan`,
+  with per-scope `sandbox.filesystem`, `sandbox.network` and `excludedCommands`
+  configuration. `filesystem.disabled` and `network.strictAllowlist` are honoured
+  from managed and user settings only, so a checked-in repository file cannot
+  widen the sandbox for whoever clones it.
+### Fixed — the sandbox could break silently and stay broken
+
+- **A partial sandbox bundle was trusted forever.** `ensureBundle()` decided the
+  global copy was good from its version file alone, so a bundle whose
+  `runner.sh` had gone missing — an interrupted copy, a deleted file, an
+  antivirus quarantine — passed the check on every run. Every `execute_bash`
+  call then died with "runner.sh doesn't exist" and nothing ever repaired it.
+  The check now verifies the runner script is actually present, and a bundle
+  that fails it is re-copied from source.
+- **A missing bundle returned a path that did not exist.** With no bundle found
+  anywhere, `ensureBundle()` returned the global path regardless, so the failure
+  surfaced later as a confusing file-not-found rather than as "the sandbox isn't
+  installed". It now raises `SandboxBundleMissingError`, and `execute_bash`
+  reports `SANDBOX UNAVAILABLE` with every path it looked in.
+- **A packaged Electron build never populated the global copy.** The
+  `resourcesPath` bundle was only a last-resort return value, never a candidate
+  for copying, so a packaged app could not repair a broken global bundle. It is
+  now a normal candidate.
+- **The task options menu gave the sidebar a horizontal scrollbar.** The
+  Pin / Rename / Delete popover was positioned `absolute left-full`, so it sat
+  past the sidebar's right edge inside the scroll container. Declaring only
+  `overflow-y: auto` leaves the other axis computed as `auto` too, so the
+  overflow became a scrollbar. The menu is now portalled to `<body>` and
+  positioned from the trigger's rect, flipping to the left when it would run
+  past the window edge — matching the project menu, which already worked this
+  way. The scroll container also pins `overflow-x: hidden` so a future
+  absolutely-positioned child cannot reintroduce the scrollbar.
+- **The internal `__useSandbox` flag was visible to the model.** It was declared
+  in the `execute_bash` schema, so the model saw it, reasoned about it, and set
+  it on every call. It is now passed on the arguments object after validation
+  and is absent from the schema.
+
+### Changed — permissions (continued)
+
+- **Sandbox failures now offer a sanctioned way out.** A blocked command used to
+  return a bare `SANDBOX BLOCKED` string, which left the model at a dead end —
+  and a capable model reacts to a dead end by improvising around the boundary
+  ("the sandbox seems to be having issues, let me try without the sandbox
+  flag"). `execute_bash` now takes `dangerouslyDisableSandbox`, and the block
+  message names it. The retry always asks the user, in every mode including
+  `auto`; the answer is not savable as a rule; and
+  `sandbox.allowUnsandboxedCommands: false` refuses it outright.
+- **Network reach is gated by the allowlist in every mode.** `allowedDomains`
+  now governs any call that names a host, not just sandboxed ones. Previously a
+  `curl` to an arbitrary host counted as reversible workspace work and ran
+  unprompted in `auto` mode — reversible on disk, an exfiltration path
+  everywhere else. Web fetches to un-approved domains ask once and the answer
+  saves as a `WebFetch(domain:…)` rule.
+- **"Always allow" saves a rule.** Approving a call can now persist a rule shaped
+  like what was approved — `Bash(npm run *)`, `WebFetch(domain:api.example.com)`,
+  `Edit(src/app.ts)` — into `.cowrangler/settings.local.json`, with gitignore
+  metacharacters escaped so the rule matches only that path.
+- Rebuilt the desktop Permissions tab around the new model: mode picker with
+  per-mode explanations and policy locks, rule lists in evaluation order with the
+  scope each rule came from, additional directories, and sandbox controls.
+  `/permissions` in the CLI now reports the resolved policy and any rule that
+  could not be parsed instead of silently dropping it.
+
+### Changed — surfaces
+
+- **Removed the Cowork surface.** The desktop app is now Code and Design; the CLI
+  is the third place to run the same engine. The `cowork` adapter, its prompt and
+  its panels are gone, and the READMEs, docs and website are rebuilt around the
+  three-way split.
+
+### Changed — design system
+
+- **Retuned the theme to the brand mark.** The accent was a harbour teal
+  (`#256B78`) that had nothing to do with the orange logo. Light mode now runs a
+  warm paper ground with an accent derived from the mark (`#CC4517`, chosen so
+  white text on it clears WCAG AA at 4.74:1); dark mode runs a neutral smoke
+  charcoal with a lightened accent (`#FF8A52`, 7.7:1). The two grounds differ on
+  purpose: warming the light ground stops the orange reading as a warning, while
+  a warm *dark* ground sits close enough to the accent's hue to mute it and turn
+  the screen brown, so dark stays neutral. Every text token clears 4.5:1 against
+  all three surface tokens in both themes.
+- Added `--brand`, `--brand-bright` and `--accent-text` tokens so the literal
+  mark colour and the accessible accent are no longer conflated.
+- Design mode's clay ramp is now derived from the same mark, and the CLI palette
+  mirrors the desktop tokens.
+
+### Added
+
+- `docs/permissions.md` — the full permission reference.
+- `docs/brand.md` — design tokens, the contrast reasoning behind them, and how to
+  add a colour.
+
+### Fixed
+
+- Dropped files in the Skills tab no longer rely on an undeclared `File.path`,
+  and fail with a message instead of a type error when the path is unavailable.
+
+---
+
 ## [2.1.8] — 2026-07-18
 
 ### Added

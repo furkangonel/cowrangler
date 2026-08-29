@@ -2,7 +2,7 @@
  * CoreServices — çekirdeğin arayüzlere açtığı TEK yüzey (facade).
  *
  * Görseldeki "Core her bir arayüz tarafından kullanılır" ilkesi: arayüzler
- * (CLI / Cowork / Design / Code) çekirdeğin derinliklerini (agent.ts, driver.ts,
+ * (CLI / Design / Code) çekirdeğin derinliklerini (agent.ts, driver.ts,
  * skills.ts...) doğrudan import ETMEZ; yalnız bu facade'ı görür. Böylece:
  *   - bağımlılık tek yönlü olur (arayüz → adapter → core),
  *   - core iç yapısı değişince arayüzler kırılmaz,

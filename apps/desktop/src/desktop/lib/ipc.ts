@@ -294,6 +294,8 @@ export interface SandboxHealth {
   kind: string
   label: string
   isolated: boolean
+  bundleUsable: boolean
+  bundlePath?: string
   error?: string
 }
 
@@ -373,6 +375,21 @@ export interface FileNode {
   children?: FileNode[]
   size?: number
   mtime?: number
+}
+
+export interface StorageStats {
+  totalBytes: number
+  cacheBytes: number
+  archiveBytes: number
+  projectDataBytes: number
+  logBytes: number
+  tempBytes: number
+  lastCleanedAt: number | null
+}
+
+export interface CleanupResult extends StorageStats {
+  reclaimedBytes: number
+  removedFiles: number
 }
 
 export interface OutputFile {
@@ -468,6 +485,57 @@ export interface PlanPayload {
   createdAt: string
 }
 
+/** The six permission modes, mirroring Anthropic's model. */
+export type PermissionModeId =
+  | 'default'
+  | 'acceptEdits'
+  | 'plan'
+  | 'auto'
+  | 'dontAsk'
+  | 'bypassPermissions'
+
+export type RuleKind = 'allow' | 'ask' | 'deny'
+
+/** Settings files a rule can be written to, lowest authority last. */
+export type RuleScope = 'local' | 'project' | 'user'
+
+export interface PermissionModeInfo {
+  id: PermissionModeId
+  label: string
+  summary: string
+  detail: string
+}
+
+/** A rule as resolved, carrying the scope that declared it. */
+export interface SourcedPermissionRule {
+  raw: string
+  scope: 'managed' | 'session' | 'local' | 'project' | 'user' | 'legacy'
+  settingsDir: string
+}
+
+export interface PermissionSandboxView {
+  enabled: boolean
+  autoAllowBash: boolean
+  allowUnsandboxedCommands: boolean
+  excludedCommands: string[]
+  filesystem: { allowWrite: string[]; denyWrite: string[]; allowRead: string[]; denyRead: string[]; disabled: boolean }
+  network: { allowedDomains: string[]; deniedDomains: string[]; strictAllowlist: boolean; allowManagedDomainsOnly: boolean }
+}
+
+export interface PermissionPolicyView {
+  mode: PermissionModeId
+  modes: PermissionModeInfo[]
+  allow: SourcedPermissionRule[]
+  ask: SourcedPermissionRule[]
+  deny: SourcedPermissionRule[]
+  additionalDirectories: string[]
+  disableBypassPermissionsMode: boolean
+  disableAutoMode: boolean
+  sandbox: PermissionSandboxView
+  issues: { raw: string; scope: string; reason: string }[]
+  files: { local: string; project: string; user: string; managed: string }
+}
+
 export interface ElectronAPI {
   agent: {
     chat: (projectId: string, sessionId: string | null, message: string, model?: string) => Promise<void>
@@ -499,6 +567,7 @@ export interface ElectronAPI {
     create: (data: { name: string; description?: string; workdir?: string; icon?: string; color?: string }) => Promise<ProjectRecord>
     update: (id: string, data: any) => Promise<ProjectRecord>
     delete: (id: string) => Promise<{ ok: boolean }>
+    reveal: (id: string) => Promise<{ ok: boolean; error?: string }>
     get: (id: string) => Promise<ProjectRecord | null>
     ensureWorkdir: (id: string) => Promise<ProjectRecord | null>
     addFolder: (id: string, folderPath: string) => Promise<ProjectFolder>
@@ -532,10 +601,20 @@ export interface ElectronAPI {
     onData: (cb: (payload: { id: string; data: string }) => void) => () => void
     onExit: (cb: (payload: { id: string; code: number }) => void) => () => void
   }
+  permissions: {
+    get: () => Promise<PermissionPolicyView>
+    setMode: (mode: string, scope?: RuleScope) => Promise<{ ok: boolean; mode: PermissionModeId }>
+    addRule: (type: RuleKind, rule: string, scope?: RuleScope) => Promise<{ ok: boolean; error?: string }>
+    removeRule: (type: RuleKind, rule: string, scope?: RuleScope) => Promise<{ ok: boolean }>
+    setDirectories: (dirs: string[], scope?: RuleScope) => Promise<{ ok: boolean }>
+    setSandbox: (patch: Record<string, unknown>, scope?: RuleScope) => Promise<{ ok: boolean }>
+    validateRule: (rule: string) => Promise<{ ok: boolean; error?: string }>
+  }
   settings: {
     get: () => Promise<Record<string, any>>
     set: (key: string, value: any) => Promise<{ ok: boolean }>
     getApiKeys: () => Promise<ApiKeyInfo[]>
+    credentialSecurity: () => Promise<{ encrypted: boolean }>
     setApiKey: (provider: string, key: string) => Promise<{ ok: boolean; error?: string; models?: string[] }>
     removeApiKey: (provider: string) => Promise<{ ok: boolean }>
     getModels: (opts?: { refresh?: boolean }) => Promise<ModelInfo[]>
@@ -587,6 +666,11 @@ export interface ElectronAPI {
     saveCanvas: (payload: { projectId: string; frames: DesignFrame[] }) => Promise<{ ok: boolean }>
     scanScreens: (projectId: string) => Promise<DesignScreenFile[]>
     readFile: (filePath: string) => Promise<{ content?: string; error?: string }>
+    /**
+     * readFile + yerel görsel/stil referansları data: URL olarak gömülü
+     * (canvas önizlemesi için). Eski preload'larda bulunmayabilir → opsiyonel.
+     */
+    readRendered?: (filePath: string) => Promise<{ content?: string; error?: string }>
     readMeta: (screenPath: string) => Promise<DesignMeta | null>
     saveMeta: (payload: { screenPath: string; meta: DesignMeta }) => Promise<{ ok: boolean; error?: string }>
     deleteProject: (projectId: string) => Promise<{ ok: boolean }>
@@ -646,8 +730,13 @@ export interface ElectronAPI {
     pathForFile: (file: File) => string
     addFiles: (payload: { projectId: string; paths: string[] }) => Promise<{ ok: boolean; error?: string; files: { name: string; relPath: string }[] }>
     addFileBytes: (payload: { projectId: string; files: { name: string; dataBase64: string }[] }) => Promise<{ ok: boolean; error?: string; files: { name: string; relPath: string }[] }>
+    discardUpload: (payload: { projectId: string; filePath: string }) => Promise<{ ok: boolean; error?: string }>
+    storageStats: () => Promise<StorageStats>
+    cleanStorage: () => Promise<CleanupResult>
     fileTree: (dirPath: string, depth?: number) => Promise<FileNode[]>
     readFile: (filePath: string) => Promise<{ content?: string; error?: string }>
+    /** Görseli data: URL olarak okur — <img src> için (CSP `file:` şemasını engelliyor). */
+    readFileDataUrl: (filePath: string) => Promise<{ dataUrl?: string; error?: string }>
     writeFile: (filePath: string, content: string) => Promise<{ ok: boolean; error?: string }>
     openInFinder: (filePath: string) => Promise<{ ok: boolean }>
     openExternal: (url: string) => Promise<{ ok: boolean }>

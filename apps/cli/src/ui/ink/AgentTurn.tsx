@@ -3,11 +3,11 @@ import { Box, Text } from "ink";
 import { Turn, ViewMode } from "./types.js";
 import { SubmittedPrompt } from "./Prompt.js";
 import { TraceSummary, TraceBlock } from "./Trace.js";
-import { Theme } from "../theme.js";
+import { Theme, Palette } from "../theme.js";
 import { formatBriefTimestamp } from "@cowrangler/core/utils/formatBriefTimestamp.js";
 
-const FAIL = "#D62926";
-const PROACTIVE_COLOR = "#FF9500";
+const FAIL = Palette.fail;
+const PROACTIVE_COLOR = Palette.warn;
 
 interface AgentTurnProps {
   turn: Turn;
@@ -59,7 +59,7 @@ export const AgentTurn: React.FC<AgentTurnProps> = ({
             return (
               <Box key={i} flexDirection="column" marginBottom={1}>
                 <Box flexDirection="row">
-                  <Text color={isProactive ? PROACTIVE_COLOR : "#5CA4D4"}>
+                  <Text color={isProactive ? PROACTIVE_COLOR : Palette.info}>
                     {isProactive ? "⚡ Agent" : "  Agent"}
                   </Text>
                   {msgTs ? (
@@ -79,7 +79,7 @@ export const AgentTurn: React.FC<AgentTurnProps> = ({
       {viewMode === "brief" && briefEntries.length === 0 && turn.reply ? (
         <Box marginTop={1} flexDirection="column" paddingLeft={2}>
           <Box flexDirection="row">
-            <Text color="#5CA4D4">{"  Agent"}</Text>
+            <Text color={Palette.info}>{"  Agent"}</Text>
             {ts ? <Text dimColor>{"  " + ts}</Text> : null}
           </Box>
           <Box paddingLeft={2}>

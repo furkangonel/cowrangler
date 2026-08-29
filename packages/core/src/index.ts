@@ -2,7 +2,7 @@
  * @cowrangler/core — çekirdek public API barrel (WP-C1).
  *
  * "Miras" mimarisinin somut yüzeyi: CLI Code (ink), Desktop Code (electron) ve
- * Cowork bu tek noktadan tüketir — böylece core değişince üçü de kazanır, biri
+ * Tüm arayüzler bu tek noktadan tüketir — böylece core değişince hepsi kazanır, biri
  * değişince öteki etkilenmez. `core/` kuralı: burası hiçbir surface'i (electron/
  * ink/react) import ETMEZ; yalnızca çekirdek modülleri dışa açar.
  *

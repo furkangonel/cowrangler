@@ -28,6 +28,8 @@ import fs from "fs";
 import { execSync } from "child_process";
 import yaml from "js-yaml";
 import { DIRS } from "@cowrangler/core/init.js";
+import chalk from "chalk";
+import { Theme } from "./theme.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -592,11 +594,10 @@ export function showSetupGuide(): void {
     "  To view saved keys: /key list",
   ];
 
-  // UI.box cannot be used here (Theme import might be circular), using chalk
-  const chalk = require("chalk");
+  // Plain output rather than UI.box: this runs before the TUI is up.
   console.log(
     "\n" +
-      chalk.hex("#FF4C00").bold("  Cowrangler Provider Setup Guide") +
+      Theme.main.bold("  Co-Wrangler Provider Setup Guide") +
       "\n" +
       lines.map((l) => (l.startsWith("  ──") ? chalk.dim(l) : l)).join("\n") +
       "\n",

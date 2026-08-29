@@ -38,3 +38,14 @@ test('model, skill, and manual MCP controls share the capability workspace', asy
   expect(config).toContain('manual-e2e-mcp:')
   expect(config).toContain('/definitely/missing/mcp-command')
 })
+
+test('managed storage is visible and can be cleaned from settings', async () => {
+  const page = launched.window
+
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await page.getByRole('button', { name: 'Storage & advanced', exact: true }).click()
+  await expect(page.getByText('Local storage', { exact: true })).toBeVisible()
+  await expect(page.getByText(/Source folders, credentials, skills and active conversations are never cleaned/)).toBeVisible()
+  await page.getByRole('button', { name: 'Clean now', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Clean now', exact: true })).toBeEnabled()
+})

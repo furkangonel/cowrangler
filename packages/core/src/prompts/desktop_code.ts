@@ -3,7 +3,7 @@ import { buildSharedRules, buildCompletionFormat } from "./shared.js";
 /**
  * Code tab agent — dedicated system prompt.
  *
- * Distinct from desktop_session: the Code tab is a CODE-FIRST surface. Each
+ * The desktop Code surface is code-first. Each
  * session is a standalone working directory (git repo), not a project. The right
  * panel exposes Terminal / Diff / Live Preview and a read-only Plan/Task view.
  * Git surfaces (diff, branch, PR badge) are DISPLAY-ONLY — the agent performs

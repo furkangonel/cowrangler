@@ -1,5 +1,6 @@
 import React from "react";
 import { Box, Text } from "ink";
+import { Palette } from "../theme.js";
 
 /**
  * OptionList — tüm seçilebilir listeler için tek, tutarlı, yüksek kaliteli
@@ -16,7 +17,7 @@ import { Box, Text } from "ink";
  * inline — Ink flex wrap riski yok.
  */
 
-const ACCENT = "#FF4C00";
+const ACCENT = Palette.main;
 
 export interface Option {
   /** Sol sütun (komut adı, model, seçenek metni). */
@@ -141,7 +142,7 @@ export const OptionList: React.FC<OptionListProps> = ({
           <Text dimColor>{labelPad + desc}</Text>
         ) : null}
         {item.badge ? (
-          <Text color={item.badgeColor ?? "#A5C27C"}>{" " + item.badge}</Text>
+          <Text color={item.badgeColor ?? Palette.success}>{" " + item.badge}</Text>
         ) : null}
       </Box>
     );

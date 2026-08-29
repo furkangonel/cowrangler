@@ -10,13 +10,17 @@ param (
 
 Set-Location -Path $Cwd -ErrorAction SilentlyContinue
 
+function Stop-SandboxUnavailable([string]$Message) {
+    [Console]::Error.WriteLine("SANDBOX UNAVAILABLE: $Message")
+    Exit 125
+}
+
 switch ($Provider) {
     "wsl_bwrap" {
         # Preferred Windows isolation: WSL2 + bubblewrap inside the distro.
         $wslCheck = Get-Command wsl -ErrorAction SilentlyContinue
         if (-not $wslCheck) {
-            Write-Warning "WSL is not available. Falling back to Job Object."
-            $Provider = "win_jobobject"
+            Stop-SandboxUnavailable "WSL disappeared after backend detection. Command was not run."
         } else {
             # Translate the Windows path to a WSL mount path (C:\foo -> /mnt/c/foo).
             $wslPath = [regex]::Replace(($Cwd -replace '\\', '/'), '^([A-Za-z]):', { param($m) "/mnt/" + $m.Groups[1].Value.ToLower() })
@@ -32,14 +36,12 @@ switch ($Provider) {
         # Check if Docker is available
         $dockerCheck = Get-Command docker -ErrorAction SilentlyContinue
         if (-not $dockerCheck) {
-            Write-Warning "Docker is not installed. Falling back to direct execution."
-            $Provider = "fallback"
+            Stop-SandboxUnavailable "Docker disappeared after backend detection. Command was not run."
         } else {
             # Check if docker daemon is running
             & docker info > $null 2>&1
             if ($LASTEXITCODE -ne 0) {
-                Write-Warning "Docker daemon is not running. Falling back to direct execution."
-                $Provider = "fallback"
+                Stop-SandboxUnavailable "Docker daemon stopped after backend detection. Command was not run."
             } else {
                 $netFlag = ""
                 if ($NetworkRestricted -eq "true") {
@@ -71,9 +73,6 @@ if ($Provider -eq "win_jobobject") {
     }
 }
 
-# Fallback: Direct execution in isolated shell
-if ($Provider -eq "fallback" -or [string]::IsNullOrEmpty($Provider)) {
-    # Run command in cmd/powershell
-    & cmd.exe /c $Command
-    Exit $LASTEXITCODE
-}
+# Direct/Job Object execution is selected in sandbox.ts only after explicit
+# low-trust permission. Unknown providers must never silently weaken isolation.
+Stop-SandboxUnavailable "Unknown isolation provider '$Provider'. Command was not run."

@@ -4,10 +4,12 @@ import os from 'os'
 import fs from 'fs'
 import yaml from 'js-yaml'
 import { getConfig } from '@cowrangler/core/init.js'
+import { getSecrets, setSecret, isEncrypted, getSecretMode } from '@cowrangler/core/credential_vault.js'
 
 const GLOBAL_DIR = path.join(os.homedir(), '.cowrangler')
 const CONFIG_FILE = path.join(GLOBAL_DIR, 'config.yaml')
 const CREDENTIALS_FILE = path.join(GLOBAL_DIR, 'credentials.env')
+const PROVIDER_VAULT_NAMESPACE = 'provider-api'
 
 const PROVIDERS = [
   { id: 'anthropic', label: 'Anthropic', envKey: 'ANTHROPIC_API_KEY', prefix: 'sk-ant-' },
@@ -16,6 +18,21 @@ const PROVIDERS = [
   { id: 'openrouter', label: 'OpenRouter', envKey: 'OPENROUTER_API_KEY', prefix: 'sk-or-' },
   { id: 'groq', label: 'Groq', envKey: 'GROQ_API_KEY', prefix: 'gsk_' },
   { id: 'github', label: 'GitHub Copilot', envKey: 'GITHUB_TOKEN', prefix: 'ghp_' },
+  { id: 'mistral', label: 'Mistral', envKey: 'MISTRAL_API_KEY', prefix: '' },
+  { id: 'deepseek', label: 'DeepSeek', envKey: 'DEEPSEEK_API_KEY', prefix: 'sk-' },
+  { id: 'xai', label: 'xAI', envKey: 'XAI_API_KEY', prefix: 'xai-' },
+  { id: 'together', label: 'Together AI', envKey: 'TOGETHER_API_KEY', prefix: '' },
+  { id: 'cerebras', label: 'Cerebras', envKey: 'CEREBRAS_API_KEY', prefix: '' },
+  { id: 'fireworks', label: 'Fireworks AI', envKey: 'FIREWORKS_API_KEY', prefix: '' },
+]
+
+const OPENAI_COMPAT_PROVIDERS = [
+  { id: 'mistral', envKey: 'MISTRAL_API_KEY', modelsUrl: 'https://api.mistral.ai/v1/models' },
+  { id: 'deepseek', envKey: 'DEEPSEEK_API_KEY', modelsUrl: 'https://api.deepseek.com/v1/models' },
+  { id: 'xai', envKey: 'XAI_API_KEY', modelsUrl: 'https://api.x.ai/v1/models' },
+  { id: 'together', envKey: 'TOGETHER_API_KEY', modelsUrl: 'https://api.together.xyz/v1/models' },
+  { id: 'cerebras', envKey: 'CEREBRAS_API_KEY', modelsUrl: 'https://api.cerebras.ai/v1/models' },
+  { id: 'fireworks', envKey: 'FIREWORKS_API_KEY', modelsUrl: 'https://api.fireworks.ai/inference/v1/models' },
 ]
 
 // NOT: Hardcoded model listesi KALDIRILDI. Modeller artık tamamen dinamiktir —
@@ -111,6 +128,28 @@ async function discoverModels(creds: Record<string, string>): Promise<Discovered
     } catch {}
   })())
 
+  for (const provider of OPENAI_COMPAT_PROVIDERS) {
+    const apiKey = key(provider.envKey)
+    if (!apiKey) continue
+    jobs.push((async () => {
+      try {
+        const response = await fetch(provider.modelsUrl, { headers: { Authorization: `Bearer ${apiKey}` } })
+        if (!response.ok) return
+        const payload: any = await response.json()
+        const rows = Array.isArray(payload) ? payload : (payload.data ?? [])
+        for (const model of rows) {
+          if (!model?.id) continue
+          out.push({
+            provider: provider.id,
+            id: `${provider.id}/${model.id}`,
+            label: model.name ?? model.display_name ?? model.id,
+            contextK: Math.round((model.context_window ?? model.context_length ?? 128000) / 1000),
+          })
+        }
+      } catch { /* one provider must not block the rest */ }
+    })())
+  }
+
   await Promise.allSettled(jobs)
   return out
 }
@@ -118,25 +157,26 @@ async function discoverModels(creds: Record<string, string>): Promise<Discovered
 
 
 function readCredentials(): Record<string, string> {
-  const creds: Record<string, string> = {}
-  if (!fs.existsSync(CREDENTIALS_FILE)) return creds
-  const lines = fs.readFileSync(CREDENTIALS_FILE, 'utf-8').split('\n')
-  for (const line of lines) {
-    const [key, ...rest] = line.trim().split('=')
-    if (key && rest.length) creds[key.trim()] = rest.join('=').trim()
+  const creds: Record<string, string> = { ...getSecrets(PROVIDER_VAULT_NAMESPACE) }
+  if (fs.existsSync(CREDENTIALS_FILE)) {
+    const lines = fs.readFileSync(CREDENTIALS_FILE, 'utf-8').split('\n')
+    for (const line of lines) {
+      const [key, ...rest] = line.trim().split('=')
+      if (key && rest.length && !creds[key.trim()]) creds[key.trim()] = rest.join('=').trim()
+    }
   }
   return creds
 }
 
 function writeCredential(envKey: string, value: string): void {
   fs.mkdirSync(GLOBAL_DIR, { recursive: true })
-  let content = fs.existsSync(CREDENTIALS_FILE)
+  const content = fs.existsSync(CREDENTIALS_FILE)
     ? fs.readFileSync(CREDENTIALS_FILE, 'utf-8')
     : ''
-
-  const lines = content.split('\n').filter(l => !l.startsWith(`${envKey}=`))
-  if (value.trim()) lines.push(`${envKey}=${value.trim()}`)
-  fs.writeFileSync(CREDENTIALS_FILE, lines.filter(Boolean).join('\n') + '\n', 'utf-8')
+  setSecret(PROVIDER_VAULT_NAMESPACE, envKey, value.trim() || null, { crossProcess: true })
+  // Remove legacy plaintext copies while preserving comments and unrelated env.
+  const lines = content.split('\n').filter((line) => !line.startsWith(`${envKey}=`))
+  fs.writeFileSync(CREDENTIALS_FILE, lines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n', 'utf-8')
 
   // Mevcut process'e yansıt
   if (value.trim()) {
@@ -146,9 +186,72 @@ function writeCredential(envKey: string, value: string): void {
   }
 }
 
+/** One-way migration from the legacy plaintext provider-key file to the vault. */
+function migrateLegacyProviderCredentials(): void {
+  if (!fs.existsSync(CREDENTIALS_FILE)) return
+  const content = fs.readFileSync(CREDENTIALS_FILE, 'utf-8')
+  const vault = getSecrets(PROVIDER_VAULT_NAMESPACE)
+  const providerKeys = new Set(PROVIDERS.map(provider => provider.envKey))
+  for (const line of content.split('\n')) {
+    const [rawKey, ...rest] = line.trim().split('=')
+    const envKey = rawKey?.trim()
+    const value = rest.join('=').trim()
+    if (providerKeys.has(envKey) && value && !vault[envKey]) {
+      setSecret(PROVIDER_VAULT_NAMESPACE, envKey, value, { crossProcess: true })
+      process.env[envKey] = value
+    }
+  }
+  const remaining = content.split('\n').filter(line => !providerKeys.has(line.trim().split('=')[0]?.trim()))
+  fs.writeFileSync(CREDENTIALS_FILE, remaining.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n', 'utf-8')
+}
+
 function maskKey(key: string): string {
   if (!key || key.length < 8) return '••••••••'
   return key.slice(0, 6) + '••••••••' + key.slice(-4)
+}
+
+async function verifyProviderCredential(provider: string, apiKey: string): Promise<{ ok: boolean; error?: string; models?: string[] }> {
+  try {
+    if (provider === 'github') {
+      const response = await fetch('https://api.github.com/user', {
+        headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/vnd.github+json' },
+      })
+      return response.ok ? { ok: true } : { ok: false, error: `GitHub token was rejected (HTTP ${response.status}).` }
+    }
+
+    let url = ''
+    let headers: Record<string, string> = {}
+    if (provider === 'google') url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
+    else if (provider === 'anthropic') {
+      url = 'https://api.anthropic.com/v1/models?limit=100'
+      headers = { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }
+    } else if (provider === 'openai') {
+      url = 'https://api.openai.com/v1/models'
+      headers = { Authorization: `Bearer ${apiKey}` }
+    } else if (provider === 'openrouter') {
+      url = 'https://openrouter.ai/api/v1/key'
+      headers = { Authorization: `Bearer ${apiKey}` }
+    } else if (provider === 'groq') {
+      url = 'https://api.groq.com/openai/v1/models'
+      headers = { Authorization: `Bearer ${apiKey}` }
+    } else {
+      const compat = OPENAI_COMPAT_PROVIDERS.find(item => item.id === provider)
+      if (compat) {
+        url = compat.modelsUrl
+        headers = { Authorization: `Bearer ${apiKey}` }
+      }
+    }
+    if (!url) return { ok: true }
+
+    const response = await fetch(url, { headers })
+    if (!response.ok) return { ok: false, error: `${provider} credential was rejected (HTTP ${response.status}).` }
+    const payload: any = await response.json().catch(() => ({}))
+    const rows = Array.isArray(payload) ? payload : (payload.data ?? payload.models ?? [])
+    const models = rows.map((model: any) => String(model.id ?? model.name ?? '').replace(/^models\//, '')).filter(Boolean)
+    return { ok: true, models }
+  } catch (cause: any) {
+    return { ok: false, error: `Could not verify ${provider}: ${cause?.message ?? String(cause)}` }
+  }
 }
 
 /** ~/.cowrangler/config.yaml içindeki `saved_models` listesini oku */
@@ -171,6 +274,7 @@ function writeSavedModels(models: string[]): void {
 }
 
 export function registerSettingsIPC(ipcMain: IpcMain): void {
+  migrateLegacyProviderCredentials()
   ipcMain.handle('settings:get', async () => {
     try { return getConfig() } catch { return {} }
   })
@@ -213,41 +317,29 @@ export function registerSettingsIPC(ipcMain: IpcMain): void {
     }))
   })
 
+  ipcMain.handle('settings:credentialSecurity', async () => {
+    const vault = getSecrets(PROVIDER_VAULT_NAMESPACE)
+    const stored = PROVIDERS.map(provider => provider.envKey).filter(envKey => !!vault[envKey])
+    return {
+      encrypted: stored.length
+        ? stored.every(envKey => getSecretMode(PROVIDER_VAULT_NAMESPACE, envKey) === 'os')
+        : isEncrypted(),
+    }
+  })
+
   ipcMain.handle('settings:setApiKey', async (_, provider: string, key: string) => {
     const p = PROVIDERS.find(p => p.id === provider)
     if (!p) return { ok: false, error: 'Unknown provider' }
 
-    // Google (Method A): kaydetmeden önce key'i doğrula. Geçersiz/yetkisiz key
-    // sessizce kaydedilince, hata ancak generate anında kriptik 404 "Requested
-    // entity was not found" olarak dönüyordu. ListModels ile önden yakala ve
-    // key'in gerçekten servis ettiği modelleri geri döndür.
     const trimmed = (key ?? '').trim()
-    if (provider === 'google' && trimmed) {
-      try {
-        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${trimmed}`)
-        if (!r.ok) {
-          const body = await r.text().catch(() => '')
-          return {
-            ok: false,
-            error:
-              r.status === 400 || r.status === 403
-                ? 'Geçersiz veya yetkisiz Google API anahtarı (AI Studio → API keys).'
-                : `Google key doğrulanamadı (HTTP ${r.status}). ${body.slice(0, 160)}`,
-          }
-        }
-        const j: any = await r.json().catch(() => ({}))
-        const models = (j.models ?? [])
-          .filter((m: any) => (m.supportedGenerationMethods ?? []).some((s: string) => /generateContent/i.test(s)))
-          .map((m: any) => String(m.name ?? '').replace(/^models\//, ''))
-          .filter(Boolean)
-        writeCredential(p.envKey, trimmed)
-        return { ok: true, models }
-      } catch (e: any) {
-        return { ok: false, error: `Google key doğrulanamadı: ${e?.message ?? String(e)}` }
-      }
+    if (trimmed) {
+      const verified = await verifyProviderCredential(provider, trimmed)
+      if (!verified.ok) return verified
+      writeCredential(p.envKey, trimmed)
+      return verified
     }
 
-    writeCredential(p.envKey, key)
+    writeCredential(p.envKey, '')
     return { ok: true }
   })
 
@@ -287,28 +379,107 @@ export function registerSettingsIPC(ipcMain: IpcMain): void {
     return { ok: true }
   })
 
+  // ─── Permissions ──────────────────────────────────────────────────────────
+  // The renderer never parses settings files itself: it asks for the resolved
+  // policy (every scope merged, with each rule's origin attached) and writes
+  // back through named mutations, so precedence lives in one place.
+  ipcMain.handle('permissions:get', async () => {
+    const perms = await import('@cowrangler/core/permissions.js')
+    perms.invalidatePermissionSettings()
+    const resolved = perms.resolvePermissionSettings()
+    return {
+      mode: perms.normalizePermissionMode(resolved.defaultMode),
+      modes: perms.PERMISSION_MODES.map((id) => perms.MODE_INFO[id]),
+      allow: resolved.allow,
+      ask: resolved.ask,
+      deny: resolved.deny,
+      additionalDirectories: resolved.additionalDirectories,
+      disableBypassPermissionsMode: resolved.disableBypassPermissionsMode,
+      disableAutoMode: resolved.disableAutoMode,
+      sandbox: resolved.sandbox,
+      issues: resolved.issues,
+      files: {
+        local: perms.settingsFileFor('local'),
+        project: perms.settingsFileFor('project'),
+        user: perms.settingsFileFor('user'),
+        managed: perms.managedSettingsPath(),
+      },
+    }
+  })
+
+  ipcMain.handle('permissions:setMode', async (_, mode: string, scope = 'local') => {
+    const perms = await import('@cowrangler/core/permissions.js')
+    const normalized = perms.normalizePermissionMode(mode)
+    perms.saveDefaultMode(normalized, scope as any)
+    // The agent still reads config.yaml for the active session's mode.
+    let config: any = {}
+    if (fs.existsSync(CONFIG_FILE)) {
+      try { config = yaml.load(fs.readFileSync(CONFIG_FILE, 'utf-8')) as any || {} } catch {}
+    }
+    config.permission_mode = normalized
+    fs.mkdirSync(GLOBAL_DIR, { recursive: true })
+    fs.writeFileSync(CONFIG_FILE, yaml.dump(config), 'utf-8')
+    return { ok: true, mode: normalized }
+  })
+
+  ipcMain.handle('permissions:addRule', async (_, type: string, rule: string, scope = 'local') => {
+    const perms = await import('@cowrangler/core/permissions.js')
+    const parsed = perms.parseRule(rule)
+    if (!parsed.rule) return { ok: false, error: parsed.issue?.reason ?? 'That rule could not be parsed.' }
+    perms.saveRule(rule.trim(), type as any, scope as any)
+    return { ok: true }
+  })
+
+  ipcMain.handle('permissions:removeRule', async (_, type: string, rule: string, scope = 'local') => {
+    const perms = await import('@cowrangler/core/permissions.js')
+    // A rule may live in more than one scope; drop it from each writable one.
+    for (const s of ['local', 'project', 'user'] as const) perms.removeRule(rule, type as any, s)
+    void scope
+    return { ok: true }
+  })
+
+  ipcMain.handle('permissions:setDirectories', async (_, dirs: string[], scope = 'local') => {
+    const perms = await import('@cowrangler/core/permissions.js')
+    perms.setAdditionalDirectories(dirs ?? [], scope as any)
+    return { ok: true }
+  })
+
+  ipcMain.handle('permissions:setSandbox', async (_, patch: Record<string, unknown>, scope = 'local') => {
+    const perms = await import('@cowrangler/core/permissions.js')
+    perms.saveSandboxSettings(patch ?? {}, scope as any)
+    return { ok: true }
+  })
+
+  ipcMain.handle('permissions:validateRule', async (_, rule: string) => {
+    const perms = await import('@cowrangler/core/permissions.js')
+    const parsed = perms.parseRule(rule)
+    return parsed.rule ? { ok: true } : { ok: false, error: parsed.issue?.reason ?? 'Invalid rule.' }
+  })
+
   // ─── Sandbox canlı sağlık (WP-5 SandboxTab) ───────────────────────────────
   // Aktif platformda hangi izolasyon backend'inin seçileceğini canlı raporlar
   // (Seatbelt / Bubblewrap / Docker / … algılandı mı).
   ipcMain.handle('settings:sandboxHealth', async () => {
     try {
-      const { selectBackend } = await import('@cowrangler/core/sandbox.js')
-      const backend = selectBackend(process.platform)
+      const { inspectSandboxHealth } = await import('@cowrangler/core/sandbox.js')
+      return inspectSandboxHealth(getConfig().sandbox?.provider)
+    } catch (e: any) {
       return {
         platform: process.platform,
-        kind: backend.kind,
-        label: backend.label,
-        isolated: backend.isolated,
+        kind: 'none',
+        label: 'No isolation (low-trust)',
+        isolated: false,
+        bundleUsable: false,
+        error: e?.message ?? String(e),
       }
-    } catch (e: any) {
-      return { platform: process.platform, kind: 'none', label: 'No isolation (low-trust)', isolated: false, error: e?.message ?? String(e) }
     }
   })
 
   // ─── Model yetenekleri (WP-5 ModelsTab göstergesi; tek kaynak: model_metadata) ─
   ipcMain.handle('settings:modelCapabilities', async (_, model: string) => {
     try {
-      const { getModelCapabilities } = await import('@cowrangler/core/model_metadata.js')
+      const { getModelCapabilities, prefetchModelMeta } = await import('@cowrangler/core/model_metadata.js')
+      await prefetchModelMeta(model)
       return getModelCapabilities(model)
     } catch {
       return null

@@ -1,4 +1,4 @@
-// Co-Wrangler — Cowork design system.
+// Cowrangler Desktop design system.
 // Renkler CSS değişkenlerine bağlıdır (RGB triplet). Tema [data-theme] ile değişir.
 // `<alpha-value>` Tailwind opacity modifier'larını (bg-accent/10 vb.) korur.
 /** @type {import('tailwindcss').Config} */

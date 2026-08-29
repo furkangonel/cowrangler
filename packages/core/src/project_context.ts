@@ -12,14 +12,11 @@
  *        {workdir}/.cowrangler/memory/        proje belleği (project.md)
  *        {workdir}/.cowrangler/skills/        proje skill tanımları
  *        {workdir}/.cowrangler/agents/        proje agent tanımları
- *        {workdir}/.cowrangler/plans/         oturum planları (bkz. istisna notu)
  *        {workdir}/COWRNGLR.md                proje talimatları
  *      → Bunlar projede kalır. Yalnızca kullanıcı/ajan bilinçli oluşturunca yazılır.
- *      → plans/ tek "üretilen ama proje-lokal" istisnadır: ufaktır ve desktop
- *        onu proje dosya ağacında gösterir (bkz. getProjectPlanFile).
  *
  *   2) ÜRETİLEN / OTURUM VERİSİ (makine-lokal, geçici, büyüyebilir)
- *        history, recall.jsonl, tasks/, context/, audit.log
+ *        history, recall.jsonl, tasks/, plans/, context/, uploads/, audit.log
  *      → Bunlar ASLA projeye yazılmaz. Global "proje deposu" altına gider:
  *        ~/.cowrangler/projects/<label>-<hash>/…
  *      Böylece her çalışılan proje dizini temiz kalır; hiçbir proje kökü
@@ -105,17 +102,11 @@ export function getProjectTasksDir(sessionId?: string): string {
 }
 
 /**
- * Aktif proje plans dosyası ({workdir}/.cowrangler/plans/<sessionId>.md).
- *
- * BİLİNÇLİ İSTİSNA: plan'lar ufak, oturum-kapsamlı markdown belgeleridir ve
- * desktop bunları proje dosya ağacında (workdir altında oldukları varsayımıyla)
- * kullanıcıya gösterir. Bu yüzden global depoya değil, proje dizininde kalırlar.
- * Ağır/gürültülü üretilen veri (plugins, context kopyaları, recall, history,
- * tasks, audit) global'e gider; plan bu kuralın tek istisnasıdır.
+ * Aktif proje plan dosyası (makine-lokal proje deposunda).
  */
 export function getProjectPlanFile(sessionId?: string): string {
   const sid = sessionId ?? _activeSessionId ?? 'default'
-  return path.join(_workdir, '.cowrangler', 'plans', `${sid}.md`)
+  return path.join(getProjectStoreDir(), 'plans', `${sid}.md`)
 }
 
 /** REPL/sohbet geçmişi (global depo/history) */
@@ -229,7 +220,7 @@ export function migrateProjectLayout(workdir: string): void {
 
   const legacyBase = path.join(abs, '.cowrangler')
   const store = projectStoreDirFor(abs)
-  const marker = path.join(store, '.migrated')
+  const marker = path.join(store, '.migrated-v2')
 
   try {
     if (fs.existsSync(marker)) return
@@ -251,9 +242,9 @@ export function migrateProjectLayout(workdir: string): void {
     })
 
     // 2) Üretilen/oturum verisini global depoya taşı.
-    //    (plans HARİÇ — bilinçli olarak proje-lokal kalır; bkz. getProjectPlanFile)
     step(() => safeMove(path.join(legacyBase, 'history'), path.join(store, 'history')))
     step(() => safeMove(path.join(legacyBase, 'tasks'), path.join(store, 'tasks')))
+    step(() => safeMove(path.join(legacyBase, 'plans'), path.join(store, 'plans')))
     step(() => safeMove(path.join(legacyBase, 'context'), path.join(store, 'context')))
     step(() => safeMove(path.join(legacyBase, 'audit.log'), path.join(store, 'audit.log')))
     step(() => safeMove(

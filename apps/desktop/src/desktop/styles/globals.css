@@ -10,70 +10,83 @@
 
 :root,
 [data-theme='light'] {
-  /* Yüzeyler */
-  --bg-primary:   253 253 252;   /* #FDFDFC ana tuval */
-  --bg-secondary: 246 246 245;   /* #F6F6F5 sidebar / panel */
-  --bg-tertiary:  239 239 238;   /* #EFEFEE input / kod / chip */
-  --bg-hover:     232 232 231;   /* #E8E8E7 hover */
-  --bg-elevated:  255 255 255;   /* #FFFFFF modal / popover */
+  /* Surfaces — warm paper, tuned to the brand mark */
+  --bg-primary:   252 250 248;  /* #FCFAF8 paper */
+  --bg-secondary: 245 241 236;  /* #F5F1EC panel */
+  --bg-tertiary:  237 231 224;  /* #EDE7E0 control surface */
+  --bg-hover:     228 220 211;  /* #E4DCD3 hover */
+  --bg-elevated:  255 255 255;  /* #FFFFFF modal / popover */
 
-  --border:        224 224 223;  /* #E0E0DF */
-  --border-subtle: 235 235 234;  /* #EBEBEA */
-  --border-strong: 204 204 204;  /* #CCCCCC */
+  --border:        214 203 191; /* #D6CBBF */
+  --border-subtle: 234 226 217; /* #EAE2D9 */
+  --border-strong: 186 172 157; /* #BAAC9D */
 
-  --text-primary:     55 55 52;  /* #373734 */
-  --text-secondary:  106 106 103;/* #6A6A67 */
-  --text-muted:      138 138 135;/* #8A8A87 */
-  --text-placeholder: 137 135 130;/* #898782 */
+  --text-primary:     31 26 22;    /* #1F1A16 warm ink   — 16.6:1 */
+  --text-secondary:   87 76 67;    /* #574C43            —  8.0:1 */
+  --text-muted:      111 97 83;    /* #6F6153            —  4.8:1 */
+  --text-placeholder: 156 142 126; /* #9C8E7E */
 
-  /* Nötr primary — seçili öğeler/butonlar siyah-beyaz (light: siyah) */
-  --accent:       28 28 26;     /* #1C1C1A */
-  --accent-hover: 48 48 45;     /* #30302D */
-  --accent-press: 0 0 0;        /* #000000 */
+  /* Brand — sampled straight from the mark. Use for the logo, gradients
+     and decorative washes; never as a text colour on light surfaces. */
+  --brand:        236 90 41;    /* #EC5A29 */
+  --brand-bright: 255 144 79;   /* #FF904F */
+
+  /* Accent — the brand deepened until white text on it clears WCAG AA. */
+  --accent:       204 69 23;    /* #CC4517 — white on it 4.74:1 */
+  --accent-hover: 184 59 18;    /* #B83B12 */
+  --accent-press: 163 51 14;    /* #A3330E */
   --accent-fg:    255 255 255;
+  --accent-text:  176 58 16;    /* #B03A10 — accent as body text, 4.95:1 */
+  --signal:       255 144 79;   /* #FF904F focus ring / glow */
 
-  --user-bubble-bg:     33 29 24;   /* #211D18 koyu sıcak balon (design görseli) */
-  --user-bubble-border: 33 29 24;   /* kenarlıksız görünüm */
+  --user-bubble-bg:     31 26 22;   /* #1F1A16 */
+  --user-bubble-border: 31 26 22;
 
-  --success: 40 118 82;   /* #287652 */
-  --warning: 168 114 22;  /* #A87216 */
-  --error:   180 62 48;   /* #B43E30 */
-  --info:    65 118 207;  /* #4176CF */
+  --success: 25 107 66;   /* #196B42 */
+  --warning: 138 91 0;    /* #8A5B00 */
+  --error:   179 36 28;   /* #B3241C */
+  --info:    27 110 156;  /* #1B6E9C */
 
-  --shadow-rgb: 0 0 0;
+  --shadow-rgb: 46 32 24;
   color-scheme: light;
 }
 
 [data-theme='dark'] {
-  /* Yüzeyler — daha derin taban, soluk/sütlü görünümü kaldırır */
-  --bg-primary:   22 22 21;    /* #161615 ana tuval */
-  --bg-secondary: 29 29 28;    /* #1D1D1C sidebar / panel */
-  --bg-tertiary:  37 37 35;    /* #252523 input / kod */
-  --bg-hover:     47 47 45;    /* #2F2F2D hover */
-  --bg-elevated:  33 33 32;    /* #212120 modal / popover */
+  /* Surfaces — neutral smoke charcoal. A warm ground muddied the orange and
+     read as brown; a neutral one lets the accent be the only warm thing on
+     screen, which is the point of having one. */
+  --bg-primary:   22 23 26;    /* #16171A */
+  --bg-secondary: 29 31 35;    /* #1D1F23 */
+  --bg-tertiary:  38 40 45;    /* #26282D */
+  --bg-hover:     49 52 57;    /* #313439 */
+  --bg-elevated:  31 33 38;    /* #1F2126 */
 
-  --border:        61 61 59;   /* #3D3D3B */
-  --border-subtle: 46 46 44;   /* #2E2E2C */
-  --border-strong: 82 82 79;   /* #52524F */
+  --border:        56 59 65;   /* #383B41 */
+  --border-subtle: 42 45 50;   /* #2A2D32 */
+  --border-strong: 82 86 94;   /* #52565E */
 
-  --text-primary:     195 194 184; /* #C3C2B8 */
-  --text-secondary:   156 155 146; /* #9C9B92 */
-  --text-muted:       128 128 124; /* #80807C */
-  --text-placeholder: 195 194 184; /* #C3C2B8 */
+  --text-primary:     236 238 241; /* #ECEEF1 — 15.4:1 */
+  --text-secondary:   180 185 192; /* #B4B9C0 —  9.1:1 */
+  --text-muted:       141 147 156; /* #8D939C —  5.8:1 */
+  --text-placeholder: 122 128 137;
 
-  /* Nötr primary — seçili öğeler/butonlar siyah-beyaz (dark: beyaz) */
-  --accent:       238 238 232; /* #EEEEE8 */
-  --accent-hover: 220 220 214; /* #DCDCD6 */
-  --accent-press: 255 255 255; /* #FFFFFF */
-  --accent-fg:    24 24 22;    /* #181816 koyu zeminde beyaz üzerine metin */
+  --brand:        255 122 60;  /* #FF7A3C */
+  --brand-bright: 255 168 119; /* #FFA877 */
 
-  --user-bubble-bg:     18 18 18;  /* #121212 koyu tema balon */
-  --user-bubble-border: 30 30 30;  /* #1E1E1E hafif kenar */
+  --accent:       255 138 82;  /* #FF8A52 — 7.7:1 on bg-primary */
+  --accent-hover: 255 159 110; /* #FF9F6E */
+  --accent-press: 255 177 135; /* #FFB187 */
+  --accent-fg:    23 24 26;    /* #17181A — 7.6:1 on the accent */
+  --accent-text:  255 138 82;
+  --signal:       255 168 119; /* #FFA877 */
 
-  --success: 88 186 134;  /* #58BA86 */
-  --warning: 220 165 55;  /* #DCA537 */
-  --error:   226 132 118; /* #E28476 */
-  --info:    65 118 207;  /* #4176CF */
+  --user-bubble-bg:     31 33 38;  /* #1F2126 */
+  --user-bubble-border: 49 52 57;  /* #313439 */
+
+  --success: 79 191 136;  /* #4FBF88 */
+  --warning: 224 172 74;  /* #E0AC4A */
+  --error:   240 121 108; /* #F0796C */
+  --info:    107 179 224; /* #6BB3E0 */
 
   --shadow-rgb: 0 0 0;
   color-scheme: dark;
@@ -83,7 +96,7 @@
 :root {
   --sidebar-width:      248px;
   --right-panel-width:  320px;
-  --titlebar-height:    40px;
+  --titlebar-height:    48px;
   --statusbar-height:   28px;
   --scrollbar-width:    6px;
   --font-scale:         1;
@@ -230,10 +243,7 @@ html, body, #root {
   letter-spacing: -0.015em;
 }
 
-/* ── Code chat prose — düz sans (Cowork'ün editorial serif'inden ayrı) ──────
-   Code sekmesindeki agent yanıtları görsellerdeki gibi nötr sans tipografi
-   kullanır. Yalnızca .code-chat kapsayıcısı altındaki prose'u override eder;
-   Cowork tarafı dokunulmadan Charter serif kalır. */
+/* Code chat prose: compact, neutral typography for technical conversations. */
 .code-chat .prose {
   font-family: 'SF Pro Rounded', 'Inter', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: calc(14px * var(--font-scale));
@@ -320,8 +330,8 @@ html, body, #root {
 .hljs-meta                                   { color: rgb(var(--text-muted)); }
 
 /* ── Focus ───────────────────────────────────────────────────────────────── */
-:focus-visible { outline: 2px solid rgb(var(--accent) / 0.55); outline-offset: 2px; border-radius: 5px; }
-button:focus-visible, input:focus-visible, textarea:focus-visible { outline: none; }
+:focus-visible { outline: 2px solid rgb(var(--signal)); outline-offset: 2px; border-radius: 6px; }
+button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid rgb(var(--signal)); outline-offset: 2px; }
 
 textarea { resize: none; font-family: inherit; }
 textarea:focus, input:focus { outline: none; }
@@ -567,4 +577,162 @@ textarea:focus, input:focus { outline: none; }
 .project-item-row:hover .project-icon-box:not(.active) {
   background: rgb(var(--bg-hover));
   box-shadow: 0 1px 3px rgb(var(--shadow-rgb) / 0.06);
+}
+
+/* ── Cowrangler workbench identity ──────────────────────────────────────── */
+.workbench-home {
+  width: min(880px, 100%);
+  margin: 0 auto;
+  padding-bottom: 12px;
+}
+.workbench-intro { max-width: 680px; }
+.workbench-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: rgb(var(--accent));
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.workbench-intro h1,
+.welcome-stage h1 {
+  margin: 16px 0 0;
+  color: rgb(var(--text-primary));
+  font-family: 'Charter', Georgia, serif;
+  font-size: clamp(36px, 5vw, 58px);
+  font-weight: 600;
+  line-height: .98;
+  letter-spacing: -.045em;
+}
+.workbench-intro h1 span,
+.welcome-stage h1 span { color: rgb(var(--text-secondary)); font-style: italic; font-weight: 400; }
+.workbench-intro > p,
+.welcome-stage__content > p {
+  max-width: 620px;
+  margin-top: 18px;
+  color: rgb(var(--text-secondary));
+  font-size: 14px;
+  line-height: 1.7;
+}
+.workbench-rail {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 42px;
+}
+.workbench-rail__line {
+  position: absolute;
+  top: 14px;
+  left: 16.5%;
+  right: 16.5%;
+  height: 1px;
+  background: linear-gradient(90deg, rgb(var(--accent) / .18), rgb(var(--signal) / .65), rgb(var(--accent) / .18));
+}
+.workbench-action {
+  position: relative;
+  display: flex;
+  min-height: 184px;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 38px 18px 17px;
+  overflow: hidden;
+  border: 1px solid rgb(var(--border));
+  border-radius: 18px;
+  background: rgb(var(--bg-secondary) / .72);
+  color: rgb(var(--text-primary));
+  text-align: left;
+  transition: transform .18s ease, border-color .18s ease, background .18s ease, box-shadow .18s ease;
+}
+.workbench-action:hover {
+  transform: translateY(-3px);
+  border-color: rgb(var(--accent) / .5);
+  background: rgb(var(--bg-elevated));
+  box-shadow: 0 18px 44px rgb(var(--shadow-rgb) / .1);
+}
+.workbench-action__node {
+  position: absolute;
+  z-index: 1;
+  top: 5px;
+  left: 50%;
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  transform: translateX(-50%);
+  border: 1px solid rgb(var(--signal) / .55);
+  border-radius: 50%;
+  background: rgb(var(--bg-primary));
+  color: rgb(var(--signal));
+  font: 700 9px/1 ui-monospace, monospace;
+}
+.workbench-action__icon { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 11px; background: rgb(var(--accent) / .1); color: rgb(var(--accent)); }
+.workbench-action__copy { display: flex; min-width: 0; flex-direction: column; margin-top: 15px; }
+.workbench-action__copy small { color: rgb(var(--text-muted)); font: 700 9px/1 ui-monospace, monospace; letter-spacing: .1em; text-transform: uppercase; }
+.workbench-action__copy strong { margin-top: 7px; font-size: 14px; line-height: 1.3; }
+.workbench-action__copy > span { margin-top: 6px; color: rgb(var(--text-muted)); font-size: 11px; line-height: 1.55; }
+.workbench-action__arrow { position: absolute; right: 15px; top: 42px; color: rgb(var(--text-muted)); transition: transform .18s ease, color .18s ease; }
+.workbench-action:hover .workbench-action__arrow { transform: translate(2px, -2px); color: rgb(var(--signal)); }
+.workbench-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 18px;
+  padding: 13px 3px;
+  color: rgb(var(--text-muted));
+  font-size: 10px;
+}
+.workbench-foot > div:first-child { display: flex; align-items: center; gap: 7px; }
+.workbench-foot strong { color: rgb(var(--text-secondary)); font-weight: 650; }
+.workbench-foot__activity { display: flex; gap: 16px; white-space: nowrap; }
+
+/* First-run thesis screen. The coral orbit is the single expressive moment. */
+.welcome-stage { position: relative; display: grid; flex: 1; place-items: center; overflow: hidden; padding: 48px; }
+.welcome-stage__glow {
+  position: absolute;
+  width: min(58vw, 720px);
+  aspect-ratio: 1;
+  border: 1px solid rgb(var(--signal) / .22);
+  border-radius: 50%;
+  box-shadow: 0 0 0 60px rgb(var(--accent) / .035), 0 0 0 180px rgb(var(--accent) / .02);
+  transform: translate(34%, -25%);
+}
+.welcome-stage__content { position: relative; z-index: 1; width: min(760px, 100%); }
+.welcome-stage__actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 28px; }
+.primary-action, .quiet-action { min-height: 42px; border-radius: 12px; font-size: 12px; font-weight: 650; }
+.primary-action { display: inline-flex; align-items: center; gap: 9px; padding: 0 16px; background: rgb(var(--accent)); color: rgb(var(--accent-fg)); box-shadow: 0 10px 26px rgb(var(--accent) / .24); }
+.primary-action:hover { background: rgb(var(--accent-hover)); transform: translateY(-1px); }
+.primary-action svg:last-child { margin-left: 5px; }
+.quiet-action { padding: 0 13px; color: rgb(var(--text-secondary)); }
+.quiet-action:hover { background: rgb(var(--bg-hover)); color: rgb(var(--text-primary)); }
+.welcome-stage__proof { display: flex; align-items: center; flex-wrap: wrap; gap: 18px; margin-top: 42px; color: rgb(var(--text-muted)); font: 600 10px/1 ui-monospace, monospace; }
+.welcome-stage__proof span { display: inline-flex; align-items: center; gap: 6px; }
+.welcome-stage__proof span + span::before { content: ''; width: 3px; height: 3px; margin-right: 12px; border-radius: 50%; background: rgb(var(--signal)); }
+
+/* Storage controls */
+.storage-card { padding: 16px; border: 1px solid rgb(var(--border)); border-radius: 16px; background: linear-gradient(145deg, rgb(var(--bg-secondary)), rgb(var(--bg-tertiary) / .7)); }
+.storage-card__mark { display: grid; width: 36px; height: 36px; flex: 0 0 auto; place-items: center; border-radius: 11px; background: rgb(var(--accent) / .11); color: rgb(var(--accent)); }
+.storage-metric { display: flex; min-width: 0; flex-direction: column; gap: 5px; padding: 9px 10px; border: 1px solid rgb(var(--border-subtle)); border-radius: 10px; background: rgb(var(--bg-primary) / .65); }
+.storage-metric span { display: flex; align-items: center; gap: 5px; color: rgb(var(--text-muted)); font-size: 9px; }
+.storage-metric strong { color: rgb(var(--text-primary)); font-size: 12px; font-weight: 650; }
+.storage-clean-button { display: inline-flex; min-height: 31px; flex: 0 0 auto; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid rgb(var(--border)); border-radius: 9px; color: rgb(var(--text-secondary)); font-size: 10px; font-weight: 650; }
+.storage-clean-button:hover { border-color: rgb(var(--accent) / .45); background: rgb(var(--bg-hover)); color: rgb(var(--text-primary)); }
+
+@media (max-width: 900px) {
+  .workbench-rail { grid-template-columns: 1fr; }
+  .workbench-rail__line { top: 0; bottom: 0; left: 14px; right: auto; width: 1px; height: auto; }
+  .workbench-action { min-height: 126px; padding: 16px 44px 16px 56px; }
+  .workbench-action__node { top: 20px; left: 14px; }
+  .workbench-action__icon { width: 30px; height: 30px; }
+  .workbench-action__copy { margin-top: 11px; }
+  .workbench-action__arrow { top: 18px; }
+  .workbench-foot { align-items: flex-start; flex-direction: column; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }

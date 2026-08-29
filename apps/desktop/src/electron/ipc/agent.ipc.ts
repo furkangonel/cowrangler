@@ -5,12 +5,12 @@ import fs from 'fs'
 import { agentManager, AgentManager } from '../agent_manager.js'
 import { getProjectDB } from '../project_db.js'
 import { getSessionDB } from '@cowrangler/core/session_db.js'
+import { projectStoreDirFor } from '@cowrangler/core/project_context.js'
 import { getConfig } from '@cowrangler/core/init.js'
 import { getSystemPrompt } from '@cowrangler/core/prompts/index.js'
 import { Agent } from '@cowrangler/core/agent.js'
 import { setAskUserListener, resolveAskUser } from '@cowrangler/core/tools/ask_user.js'
 import { getCodeWorkdir, setCodeWorkdir, getCodeExtraDirs, addCodeExtraDir, removeCodeExtraDir } from './code_workdir.js'
-import { ensureProjectWorkdir } from './managed_workspace.js'
 
 /** Code sekmesi için sabit projectId. Renderer'daki CODE_PROJECT_ID ile aynı. */
 const CODE_PROJECT_ID = '__code__'
@@ -80,6 +80,10 @@ function friendlyError(raw: string): string {
   if (unsupported) {
     return `Desteklenmeyen model: ${unsupported[1]}. Ayarlar → Modeller & API'den geçerli bir model seçin.`
   }
+  const visionUnsupported = raw.match(/VISION_NOT_SUPPORTED:(.+)/)
+  if (visionUnsupported) {
+    return `${visionUnsupported[1]} does not accept image input. Choose a vision-capable model or remove the image and send again.`
+  }
   return raw
 }
 
@@ -127,16 +131,18 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       return
     }
     const isDesign = !!project?.description?.startsWith('__cowrangler_design__:')
-    const contextType = projectId === CODE_PROJECT_ID
-      ? 'desktop_code'
-      : isDesign ? 'desktop_design' : 'desktop_session'
+    const contextType = isDesign ? 'desktop_design' : 'desktop_code'
     const basePrompt = getSystemPrompt(contextType)
     let systemPrompt = buildSystemPrompt(basePrompt, instructions)
 
-    // Code: ana workspace dışında kullanıcının eklediği EK dizinleri agent'a bildir.
-    // file_tools mutlak yol kabul eder → agent bu dizinlerde de okuyup yazabilir.
-    if (projectId === CODE_PROJECT_ID) {
-      const extraDirs = getCodeExtraDirs()
+    // Every local project is a Code project. Additional source folders are
+    // scoped to that project; legacy __code__ sessions keep their old list.
+    if (!isDesign) {
+      const extraDirs = projectId === CODE_PROJECT_ID
+        ? getCodeExtraDirs()
+        : projectDB.getFolders(projectId)
+            .map((folder) => folder.folder_path)
+            .filter((folderPath) => folderPath !== project?.workdir)
       if (extraDirs.length > 0) {
         systemPrompt +=
           `\n\n---\n\n## ADDITIONAL WORKSPACE DIRECTORIES\n\n` +
@@ -165,13 +171,10 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       contextType === 'desktop_design' ? DESIGN_TOOLS
       : undefined
 
-    // Cowork projesi (global/code değil) workdir'siz ise managed klasör ata:
-    // <root>/Cowrangler/<proje adı>/ — model çıktıları Desktop'a değil buraya gider.
+    // Code projects must point at an explicit local source folder.
     if (!projectId.startsWith('__') && project && !project.workdir) {
-      try {
-        const wd = ensureProjectWorkdir(projectId)
-        if (wd) project.workdir = wd
-      } catch { /* best-effort */ }
+      sender.send('agent:error', 'This project has no source folder. Open Edit project and add a local folder before starting a task.')
+      return
     }
 
     // Çalışma dizini: proje varsa onun workdir'i; global sohbette adanmış global
@@ -207,10 +210,7 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       // Code'da tek isteğin 25 ardışık model/tool turuna çıkması input context'i
       // katlayarak yakıyordu. 12 adım çoğu kod görevi için yeterli; kapsamlı iş
       // gerekiyorsa agent bir sonraki kullanıcı turunda kaldığı yerden sürer.
-      const maxIterations = contextType === 'desktop_design' ? 60
-        : contextType === 'desktop_code' ? 12
-        : contextType === 'desktop_session' ? 16
-        : undefined
+      const maxIterations = contextType === 'desktop_design' ? 60 : config.max_iterations
       // getOrCreate: mevcut agent'ı döndürür (varsa) + workdir map'ini günceller.
       agent = agentManager.getOrCreate(projectId, {
         model, systemPrompt, allowedTools, maxIterations,
@@ -219,7 +219,7 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       // Design turunda thinking'i tercih et: reasoning destekli modelde muhakeme
       // görünür yanıt metnine sızmak yerine "Thought Process" accordion'una gider.
       // (Kullanıcı COWRANGLER_THINKING=0 ile açıkça kapattıysa yine kapalı kalır.)
-      agent.preferThinking = contextType === 'desktop_design' || contextType === 'desktop_session'
+      agent.preferThinking = contextType === 'desktop_design'
       // Desktop tek-kanal düz metin sözleşmesi: send_message YOK. Model asıl
       // yanıtını görünür metin olarak yazar; ikili kanal (anlatı + send_message)
       // karmaşası ve "cevap gizli kaldı / hiç mesaj çıkmadı" sorunları biter.
@@ -315,17 +315,12 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
 
     // Code yüzeyinde ara adımları tamamen gizlemek yerine tek cümlelik kısa
     // durum güncellemelerine indirgeriz. Tool kartları ayrıntılı ilerlemeyi,
-    // agent:done ise nihai sonucu taşır. Cowork/Design zengin akışı korur.
+    // agent:done ise nihai sonucu taşır. Design zengin akışı korur.
     const onStepText = contextType === 'desktop_code'
       ? (text: string) => {
           const compact = compactStepText(text, 180)
           if (compact) sender.send('agent:stepText', `${compact}\n\n`)
         }
-      : contextType === 'desktop_session'
-        ? (text: string) => {
-            const compact = compactStepText(text, 240)
-            if (compact) sender.send('agent:stepText', `${compact}\n\n`)
-          }
       : (text: string) => sender.send('agent:stepText', text)
 
     const onReasoningText = (text: string) => {
@@ -493,7 +488,7 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
       if (!sessionId) return null
       const workdir = resolveTodoWorkdir(projectId, sessionId)
       if (!workdir) return null
-      const planDir = path.join(workdir, '.cowrangler', 'plans')
+      const planDir = path.join(projectStoreDirFor(workdir), 'plans')
       // Yapılı JSON (title/steps/status) tercih edilir; yoksa markdown'a düş.
       const jsonFile = path.join(planDir, `${sessionId}.plan.json`)
       if (fs.existsSync(jsonFile)) {

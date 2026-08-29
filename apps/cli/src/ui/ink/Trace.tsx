@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
-import { Theme } from "../theme.js";
+import { Theme, Palette } from "../theme.js";
 import { TraceEntry, SpinnerMode } from "./types.js";
 import { t } from "@cowrangler/core/i18n/index.js";
 import {
@@ -64,7 +64,7 @@ export const TraceLine: React.FC<{ entry: TraceEntry }> = ({ entry }) => {
   if (entry.kind === "brief") {
     const isProactive = entry.status === "proactive";
     const icon = isProactive ? "⚡" : "◎";
-    const colorHex = isProactive ? "#FF9500" : "#5CA4D4";
+    const colorHex = isProactive ? Palette.warn : Palette.info;
     const label = isProactive ? t("ui.proactive_label") : t("ui.message_label");
     return (
       <Box>
@@ -123,7 +123,7 @@ export const TraceBlock: React.FC<{ entries: TraceEntry[] }> = ({ entries }) => 
           return (
             <Box key={i}>
               <Text>{`  ${isProactive ? "⚡" : "◎"} `}</Text>
-              <Text color={isProactive ? "#FF9500" : "#5CA4D4"}>
+              <Text color={isProactive ? Palette.warn : Palette.info}>
                 {isProactive ? t("ui.proactive_label") : t("ui.message_label")}
               </Text>
               <Text>{entry.message}</Text>

@@ -1,6 +1,6 @@
 /**
- * Interface adapter'ları — core facade'ı her arayüze (CLI / Cowork / Design /
- * Code) bağlayan köprüler. Görseldeki "Adapters → Packages": aynı core, her
+ * Interface adapter'ları — core facade'ı her arayüze (CLI / Design / Code)
+ * bağlayan köprüler. Görseldeki "Adapters → Packages": aynı core, her
  * arayüzde kendine düşen görevi kendi politikasıyla yerine getirir.
  *
  * Her adapter:
@@ -13,7 +13,7 @@
 
 import { createCoreServices, type CoreServices, type NativeTurnOptions, type NativeTurnResult } from "./core_facade.js";
 
-export type InterfaceKind = "cli" | "cowork" | "design" | "code";
+export type InterfaceKind = "cli" | "design" | "code";
 
 export interface InterfacePolicy {
   /** Bu arayüzde modele açılan tool politikası. */
@@ -36,8 +36,6 @@ export interface InterfaceAdapter {
 export const INTERFACE_POLICIES: Record<InterfaceKind, InterfacePolicy> = {
   // CLI: tam tool erişimi, terminal streaming, thinking kapalı (hız).
   cli: { tools: "*", streaming: true, thinkingDefault: false },
-  // Cowork: tam tool + zengin streaming; thinking varsayılan açık (kaliteli iş).
-  cowork: { tools: "*", streaming: true, thinkingDefault: true },
   // Design: lean tool seti (dosya + tasarım araçları), streaming, thinking açık.
   design: { tools: ["read_file", "write_file", "edit_file", "web_search", "fetch_webpage"], streaming: true, thinkingDefault: true },
   // Code: tam geliştirme tool seti, streaming, thinking açık.
@@ -62,11 +60,10 @@ export function createAdapter(kind: InterfaceKind, core: CoreServices = createCo
   };
 }
 
-/** Dört arayüz adapter'ını tek core üstünde kurar (Desktop tüm yüzeyleri yükler). */
+/** Üç arayüz adapter'ını tek core üstünde kurar (Desktop tüm yüzeyleri yükler). */
 export function createAllAdapters(core: CoreServices = createCoreServices()): Record<InterfaceKind, InterfaceAdapter> {
   return {
     cli: createAdapter("cli", core),
-    cowork: createAdapter("cowork", core),
     design: createAdapter("design", core),
     code: createAdapter("code", core),
   };

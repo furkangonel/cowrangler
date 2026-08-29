@@ -1,5 +1,5 @@
 /**
- * Tema yöneticisi — Cowork light "paper" + dark warm-charcoal.
+ * Tema yöneticisi — warm paper light + warm-charcoal dark.
  * <html data-theme> ve --font-scale CSS değişkenini ayarlar.
  */
 

@@ -7,7 +7,6 @@ const rootPkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../packag
 const rootDeps = Object.keys(rootPkg.dependencies || {})
 const workspaceDeps = [
   '@cowrangler/core',
-  '@cowrangler/adapter-cowork',
   '@cowrangler/adapter-design',
   '@cowrangler/adapter-code'
 ]

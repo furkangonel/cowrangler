@@ -5,11 +5,10 @@ import path from "path";
 
 /**
  * data_layout — kanonik veri yerleşiminin sözleşmesini kilitler:
- *   - ÜRETİLEN / OTURUM verisi (history, recall, tasks, context, audit) global
+ *   - ÜRETİLEN / OTURUM verisi (history, recall, tasks, plans, context, audit) global
  *     proje deposuna (~/.cowrangler/projects/<label>-<hash>/) gider — proje
  *     dizinine ASLA yazılmaz.
- *   - PROJE-YAZIMI verisi (memory, skills, agents) ve tek istisna olan plans,
- *     {workdir}/.cowrangler altında kalır.
+ *   - PROJE-YAZIMI verisi (memory, skills, agents) {workdir}/.cowrangler altında kalır.
  *   - migrateProjectLayout eski kirli yerleşimi güvenli+idempotent taşır.
  *
  * COWRANGLER_HOME'u dinamik import'tan ÖNCE geçici bir dizine sabitleriz; böylece
@@ -67,16 +66,16 @@ describe("data_layout — global proje deposu yolları", () => {
     expect(PC.getProjectLocalAgentsDir()).toBe(path.join(wd, ".cowrangler", "agents"));
   });
 
-  it("plans BİLİNÇLİ istisna: {workdir}/.cowrangler/plans altında kalır", () => {
+  it("plans makine-lokal proje deposunda kalır", () => {
     const wd = fs.mkdtempSync(path.join(os.tmpdir(), "cw-proj-"));
     PC.setProjectContext(wd);
     PC.setActiveSessionId("s9");
-    expect(PC.getProjectPlanFile()).toBe(path.join(wd, ".cowrangler", "plans", "s9.md"));
+    expect(PC.getProjectPlanFile()).toBe(path.join(PC.projectStoreDirFor(wd), "plans", "s9.md"));
   });
 });
 
 describe("data_layout — migration (eski → yeni, güvenli & idempotent)", () => {
-  it("plugin'i global'e, üretilen veriyi store'a taşır; plans+skills kalır; kalıntı silinir", () => {
+  it("plugin'i global'e, üretilen veriyi store'a taşır; skills kalır; kalıntı silinir", () => {
     const wd = fs.mkdtempSync(path.join(os.tmpdir(), "cw-legacy-"));
     const base = path.join(wd, ".cowrangler");
     const mk = (rel: string, body = "x") => {
@@ -95,7 +94,7 @@ describe("data_layout — migration (eski → yeni, güvenli & idempotent)", () 
     mk("memory.md", "# Proje Hafızası (Context)\n"); // yalnız şablon başlık → silinmeli
     fs.writeFileSync(path.join(base, "tasks.json"), ""); // boş → silinmeli
     fs.writeFileSync(path.join(base, ".DS_Store"), "junk");
-    mk("plans/s1.md", "plan"); // KALMALI (istisna)
+    mk("plans/s1.md", "plan");
     mk("skills/myskill/SKILL.md", "mine"); // KALMALI (proje-yazımı)
 
     PC.migrateProjectLayout(wd);
@@ -110,6 +109,7 @@ describe("data_layout — migration (eski → yeni, güvenli & idempotent)", () 
     expect(fs.existsSync(path.join(store, "tasks", "default", "1.json"))).toBe(true);
     expect(fs.existsSync(path.join(store, "context", "skills", "s1", "caveman", "SKILL.md"))).toBe(true);
     expect(fs.existsSync(path.join(store, "memory", "recall.jsonl"))).toBe(true);
+    expect(fs.existsSync(path.join(store, "plans", "s1.md"))).toBe(true);
     expect(fs.existsSync(path.join(base, "history"))).toBe(false);
 
     // Kalıntı temizlendi
@@ -117,12 +117,12 @@ describe("data_layout — migration (eski → yeni, güvenli & idempotent)", () 
     expect(fs.existsSync(path.join(base, "tasks.json"))).toBe(false);
     expect(fs.existsSync(path.join(base, ".DS_Store"))).toBe(false);
 
-    // Proje-yazımı + plans KALDI
-    expect(fs.existsSync(path.join(base, "plans", "s1.md"))).toBe(true);
+    // Proje-yazımı KALDI; plan kaynak ağacından çıktı.
+    expect(fs.existsSync(path.join(base, "plans", "s1.md"))).toBe(false);
     expect(fs.existsSync(path.join(base, "skills", "myskill", "SKILL.md"))).toBe(true);
 
     // İşaretçi yazıldı
-    expect(fs.existsSync(path.join(store, ".migrated"))).toBe(true);
+    expect(fs.existsSync(path.join(store, ".migrated-v2"))).toBe(true);
   });
 
   it("anlamlı memory.md içeriği kaybolmaz → memory/project.md'ye taşınır", () => {
@@ -146,6 +146,6 @@ describe("data_layout — migration (eski → yeni, güvenli & idempotent)", () 
 
     PC.migrateProjectLayout(wd);
     PC.migrateProjectLayout(wd); // tekrar — throw etmemeli
-    expect(fs.existsSync(path.join(base, "plans", "s1.md"))).toBe(true);
+    expect(fs.existsSync(path.join(PC.projectStoreDirFor(wd), "plans", "s1.md"))).toBe(true);
   });
 });

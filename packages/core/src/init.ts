@@ -4,6 +4,7 @@ import os from "os";
 import yaml from "js-yaml";
 import dotenv from "dotenv";
 import { fileURLToPath } from "url";
+import { getSecrets } from "./credential_vault.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -211,6 +212,13 @@ export function loadEnvironmentVariables() {
   if (fs.existsSync(DIRS.global.credentials)) {
     dotenv.config({ path: DIRS.global.credentials });
   }
+  // Desktop stores provider keys outside config/credentials.env. Hydrate them
+  // for both the desktop process and the standalone CLI.
+  try {
+    for (const [key, value] of Object.entries(getSecrets("provider-api"))) {
+      if (value && !process.env[key]) process.env[key] = value;
+    }
+  } catch { /* vault unavailable: legacy env loading still works */ }
   const localEnv = path.join(PROJECT_ROOT, ".env");
   if (fs.existsSync(localEnv)) {
     dotenv.config({ path: localEnv, override: true });

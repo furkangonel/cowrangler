@@ -1,4 +1,6 @@
-/* Cowrangler Design — studio console. Scoped: never leaks into main shell. */
+/* Co-Wrangler Design — studio console. Scoped: never leaks into the main shell.
+   Clay ramp is the Co-Wrangler mark (#EC5A29) pulled toward terracotta so the
+   studio keeps its paper feel while staying in the brand family. */
 .design-root {
   --d-paper: #f3f2ee;
   --d-cream: #ebe9e3;
@@ -11,10 +13,10 @@
   --d-ink-faint: #a4a39a;
   --d-line: rgba(36, 37, 33, .13);
   --d-line-2: rgba(36, 37, 33, .075);
-  --d-clay: #a95f43;
-  --d-clay-soft: #d7a18c;
-  --d-clay-deep: #80432e;
-  --d-clay-wash: #f3e6df;
+  --d-clay: #c24a22;
+  --d-clay-soft: #f0a482;
+  --d-clay-deep: #9c3813;
+  --d-clay-wash: #fbeae1;
   --d-beige: #dedbd2;
   --d-beige-2: #d0cdc4;
   --d-blue: #8da2bc;
@@ -30,23 +32,23 @@
 }
 
 .design-root[data-design-theme='dark'] {
-  --d-paper: #171816;
-  --d-cream: #1c1d1a;
-  --d-cream-2: #292a26;
-  --d-surface: #20211e;
-  --d-elevated: #282925;
-  --d-ink: #edeee7;
-  --d-ink-soft: #c1c2ba;
-  --d-ink-muted: #92938b;
-  --d-ink-faint: #676861;
-  --d-line: rgba(237, 238, 231, .12);
-  --d-line-2: rgba(237, 238, 231, .07);
-  --d-clay: #c87858;
-  --d-clay-soft: #8f5c48;
-  --d-clay-deep: #e09a7e;
-  --d-clay-wash: #35251f;
-  --d-beige: #31322e;
-  --d-beige-2: #3b3c37;
+  --d-paper: #17181a;
+  --d-cream: #1d1f23;
+  --d-cream-2: #292b30;
+  --d-surface: #1f2126;
+  --d-elevated: #262930;
+  --d-ink: #eceef1;
+  --d-ink-soft: #b4b9c0;
+  --d-ink-muted: #8d939c;
+  --d-ink-faint: #6b7079;
+  --d-line: rgba(236, 238, 241, .12);
+  --d-line-2: rgba(236, 238, 241, .07);
+  --d-clay: #ff8a52;
+  --d-clay-soft: #8c4a2c;
+  --d-clay-deep: #ffa877;
+  --d-clay-wash: #2f2620;
+  --d-beige: #2a2d32;
+  --d-beige-2: #34373d;
   --d-blue: #8298b5;
   --d-hover: rgba(255, 255, 255, .055);
   color-scheme: dark;

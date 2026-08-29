@@ -1,8 +1,8 @@
 {
   "name": "@cowrangler/desktop",
-  "version": "2.1.8",
+  "version": "2.2.0",
   "private": true,
-  "description": "Cowrangler Desktop — Electron shell (cowork/design/code yüzeyleri).",
+  "description": "Cowrangler Desktop — local-first Code and Design workspace.",
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
@@ -13,9 +13,8 @@
   },
   "dependencies": {
     "@cowrangler/adapter-code": "*",
-    "@cowrangler/adapter-cowork": "*",
     "@cowrangler/adapter-design": "*",
     "@cowrangler/core": "*",
-    "electron": "^31.7.7"
+    "electron": "^41.10.6"
   }
 }

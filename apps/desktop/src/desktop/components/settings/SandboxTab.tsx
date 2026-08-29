@@ -1,14 +1,15 @@
 import React, { useEffect, useState } from 'react'
 import { ShieldCheck, ShieldAlert, RefreshCw } from 'lucide-react'
 import { useSettingsStore } from '../../stores/settings.store'
-import { ipc, SandboxHealth } from '../../lib/ipc'
+import { ipc } from '../../lib/ipc'
+import type { SandboxHealth, PermissionPolicyView } from '../../lib/ipc'
 
 /**
  * SandboxTab — WP-5 çok-platform sandbox ayarları + canlı backend sağlığı.
  *
- * İzolasyon aç/kapa, algılanan backend (Seatbelt / Bubblewrap / Docker / …),
- * ağ kısıtlama, timeout, max output, workspace kökü. Sandbox ayarları config
- * içindeki `sandbox` nesnesine yazılır (core/init.ts ile aynı şekil).
+ * Permission policy owns whether isolation is enabled. Runtime-only tuning
+ * (provider, timeout, output cap, audit) remains in config.yaml. Keeping that
+ * split explicit prevents two settings screens from writing competing values.
  */
 
 const PROVIDERS = [
@@ -20,23 +21,41 @@ const PROVIDERS = [
 export function SandboxTab() {
   const { config, setConfig } = useSettingsStore()
   const sandbox = config.sandbox ?? {}
-  const enabled = sandbox.enabled ?? true
 
   const [health, setHealth] = useState<SandboxHealth | null>(null)
+  const [policy, setPolicy] = useState<PermissionPolicyView | null>(null)
   const [loading, setLoading] = useState(false)
 
   async function loadHealth() {
     setLoading(true)
-    try { setHealth(await ipc.settings.sandboxHealth()) } catch { /* yok say */ }
+    try {
+      const [nextHealth, nextPolicy] = await Promise.all([
+        ipc.settings.sandboxHealth(),
+        window.electronAPI.permissions.get(),
+      ])
+      setHealth(nextHealth)
+      setPolicy(nextPolicy)
+    } catch { /* surface remains in unavailable state */ }
     setLoading(false)
   }
   useEffect(() => { void loadHealth() }, [])
 
-  function patch(partial: Record<string, any>) {
-    setConfig('sandbox', { ...sandbox, ...partial })
+  async function patch(partial: Record<string, any>) {
+    await setConfig('sandbox', { ...sandbox, ...partial })
+    if ('provider' in partial) {
+      await loadHealth()
+      window.dispatchEvent(new Event('cowrangler:permissions-changed'))
+    }
+  }
+
+  async function setEnabled(enabled: boolean) {
+    await window.electronAPI.permissions.setSandbox({ enabled })
+    await loadHealth()
+    window.dispatchEvent(new Event('cowrangler:permissions-changed'))
   }
 
   const isolated = health?.isolated
+  const enabled = policy?.sandbox.enabled ?? true
   const HealthIcon = isolated ? ShieldCheck : ShieldAlert
 
   return (
@@ -66,10 +85,16 @@ export function SandboxTab() {
             <div className="text-xs text-text-muted mt-0.5">
               {health
                 ? isolated
-                  ? `Real filesystem/network isolation active (${health.platform}).`
-                  : `No isolation available — commands run in low-trust mode (${health.platform}).`
+                  ? `OS isolation and runner bundle healthy (${health.platform}).`
+                  : `Isolation unavailable (${health.platform}). Commands stay blocked until fixed or explicitly approved outside sandbox.`
                 : ''}
             </div>
+            {health?.bundlePath && (
+              <div className="text-2xs text-text-muted mt-1 font-mono break-all">{health.bundlePath}</div>
+            )}
+            {health?.error && (
+              <div className="text-2xs text-orange-500 mt-1 whitespace-pre-wrap">{health.error}</div>
+            )}
           </div>
         </div>
       </section>
@@ -79,10 +104,10 @@ export function SandboxTab() {
         <h4 className="text-sm font-semibold text-text-primary">Settings</h4>
 
         <label className="flex items-start gap-3 p-3 rounded-xl border-2 border-border cursor-pointer hover:border-text-muted transition-all">
-          <input type="checkbox" className="mt-1" checked={enabled} onChange={e => patch({ enabled: e.target.checked })} />
+          <input type="checkbox" className="mt-1" checked={enabled} onChange={e => void setEnabled(e.target.checked)} />
           <div>
             <div className="text-sm font-medium text-text-primary">Enable sandbox isolation</div>
-            <div className="text-xs text-text-muted mt-0.5">Run destructive/risky commands inside the isolation backend above.</div>
+            <div className="text-xs text-text-muted mt-0.5">Shared with Permissions; one policy controls both approval and execution.</div>
           </div>
         </label>
 
@@ -120,14 +145,9 @@ export function SandboxTab() {
           <NumberInput value={sandbox.max_output_bytes ?? 524288} min={1024} onChange={v => patch({ max_output_bytes: v })} />
         </Field>
 
-        <Field label="Workspace root">
-          <input
-            value={sandbox.workspace_root ?? ''}
-            onChange={e => patch({ workspace_root: e.target.value })}
-            placeholder="(active project directory)"
-            className="w-full px-2.5 py-1.5 bg-bg-tertiary border border-border rounded-lg text-xs font-mono focus:border-accent/60 outline-none"
-          />
-        </Field>
+        <p className="text-2xs text-text-muted">
+          Workspace root follows active project. Extra roots come from Permissions → Additional directories.
+        </p>
       </section>
     </div>
   )

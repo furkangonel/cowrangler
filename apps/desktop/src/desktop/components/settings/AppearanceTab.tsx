@@ -4,9 +4,9 @@ import { useSettingsStore } from '../../stores/settings.store'
 import { ThemePref } from '../../lib/theme'
 
 const THEMES: { id: ThemePref; label: string; icon: typeof Sun; swatch: { canvas: string; panel: string; text: string; accent: string } }[] = [
-  { id: 'light', label: 'Light', icon: Sun, swatch: { canvas: '#FAF9F6', panel: '#F0EEE6', text: '#26241F', accent: '#E05C2A' } },
-  { id: 'dark', label: 'Dark', icon: Moon, swatch: { canvas: '#262624', panel: '#1F1E1D', text: '#F5F4EE', accent: '#F26A38' } },
-  { id: 'system', label: 'System', icon: Monitor, swatch: { canvas: 'linear-gradient(135deg,#FAF9F6 50%,#262624 50%)', panel: '#9b968b', text: '#808080', accent: '#E05C2A' } },
+  { id: 'light', label: 'Light', icon: Sun, swatch: { canvas: '#FCFAF8', panel: '#F5F1EC', text: '#1F1A16', accent: '#CC4517' } },
+  { id: 'dark', label: 'Dark', icon: Moon, swatch: { canvas: '#16171A', panel: '#1D1F23', text: '#ECEEF1', accent: '#FF8A52' } },
+  { id: 'system', label: 'System', icon: Monitor, swatch: { canvas: 'linear-gradient(135deg,#FCFAF8 50%,#16171A 50%)', panel: '#7C828B', text: '#8D939C', accent: '#EC5A29' } },
 ]
 
 const FONT_SIZES = [

@@ -9,7 +9,7 @@ import { Box, Static, Text, useApp, useInput } from "ink";
 import { Agent } from "@cowrangler/core/agent.js";
 import { SkillManager } from "@cowrangler/core/skills.js";
 import { CommandRouter, CommandContext } from "../commands.js";
-import { UI, Theme } from "../theme.js";
+import { UI, Theme, Palette } from "../theme.js";
 import {
   Turn,
   TraceEntry,
@@ -844,7 +844,7 @@ export const App: React.FC<AppProps> = ({ agent }) => {
             {activeTodoItem && (
               <Box paddingLeft={2} marginTop={0}>
                 <Text dimColor>{"  ◎ "}</Text>
-                <Text color="#FF9500">{activeTodoItem}</Text>
+                <Text color={Palette.warn}>{activeTodoItem}</Text>
               </Box>
             )}
 
@@ -911,8 +911,8 @@ export const App: React.FC<AppProps> = ({ agent }) => {
         {/* ── Transient view-mode toast (Ctrl+O feedback, no scrollback pollution) ── */}
         {viewModeToast && (
           <Box paddingLeft={2} marginTop={0}>
-            <Text color="#5CA4D4">{"◈ "}</Text>
-            <Text color="#5CA4D4">{viewModeToast}</Text>
+            <Text color={Palette.info}>{"◈ "}</Text>
+            <Text color={Palette.info}>{viewModeToast}</Text>
             <Text dimColor>{"  [Ctrl+O]"}</Text>
           </Box>
         )}

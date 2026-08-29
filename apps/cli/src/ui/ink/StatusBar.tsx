@@ -14,14 +14,15 @@
  *
  * Renk kodlaması:
  *   normal   → dim (soluk)
- *   warning  → #F5A623 amber (%85+)
- *   critical → #FF3B30 kırmızı bold (%95+)
+ *   warning  → Palette.warn (%85+)
+ *   critical → Palette.fail, bold (%95+)
  */
 
 import React, { useEffect, useState } from "react";
 import { Box, Text } from "ink";
 import { Agent } from "@cowrangler/core/agent.js";
 import { buildStatusBarText } from "@cowrangler/core/context_engine.js";
+import { Palette } from "../theme.js";
 
 interface StatusBarProps {
   agent: Agent;
@@ -35,8 +36,8 @@ interface StatusBarProps {
 function styleToColor(
   style: "normal" | "warning" | "critical",
 ): string | undefined {
-  if (style === "warning") return "#F5A623";
-  if (style === "critical") return "#FF3B30";
+  if (style === "warning") return Palette.warn;
+  if (style === "critical") return Palette.fail;
   return undefined; // dim
 }
 

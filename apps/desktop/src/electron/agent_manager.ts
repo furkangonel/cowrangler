@@ -11,7 +11,7 @@ import path from 'path'
 import fs from 'fs'
 import { Agent } from '@cowrangler/core/agent.js'
 import { LLM } from '@cowrangler/core/llm.js'
-import { setProjectContext, getActiveSessionId, projectStoreDirFor } from '@cowrangler/core/project_context.js'
+import { setProjectContext, projectStoreDirFor } from '@cowrangler/core/project_context.js'
 import { setWorkspace } from '@cowrangler/core/tools/file_tools.js'
 
 export interface TaskProgress {
@@ -24,7 +24,6 @@ export class AgentManager {
   private agents = new Map<string, Agent>()
   private workdirs = new Map<string, string>()
   private todoWatchers = new Map<string, fs.FSWatcher>()
-  private todoPollers = new Map<string, ReturnType<typeof setInterval>>()
 
   /**
    * Proje için Agent instance'ı döndürür veya oluşturur.
@@ -76,8 +75,7 @@ export class AgentManager {
   destroy(projectId: string): void {
     this.agents.delete(projectId)
     this.workdirs.delete(projectId)
-    const w = this.todoWatchers.get(projectId)
-    if (w) { w.close(); this.todoWatchers.delete(projectId) }
+    this.stopWatchTodo(projectId)
   }
 
   destroyAll(): void {
@@ -172,7 +170,7 @@ export class AgentManager {
    * @param onChange   Callback when tasks change
    */
   watchTodo(projectId: string, workdir: string, sessionId: string, onChange: (tasks: TaskProgress[]) => void): void {
-    // Varsa önceki watcher ve poller'ı temizle
+    // Varsa önceki watcher'ı temizle.
     this.stopWatchTodo(projectId);
 
     if (!workdir || !sessionId) return;
@@ -192,36 +190,11 @@ export class AgentManager {
       onChange(AgentManager.readTodo(workdir, sessionId));
     } catch { /* watch başlatılamazsa sessizce geç */ }
 
-    // Ayrıca getActiveSessionId poller'ı: agent.chat() sırasında yeni
-    // session açıldığında watcher'ı otomatik yenile.
-    let lastPolledSid = sessionId;
-    const poller = setInterval(() => {
-      const sid = getActiveSessionId();
-      if (sid && sid !== lastPolledSid) {
-        lastPolledSid = sid;
-        // Yeni session açıldı — watcher'ı yeni dizine taşı
-        const newDir = path.join(projectStoreDirFor(workdir), 'tasks', sid);
-        const w = this.todoWatchers.get(projectId);
-        if (w) { try { w.close() } catch { } }
-        try {
-          fs.mkdirSync(newDir, { recursive: true });
-          const newWatcher = fs.watch(newDir, () => {
-            if (debounce) clearTimeout(debounce);
-            debounce = setTimeout(() => onChange(AgentManager.readTodo(workdir, sid)), 100);
-          });
-          this.todoWatchers.set(projectId, newWatcher);
-          onChange(AgentManager.readTodo(workdir, sid));
-        } catch { /* sessizce devam */ }
-      }
-    }, 800);
-    this.todoPollers.set(projectId, poller);
   }
 
   stopWatchTodo(projectId: string): void {
     const w = this.todoWatchers.get(projectId)
     if (w) { try { w.close() } catch { } this.todoWatchers.delete(projectId) }
-    const p = this.todoPollers.get(projectId)
-    if (p) { clearInterval(p); this.todoPollers.delete(projectId) }
   }
 }
 

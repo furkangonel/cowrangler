@@ -1,17 +1,15 @@
 /**
- * CodeSessionView — Code sekmesinin ana görünümü.
+ * CodeSessionView — proje Code yüzeyinin ana görünümü.
  *
- * Claude Desktop Code tab mantığı:
- *   • Her session bağımsız — proje hiyerarşisine bağlı değil.
- *   • Çalışma dizini (workdir) session başında seçilir; git durumu alt barda gösterilir.
+ *   • Her session aktif projeye bağlıdır ve sidebarda o proje altında listelenir.
+ *   • Çalışma dizini projenin birincil kaynak klasörüdür; git durumu alt barda gösterilir.
  *   • Chat + Git status bar (folder·branch·PR) + alttaki InputArea model seçici.
  *   • Session null ise "home" ekranı (dizin seçici + boş durum).
  *
- * Proje kimliği: '__code__' sabiti (global chat'teki '__global__' gibi).
  */
 import React, { useEffect, useRef, useCallback, useState } from 'react'
 import {
-  Plus, Square, FolderOpen, GitBranch, Check,
+  Plus, FolderOpen, GitBranch, Check,
   ChevronDown, Code2, GitPullRequest, RefreshCw, X,
 } from 'lucide-react'
 import { ipc } from '../../lib/ipc'
@@ -20,22 +18,21 @@ import { useSessionsStore } from '../../stores/sessions.store'
 import { useSettingsStore } from '../../stores/settings.store'
 import { useUIStore } from '../../stores/ui.store'
 import { useGitStore } from '../../stores/git.store'
+import { useProjectsStore } from '../../stores/projects.store'
+import { parseAttachments } from '../../lib/attachments'
 import { MessageBubble } from './MessageBubble'
 import { InputArea } from './InputArea'
 import { AskUserPrompt } from './AskUserPrompt'
 import { StatsDashboard } from './StatsDashboard'
 
-export const CODE_PROJECT_ID = '__code__'
 /** Henüz DB'ye yazılmamış taze oturum (ilk mesajda gerçek id ile değişir). */
 const NEW_CODE_SESSION = '__new__'
 
 /**
- * "New task" — taze bir kod workspace'i başlat. Ana sayfayı (CodeHome) açar:
- * mevcut oturumdan çıkar, workdir + ek dizinleri sıfırlar ki kullanıcı yeni bir
- * ana workspace seçebilsin. Sol sidebardaki "New task" butonu bunu çağırır.
+ * "New task" aktif proje içinde taze bir Code oturumu başlatır.
  */
-export async function startNewCodeTask(): Promise<void> {
-  await ipc.agent.newSession(CODE_PROJECT_ID).catch(() => {})
+export async function startNewCodeTask(projectId: string): Promise<void> {
+  await ipc.agent.newSession(projectId).catch(() => {})
   const agent = useAgentStore.getState()
   agent.setStatus('idle')
   agent.clearToolCalls()
@@ -43,16 +40,12 @@ export async function startNewCodeTask(): Promise<void> {
   agent.setProgress([])
   agent.setCurrentPlan(null)
   useSessionsStore.getState().clearUIMessages()
-  // Ana workspace'i sıfırla → CodeHome'da yeni klasör seçilebilir (setCodeWorkdir
-  // null ek dizinleri de backend'de temizler).
-  useGitStore.getState().setWorkdir(null)
-  ipc.agent.setCodeWorkdir(null).catch(() => {})
-  useUIStore.getState().setActiveCodeSession(null)
+  useUIStore.getState().setActiveCodeSession(NEW_CODE_SESSION)
 }
 
 /* ══════════════════════════════════════════════════════════════════════════ */
 
-export function CodeSessionView() {
+export function CodeSessionView({ projectId, projectWorkdir }: { projectId: string; projectWorkdir: string }) {
   const agentStore = useAgentStore()
   const {
     uiMessages, loadMessages, clearUIMessages,
@@ -70,30 +63,31 @@ export function CodeSessionView() {
     setCodeRightTab,
   } = useUIStore()
   const gitStore = useGitStore()
+  const { folders, loadFolders, addFolder, removeFolder } = useProjectsStore()
   const bottomRef = useRef<HTMLDivElement>(null)
   const previousTaskCountRef = useRef(0)
   const status = agentStore.status
 
-  // Workdir: git store'dan al (kod sekmesi boyunca tek workdir)
-  const workdir = gitStore.workdir
+  // Projenin birincil kaynak klasörü.
+  const workdir = projectWorkdir
   const repoName = workdir ? (workdir.split('/').pop() ?? null) : null
 
   // Agent olaylarını code project için dinle.
   useEffect(() => {
-    agentStore.startListening(CODE_PROJECT_ID, {
+    agentStore.startListening(projectId, {
       getActiveSessionId: () => useUIStore.getState().activeCodeSessionId,
       onUserMessage: addUserMessage,
       onAssistantStart: addAssistantStreaming,
       onUpdateStreaming: updateStreamingMessage,
       onFinalize: finalizeMessage,
       onSessionCreated: (sid) => {
-        loadSessions(CODE_PROJECT_ID)
+        loadSessions(projectId)
         setActiveCodeSession(sid)
       },
     })
     return () => { agentStore.stopListening() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [projectId])
 
   // Aktif session değişince mesajları yükle / temizle + session'ın workdir'ini geri yükle.
   useEffect(() => {
@@ -103,29 +97,23 @@ export function CodeSessionView() {
     agentStore.setCurrentPlan(null)
     if (activeCodeSessionId && activeCodeSessionId !== NEW_CODE_SESSION) {
       loadMessages(activeCodeSessionId)
-      // Cowork ProgressPanel gibi Code task listesini de diskten geri yükle.
+      // Code task listesini diskten geri yükle.
       // fs.watch event'i uygulama kapalıyken/session geçişinde kaçmış olabilir.
-      ipc.agent.getTodo(CODE_PROJECT_ID, activeCodeSessionId)
+      ipc.agent.getTodo(projectId, activeCodeSessionId)
         .then(tasks => agentStore.setProgress(tasks ?? []))
         .catch(() => agentStore.setProgress([]))
       // Planı da diskten geri yükle — canlı agent:plan event'i yalnız write_plan
       // turunda gelir; session geçişi/yeniden açılışta plan aksi halde kaybolur.
-      ipc.agent.getPlan(CODE_PROJECT_ID, activeCodeSessionId)
+      ipc.agent.getPlan(projectId, activeCodeSessionId)
         .then(plan => agentStore.setCurrentPlan(plan ?? null))
         .catch(() => agentStore.setCurrentPlan(null))
-      ipc.sessions.get(activeCodeSessionId).then(sess => {
-        if (sess && sess.workdir && sess.workdir !== '/' && sess.workdir !== '') {
-          gitStore.setWorkdir(sess.workdir)
-          ipc.agent.setCodeWorkdir(sess.workdir).catch(() => {})
-        }
-      }).catch(console.error)
       ipc.agent.setActiveSession(activeCodeSessionId).catch(() => {})
     } else {
       clearUIMessages()
       ipc.agent.setActiveSession(null).catch(() => {})
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeCodeSessionId])
+  }, [activeCodeSessionId, projectId])
 
   // manage_task ilk görevi oluşturduğu anda sağ paneli görünür kıl. Kullanıcı
   // isterse kapatabilir; sonraki status güncellemeleri paneli zorla açmaz.
@@ -138,12 +126,12 @@ export function CodeSessionView() {
     previousTaskCountRef.current = count
   }, [agentStore.progress.length, setRightPanelOpen, setCodeRightTab])
 
-  // Workdir değişince: backend'e bildir (agent bu dizinde çalışsın) + git yenile.
+  // Project switch updates the shared Git/terminal panels.
   useEffect(() => {
-    ipc.agent.setCodeWorkdir(workdir ?? null).catch(() => {})
-    if (workdir) gitStore.refresh()
+    gitStore.setWorkdir(projectWorkdir)
+    void loadFolders(projectId)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workdir])
+  }, [projectId, projectWorkdir])
 
   // Git takibini otomatik yenile: 5 saniyede bir poll + pencere odaklanınca anında yenile.
   useEffect(() => {
@@ -217,7 +205,7 @@ export function CodeSessionView() {
     }
 
     if (!activeCodeSessionId) {
-      await ipc.agent.newSession(CODE_PROJECT_ID)
+      await ipc.agent.newSession(projectId)
       agentStore.setStatus('idle')
       agentStore.clearToolCalls()
       agentStore.clearTimelines()
@@ -235,16 +223,16 @@ export function CodeSessionView() {
     agentStore.clearToolCalls()
     const sid = activeCodeSessionId === NEW_CODE_SESSION ? null : activeCodeSessionId
     try {
-      await ipc.agent.chat(CODE_PROJECT_ID, sid, message, model)
+      await ipc.agent.chat(projectId, sid, message, model)
     } catch (err: any) {
       agentStore.setStatus('error')
       agentStore.setError(err?.message ?? String(err))
     }
-  }, [status, activeCodeSessionId, getModel, agentStore, addUserMessage, clearUIMessages, setActiveCodeSession])
+  }, [status, activeCodeSessionId, getModel, agentStore, addUserMessage, clearUIMessages, setActiveCodeSession, projectId])
 
   const handleInterrupt = useCallback(() => {
-    ipc.agent.interrupt(CODE_PROJECT_ID)
-  }, [])
+    ipc.agent.interrupt(projectId)
+  }, [projectId])
 
   // WP-B2: sağ panel (GitPanel) git aksiyonları elle git yerine agent'a talimat
   // olur. requestCodePrompt ile gelen prompt burada handleSend'e verilir.
@@ -280,39 +268,20 @@ export function CodeSessionView() {
     )
   }, [handleSend])
 
-  // Ana workspace (primary) — bir kez seçilir, sonra kilitlenir. Yalnız workdir
-  // yokken seçilebilir; değiştirmek için soldan "New task" → yeni workspace.
-  const handlePickFolder = useCallback(async () => {
-    if (workdir) return // primary kilitli
-    const path = await ipc.fs.pickFolder()
-    if (path) {
-      gitStore.setWorkdir(path)
-      ipc.agent.setCodeWorkdir(path).catch(() => {})
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gitStore, workdir])
-
-  // Ek çalışma dizinleri — ana workspace dışında agent'ın erişebildiği klasörler.
-  const [extraDirs, setExtraDirs] = useState<string[]>([])
-  const refreshDirs = useCallback(async () => {
-    const d = await ipc.agent.getCodeDirs().catch(() => null)
-    if (d) setExtraDirs(d.extraDirs || [])
-  }, [])
-  useEffect(() => { void refreshDirs() }, [workdir, refreshDirs])
+  const extraDirs = (folders[projectId] ?? [])
+    .map((folder) => folder.folder_path)
+    .filter((folderPath) => folderPath !== projectWorkdir)
 
   const handleAddFolder = useCallback(async () => {
-    if (!workdir) return // önce ana workspace seçilmeli
-    const path = await ipc.fs.pickFolder()
-    if (path && path !== workdir) {
-      await ipc.agent.addCodeDir(path).catch(() => {})
-      void refreshDirs()
+    const folderPath = await ipc.fs.pickFolder()
+    if (folderPath && folderPath !== projectWorkdir) {
+      await addFolder(projectId, folderPath)
     }
-  }, [workdir, refreshDirs])
+  }, [projectId, projectWorkdir, addFolder])
 
   const handleRemoveDir = useCallback(async (dir: string) => {
-    await ipc.agent.removeCodeDir(dir).catch(() => {})
-    void refreshDirs()
-  }, [refreshDirs])
+    await removeFolder(projectId, dir)
+  }, [projectId, removeFolder])
 
   const hasMessages = uiMessages.length > 0
 
@@ -322,7 +291,7 @@ export function CodeSessionView() {
     return (
       <div className="code-chat flex flex-col h-full overflow-hidden bg-bg-primary">
         <div className="flex-1 overflow-y-auto px-8 pt-16 pb-8">
-          <StatsDashboard userName={userName} />
+          <StatsDashboard userName={userName} projectId={projectId} onPrompt={(prompt) => void handleSend(prompt)} />
         </div>
 
         {/* Workspace chip bar — primary (kilitli) · branch · ek dizinler */}
@@ -331,7 +300,7 @@ export function CodeSessionView() {
           repoName={repoName}
           branches={gitStore.branches}
           gitStatus={gitStore.status}
-          onPickFolder={handlePickFolder}
+          onPickFolder={() => {}}
           onCheckout={(b) => void gitStore.checkout(b)}
           extraDirs={extraDirs}
           onAddFolder={handleAddFolder}
@@ -342,10 +311,9 @@ export function CodeSessionView() {
         <InputArea
           onSend={handleSend}
           onInterrupt={handleInterrupt}
-          disabled={status === 'thinking' || !workdir}
+          disabled={status === 'thinking'}
           busy={status === 'thinking'}
-          placeholder={!workdir ? 'Please select a folder (project) first to start the process...' : undefined}
-          projectId={CODE_PROJECT_ID}
+          projectId={projectId}
           variant="code"
         />
       </div>
@@ -361,7 +329,7 @@ export function CodeSessionView() {
           <span className="text-sm font-medium text-text-secondary truncate max-w-[360px]">
             {activeCodeSessionId === NEW_CODE_SESSION
               ? 'New Session'
-              : (uiMessages[0]?.content?.slice(0, 60) || 'Code session')}
+              : (parseAttachments(uiMessages[0]?.content ?? '').text.slice(0, 60) || 'Code session')}
           </span>
           {repoName && (
             <span className="text-xs text-text-muted bg-bg-tertiary px-1.5 py-0.5 rounded-md font-mono border border-border-subtle ml-1 flex-shrink-0">
@@ -369,16 +337,8 @@ export function CodeSessionView() {
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1.5">
-          {status === 'thinking' && (
-            <button
-              onClick={handleInterrupt}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-error border border-error/30 rounded-lg hover:bg-error/10 transition-colors"
-            >
-              <Square size={11} className="fill-current" /> Stop
-            </button>
-          )}
-        </div>
+        {/* Not: model çalışırken başlıkta "Stop" gösterilmez — durdurma tek
+            noktadan, composer'daki gönder/durdur düğmesinden yapılır. */}
       </div>
 
       {/* Messages */}
@@ -397,14 +357,6 @@ export function CodeSessionView() {
                     : 'Pick a folder to start. The agent can read and edit files in your project.'}
                 </p>
               </div>
-              {!workdir && (
-                <button
-                  onClick={handlePickFolder}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium border border-border text-text-secondary hover:text-text-primary hover:border-accent/40 transition-colors"
-                >
-                  <FolderOpen size={13} /> Pick a folder
-                </button>
-              )}
             </div>
           )}
 
@@ -448,7 +400,10 @@ export function CodeSessionView() {
         onSend={handleSend}
         onInterrupt={handleInterrupt}
         disabled={status === 'thinking' && !(agentStore.qaPrompt && agentStore.qaPrompt.meta?.sessionId === activeCodeSessionId)}
-        projectId={CODE_PROJECT_ID}
+        // Başlıktaki Stop kaldırıldı: çalışırken durdurma tek yer olan
+        // composer düğmesinde her durumda görünsün.
+        busy={status === 'thinking'}
+        projectId={projectId}
         variant="code"
       />
     </div>

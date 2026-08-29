@@ -133,7 +133,7 @@ function runtimeScript(filePath: string, resize: boolean): string {
     /* ── Element inspector (click-to-edit) ───────────────────────── */
     var inspecting=false, ov=null, lastEl=null;
     function overlay(){ if(ov) return ov; ov=document.createElement('div'); ov.setAttribute('data-od-overlay','1');
-      ov.style.cssText='position:fixed;z-index:2147483646;pointer-events:none;border:2px solid #c1693f;background:rgba(193,105,63,0.12);border-radius:3px;transition:all .04s ease;display:none'; document.body.appendChild(ov); return ov; }
+      ov.style.cssText='position:fixed;z-index:2147483646;pointer-events:none;border:2px solid #c24a22;background:rgba(194,74,34,0.12);border-radius:3px;transition:all .04s ease;display:none'; document.body.appendChild(ov); return ov; }
     function selectorFor(el){
       if(!el||el===document.body) return 'body';
       if(el.id) return '#'+el.id;

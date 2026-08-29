@@ -96,6 +96,22 @@ export class ProjectDB {
 
       CREATE INDEX IF NOT EXISTS idx_project_sessions_project ON project_sessions(project_id);
     `)
+
+    // Pre-v2 databases could contain the same source folder more than once
+    // because project_folders only had a random-id primary key. Keep the oldest
+    // row, then make the actual project/path pair unique.
+    this.db.exec(`
+      DELETE FROM project_folders
+      WHERE rowid NOT IN (
+        SELECT MIN(rowid) FROM project_folders GROUP BY project_id, folder_path
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_project_folders_unique
+      ON project_folders(project_id, folder_path);
+
+      -- Archive is no longer a product concept. Older archived projects become
+      -- normal local projects again instead of being stranded in the database.
+      UPDATE projects SET archived = 0 WHERE archived != 0;
+    `)
   }
 
   // ── Projects ──────────────────────────────────────────────────────────────
@@ -130,7 +146,7 @@ export class ProjectDB {
     return (this.db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as ProjectRecord | undefined) ?? null
   }
 
-  list(includeArchived = false): ProjectSummary[] {
+  list(): ProjectSummary[] {
     const rows = this.db.prepare(`
       SELECT
         p.*,
@@ -140,7 +156,6 @@ export class ProjectDB {
         (SELECT MAX(ps.created_at) FROM project_sessions ps WHERE ps.project_id = p.id) as last_session_at
       FROM projects p
       LEFT JOIN project_instructions pi ON pi.project_id = p.id
-      WHERE p.archived = ${includeArchived ? '1' : '0'}
       ORDER BY p.pinned DESC, p.updated_at DESC
     `).all() as ProjectSummary[]
     return rows
@@ -177,6 +192,11 @@ export class ProjectDB {
   }
 
   addFolder(projectId: string, folderPath: string, label?: string): ProjectFolder {
+    const existing = this.db.prepare(
+      'SELECT * FROM project_folders WHERE project_id = ? AND folder_path = ?'
+    ).get(projectId, folderPath) as ProjectFolder | undefined
+    if (existing) return existing
+
     const id = crypto.randomUUID()
     const now = Date.now()
     this.db.prepare(`
