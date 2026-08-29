@@ -18,8 +18,8 @@ const ALL_TABS = [
   { id: 'permissions', label: 'Permissions', icon: ShieldCheck },
   { id: 'sandbox', label: 'Sandbox', icon: Box },
   { id: 'git', label: 'Git', icon: GitBranch },
-  { id: 'advanced', label: 'Advanced', icon: SlidersHorizontal },
   { id: 'appearance', label: 'Appearance', icon: Palette },
+  { id: 'advanced', label: 'Storage & advanced', icon: SlidersHorizontal },
 ] as const
 
 type TabId = typeof ALL_TABS[number]['id']
@@ -87,8 +87,8 @@ export function SettingsPage() {
               {mainTab === 'permissions' && <PermissionsTab />}
               {mainTab === 'sandbox' && <SandboxTab />}
               {mainTab === 'git' && <GitTab />}
-              {mainTab === 'advanced' && <AdvancedTab />}
               {mainTab === 'appearance' && <AppearanceTab />}
+              {mainTab === 'advanced' && <AdvancedTab />}
             </div>
           </div>
         </div>

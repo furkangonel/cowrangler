@@ -5,7 +5,9 @@ import path from 'path'
 import { getProjectDB } from '../project_db.js'
 import { getCodeWorkdir } from './code_workdir.js'
 import { openAllowedExternalUrl } from './security.js'
-import { MAX_UPLOAD_BYTES, UPLOADS_DIR_NAME, uniqueUploadName, uploadRelPath } from './upload_hygiene.js'
+import { projectStoreDirFor } from '@cowrangler/core/project_context.js'
+import { MAX_UPLOAD_BYTES, UPLOADS_DIR_NAME, uniqueUploadName } from './upload_hygiene.js'
+import { runHousekeeping, storageStats } from '../housekeeping.js'
 
 /** Renderer'daki GLOBAL_PROJECT_ID ile aynı — projesiz genel sohbet. */
 const GLOBAL_PROJECT_ID = '__global__'
@@ -30,6 +32,11 @@ function workdirFor(projectId: string): string | null {
   }
   const wd = getProjectDB().get(projectId)?.workdir
   return wd && fs.existsSync(wd) ? wd : null
+}
+
+function isInside(parent: string, candidate: string): boolean {
+  const relative = path.relative(path.resolve(parent), path.resolve(candidate))
+  return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative)
 }
 
 export interface FileNode {
@@ -110,13 +117,13 @@ export function registerFSIPC(ipcMain: IpcMain): void {
     return result.filePaths[0]
   })
 
-  // Drag-drop / attach: copy dropped files into the project's workdir under
-  // uploads/ so the agent (which has read access to the workdir) can open them.
-  // Returns each file's path relative to the workdir for referencing in chat.
+  // Drag-drop / attach: keep copied files in the machine-local project store,
+  // never in the user's source tree. The absolute support path is referenced in
+  // chat; core accepts it only when it is inside this project's store.
   ipcMain.handle('fs:addFiles', async (_, payload: { projectId: string; paths: string[] }) => {
     const wd = workdirFor(payload?.projectId)
     if (!wd) return { ok: false, error: 'No workdir for project', files: [] as { name: string; relPath: string }[] }
-    const dest = path.join(wd, UPLOADS_DIR_NAME)
+    const dest = path.join(projectStoreDirFor(wd), UPLOADS_DIR_NAME)
     try { fs.mkdirSync(dest, { recursive: true }) } catch { /* yoksay */ }
     const out: { name: string; relPath: string }[] = []
     for (const src of payload?.paths ?? []) {
@@ -127,18 +134,18 @@ export function registerFSIPC(ipcMain: IpcMain): void {
         if (stat.size > MAX_UPLOAD_BYTES) continue    // 50MB üstünü atla
         const name = uniqueUploadName(dest, path.basename(src))
         fs.copyFileSync(src, path.join(dest, name))
-        out.push({ name, relPath: uploadRelPath(name) })
+        out.push({ name, relPath: path.join(dest, name) })
       } catch { /* tek dosya hatası tüm işlemi bozmasın */ }
     }
     return { ok: out.length > 0, files: out }
   })
 
   // Disk yolu olmayan sürüklemeler (tarayıcı/canvas görselleri) için: base64
-  // byte'ları uploads/ altına yaz. addFiles ile aynı sözleşmeyi döndürür.
+  // byte'ları makine-lokal proje deposundaki uploads/ altına yaz.
   ipcMain.handle('fs:addFileBytes', async (_, payload: { projectId: string; files: { name: string; dataBase64: string }[] }) => {
     const wd = workdirFor(payload?.projectId)
     if (!wd) return { ok: false, error: 'No workdir for project', files: [] as { name: string; relPath: string }[] }
-    const dest = path.join(wd, UPLOADS_DIR_NAME)
+    const dest = path.join(projectStoreDirFor(wd), UPLOADS_DIR_NAME)
     try { fs.mkdirSync(dest, { recursive: true }) } catch { /* yoksay */ }
     const out: { name: string; relPath: string }[] = []
     for (const f of payload?.files ?? []) {
@@ -148,11 +155,29 @@ export function registerFSIPC(ipcMain: IpcMain): void {
         if (buf.length === 0 || buf.length > MAX_UPLOAD_BYTES) continue
         const name = uniqueUploadName(dest, f.name)
         fs.writeFileSync(path.join(dest, name), buf)
-        out.push({ name, relPath: uploadRelPath(name) })
+        out.push({ name, relPath: path.join(dest, name) })
       } catch { /* tek dosya hatası tüm işlemi bozmasın */ }
     }
     return { ok: out.length > 0, files: out }
   })
+
+  // A composer attachment that is removed before sending is disposable. Only
+  // permit deletion from this project's managed uploads directory.
+  ipcMain.handle('fs:discardUpload', async (_, payload: { projectId: string; filePath: string }) => {
+    const wd = workdirFor(payload?.projectId)
+    if (!wd || !payload?.filePath) return { ok: false }
+    const uploads = path.join(projectStoreDirFor(wd), UPLOADS_DIR_NAME)
+    if (!isInside(uploads, payload.filePath)) return { ok: false }
+    try {
+      fs.rmSync(payload.filePath, { force: true })
+      return { ok: true }
+    } catch (err: any) {
+      return { ok: false, error: err?.message || 'Attachment could not be removed.' }
+    }
+  })
+
+  ipcMain.handle('fs:storageStats', async () => storageStats())
+  ipcMain.handle('fs:cleanStorage', async () => runHousekeeping())
 
   ipcMain.handle('fs:fileTree', async (_, dirPath: string, depth: number = 2) => {
     return readTree(dirPath, Math.min(depth, 4))
@@ -163,6 +188,28 @@ export function registerFSIPC(ipcMain: IpcMain): void {
       const stat = fs.statSync(filePath)
       if (stat.size > 5 * 1024 * 1024) return { error: 'File too large (>5MB)' }
       return { content: fs.readFileSync(filePath, 'utf-8') }
+    } catch (err: any) {
+      return { error: err.message }
+    }
+  })
+
+  // İkili dosyayı data: URL olarak döndürür. Renderer'da yerel görselleri
+  // göstermenin tek güvenilir yolu: CSP `img-src` `file:` şemasını kabul etmiyor
+  // ve geliştirme modunda sayfa http://localhost olduğundan `file://` alt
+  // kaynakları Chromium tarafından da engelleniyor.
+  ipcMain.handle('fs:readFileDataUrl', async (_, filePath: string) => {
+    const MIME: Record<string, string> = {
+      '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif',
+      '.bmp': 'image/bmp', '.ico': 'image/x-icon', '.svg': 'image/svg+xml',
+    }
+    try {
+      const mime = MIME[path.extname(filePath || '').toLowerCase()]
+      if (!mime) return { error: 'Unsupported file type' }
+      const stat = fs.statSync(filePath)
+      if (!stat.isFile()) return { error: 'Not a file' }
+      if (stat.size > MAX_UPLOAD_BYTES) return { error: 'File too large' }
+      return { dataUrl: `data:${mime};base64,${fs.readFileSync(filePath).toString('base64')}` }
     } catch (err: any) {
       return { error: err.message }
     }

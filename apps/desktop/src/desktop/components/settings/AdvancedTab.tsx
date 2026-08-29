@@ -1,6 +1,7 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { useSettingsStore } from '../../stores/settings.store'
-import { ipc } from '../../lib/ipc'
+import { ipc, StorageStats } from '../../lib/ipc'
+import { Database, HardDrive, RefreshCw, ShieldCheck } from 'lucide-react'
 
 /**
  * AdvancedTab — WP-5 gelişmiş ayarlar.
@@ -27,6 +28,10 @@ export function AdvancedTab() {
   const telemetry = config['telemetry.enabled'] === true // VARSAYILAN KAPALI
 
   const workspaceRoot = (config.workspace_root as string | undefined) || ''
+  const [storage, setStorage] = useState<StorageStats | null>(null)
+  const [cleaning, setCleaning] = useState(false)
+
+  useEffect(() => { void ipc.fs.storageStats().then(setStorage).catch(() => {}) }, [])
 
   // Agent tur limitleri — core agent döngüsündeki sert tavan (max_turn_ms) ve
   // akış sessizlik eşiği (stream_idle_timeout_ms). Saniye olarak gösterilir.
@@ -36,6 +41,11 @@ export function AdvancedTab() {
   async function pickWorkspaceRoot() {
     const dir = await ipc.fs.pickFolder()
     if (dir) setConfig('workspace_root', dir)
+  }
+
+  async function cleanStorage() {
+    setCleaning(true)
+    try { setStorage(await ipc.fs.cleanStorage()) } finally { setCleaning(false) }
   }
 
   return (
@@ -61,6 +71,33 @@ export function AdvancedTab() {
         {!workspaceRoot && (
           <p className="text-2xs text-text-muted mt-1.5">Not set — defaulting to your Documents folder.</p>
         )}
+      </section>
+
+      <section className="storage-card">
+        <div className="flex items-start gap-3">
+          <div className="storage-card__mark"><HardDrive size={18} /></div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h4 className="text-sm font-semibold text-text-primary">Local storage</h4>
+                <p className="mt-1 text-xs leading-relaxed text-text-muted">Generated data stays on this machine and is bounded automatically.</p>
+              </div>
+              <strong className="text-lg tabular-nums text-text-primary">{formatBytes(storage?.totalBytes ?? 0)}</strong>
+            </div>
+            <div className="mt-4 grid grid-cols-3 gap-2">
+              <StorageMetric icon={<Database size={12} />} label="Work data" value={storage?.projectDataBytes ?? 0} />
+              <StorageMetric icon={<RefreshCw size={12} />} label="Cache" value={(storage?.cacheBytes ?? 0) + (storage?.tempBytes ?? 0)} />
+              <StorageMetric icon={<ShieldCheck size={12} />} label="History" value={(storage?.archiveBytes ?? 0) + (storage?.logBytes ?? 0)} />
+            </div>
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <p className="text-[10px] text-text-muted">Source folders, credentials, skills and active conversations are never cleaned.</p>
+              <button onClick={() => void cleanStorage()} disabled={cleaning} className="storage-clean-button">
+                <RefreshCw size={13} className={cleaning ? 'animate-spin' : ''} />
+                {cleaning ? 'Cleaning…' : 'Clean now'}
+              </button>
+            </div>
+          </div>
+        </div>
       </section>
 
       {/* ── Auto Mode ── */}
@@ -170,6 +207,17 @@ export function AdvancedTab() {
       </section>
     </div>
   )
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
+}
+
+function StorageMetric({ icon, label, value }: { icon: React.ReactNode; label: string; value: number }) {
+  return <div className="storage-metric"><span>{icon}{label}</span><strong>{formatBytes(value)}</strong></div>
 }
 
 function Slider({

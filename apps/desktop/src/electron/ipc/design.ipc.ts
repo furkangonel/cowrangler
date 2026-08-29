@@ -9,6 +9,7 @@ import path from 'path'
 import os from 'os'
 import fs from 'fs'
 import { getProjectDB } from '../project_db.js'
+import { readInlined } from './asset_inline.js'
 
 export const DESIGN_BASE_DIR = path.join(os.homedir(), '.cowrangler', 'design')
 export const DESIGN_SYSTEMS_DIR = path.join(DESIGN_BASE_DIR, '_systems')
@@ -368,6 +369,20 @@ export function registerDesignIPC(): void {
     if (!fs.existsSync(filePath)) return { error: 'File not found' }
     try {
       return { content: fs.readFileSync(filePath, 'utf-8') }
+    } catch (e: any) {
+      return { error: e.message }
+    }
+  })
+
+  // Canvas önizlemesi için: ekran kaynağını, içindeki YEREL görsel/stil
+  // referansları data: URL olarak gömülmüş halde döndürür. srcDoc iframe'inin
+  // base URL'i olmadığı ve CSP `file:` şemasına izin vermediği için, tasarımın
+  // içindeki yerel görseller ancak böyle görünür. Kod editörü ham içeriği
+  // okumaya devam eder (design:readFile) — kaydederken base64 yazmayalım.
+  ipcMain.handle('design:readRendered', (_, filePath: string) => {
+    if (!fs.existsSync(filePath)) return { error: 'File not found' }
+    try {
+      return { content: readInlined(filePath).content }
     } catch (e: any) {
       return { error: e.message }
     }

@@ -14,22 +14,55 @@ marked.use(markedTerminal() as unknown as any);
 const VERSION = getVersion();
 
 // ── Color Palettes ────────────────────────────────────────────────────────────
-const palettes = {
+// Mirrors the desktop design tokens in apps/desktop/src/desktop/styles/globals.css.
+// `main` is the Co-Wrangler mark; the rest are the same semantic ramp, picked
+// for legibility on a terminal background rather than on an app surface.
+//
+// Raw hexes live here too, because Ink components take colour strings rather
+// than chalk functions. One source, two shapes — never a hex typed inline.
+const HEXES = {
   dark: {
-    main: chalk.hex("#FF4C00"),
-    accent: chalk.hex("#F8F2E5"),
-    dim: chalk.hex("#6B6B6B"),
-    success: chalk.hex("#A5C27C"),
-    fail: chalk.hex("#D62926"),
-    info: chalk.hex("#5CA4D4"),
+    main: "#FF8A52",
+    brand: "#FF7A3C",
+    accent: "#ECEEF1",
+    dim: "#8D939C",
+    success: "#4FBF88",
+    warn: "#E0AC4A",
+    fail: "#F0796C",
+    info: "#6BB3E0",
   },
   light: {
-    main: chalk.hex("#FF4C00"),
-    accent: chalk.hex("#1A1A1A"),
-    dim: chalk.hex("#888888"),
-    success: chalk.hex("#3B701E"),
-    fail: chalk.hex("#B3201D"),
-    info: chalk.hex("#1C6B9E"),
+    main: "#CC4517",
+    brand: "#EC5A29",
+    accent: "#1F1A16",
+    dim: "#6F6153",
+    success: "#196B42",
+    warn: "#8A5B00",
+    fail: "#B3241C",
+    info: "#1B6E9C",
+  },
+} as const;
+
+const palettes = {
+  dark: {
+    main: chalk.hex("#FF8A52"),
+    brand: chalk.hex("#FF7A3C"),
+    accent: chalk.hex("#ECEEF1"),
+    dim: chalk.hex("#8D939C"),
+    success: chalk.hex("#4FBF88"),
+    warn: chalk.hex("#E0AC4A"),
+    fail: chalk.hex("#F0796C"),
+    info: chalk.hex("#6BB3E0"),
+  },
+  light: {
+    main: chalk.hex("#CC4517"),
+    brand: chalk.hex("#EC5A29"),
+    accent: chalk.hex("#1F1A16"),
+    dim: chalk.hex("#6F6153"),
+    success: chalk.hex("#196B42"),
+    warn: chalk.hex("#8A5B00"),
+    fail: chalk.hex("#B3241C"),
+    info: chalk.hex("#1B6E9C"),
   },
 };
 
@@ -62,6 +95,12 @@ const themeMode: "dark" | "light" =
     : detectSystemTheme();
 
 export const Theme = palettes[themeMode];
+
+/**
+ * Raw hex values for the active theme. Ink components use these; everything
+ * else uses `Theme`, which wraps the same values in chalk.
+ */
+export const Palette = HEXES[themeMode];
 
 // ── ANSI helpers ──────────────────────────────────────────────────────────────
 

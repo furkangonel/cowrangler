@@ -1,6 +1,6 @@
 {
   "name": "co-wrangler",
-  "version": "2.1.8",
+  "version": "2.2.0",
   "description": "An enterprise-grade personal AI agent for the terminal — powered by Claude, GPT, Gemini & more",
   "author": "Furkan Gönel <frkngnl000@gmail.com>",
   "type": "module",
@@ -30,7 +30,7 @@
     "desktop:build": "npm run build && npm run build -w @cowrangler/desktop",
     "desktop:preview": "npm run preview -w @cowrangler/desktop",
     "desktop:pack": "npm run desktop:build && electron-builder",
-    "desktop:rebuild": "electron-rebuild -f -w better-sqlite3,node-pty && chmod +x node_modules/node-pty/build/Release/spawn-helper 2>/dev/null || true && chmod +x node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true",
+    "desktop:rebuild": "electron-rebuild -f -w better-sqlite3,node-pty && node scripts/ensure-node-pty-executable.mjs",
     "desktop:release": "bash scripts/release-desktop.sh",
     "pretest:e2e": "npm run desktop:build",
     "test:e2e": "playwright test --config=e2e/playwright.config.ts"
@@ -42,6 +42,7 @@
       "output": "release",
       "buildResources": "assets"
     },
+    "beforePack": "scripts/validate-sandbox-bundle.cjs",
     "files": [
       "apps/desktop/out/**",
       "assets/**",
@@ -205,6 +206,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.3",
+    "@electron/rebuild": "^4.0.4",
     "@playwright/test": "^1.61.1",
     "@types/js-yaml": "^4.0.9",
     "@types/marked-terminal": "^6.1.0",
@@ -217,9 +219,8 @@
     "@vitejs/plugin-react": "^4.3.0",
     "@vitest/coverage-v8": "^3.2.6",
     "autoprefixer": "^10.4.19",
-    "electron": "^31.0.0",
+    "electron": "^41.10.6",
     "electron-builder": "^24.13.0",
-    "electron-rebuild": "^3.2.9",
     "electron-vite": "^2.3.0",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.4",

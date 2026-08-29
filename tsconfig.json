@@ -3,7 +3,6 @@
   "references": [
     { "path": "packages/core" },
     { "path": "packages/adapters/cli" },
-    { "path": "packages/adapters/cowork" },
     { "path": "packages/adapters/design" },
     { "path": "packages/adapters/code" },
     { "path": "apps/cli" }

@@ -9,7 +9,6 @@ export type CodeRightTab = 'terminal' | 'files' | 'run' | 'plan' | 'task' | null
 interface UIState {
   rightPanelOpen: boolean
   sidebarCollapsed: boolean
-  activeTab: 'projects' | 'code'
   /** WP-3: diff kartlarının Accept/Reject kararları — tool çağrısı id → karar. */
   diffDecisions: Record<string, DiffDecision>
   activeCodeSessionId: string | null     // 'code' sekmesinde açık olan kod oturumu; null = home
@@ -17,9 +16,6 @@ interface UIState {
   searchQuery: string
   onboardingVisible: boolean
   newProjectModalOpen: boolean
-  /** New Task modal — hangi projeyle açıldığını tutar; null = global (proje seçilmemiş) */
-  newTaskModalOpen: boolean
-  newTaskPreselectedProjectId: string | null
   settingsPage: string | null  // null = settings kapalı, 'models' | 'permissions' | 'appearance'
   customizeOpen: boolean
   previewFile: string | null
@@ -36,7 +32,6 @@ interface UIState {
   setRightPanelOpen: (open: boolean) => void
   toggleSidebar: () => void
   setSidebarCollapsed: (collapsed: boolean) => void
-  setActiveTab: (tab: 'projects' | 'code') => void
   setDiffDecision: (toolCallId: string, decision: DiffDecision) => void
   clearDiffDecisions: () => void
   setActiveCodeSession: (id: string | null) => void
@@ -44,8 +39,6 @@ interface UIState {
   setSearchQuery: (q: string) => void
   setOnboardingVisible: (v: boolean) => void
   setNewProjectModal: (open: boolean) => void
-  openNewTask: (preselectedProjectId?: string | null) => void
-  closeNewTask: () => void
   openSettings: (page?: string) => void
   closeSettings: () => void
   openCustomize: () => void
@@ -60,15 +53,12 @@ interface UIState {
 export const useUIStore = create<UIState>((set) => ({
   rightPanelOpen: true,
   sidebarCollapsed: false,
-  activeTab: 'projects',
   diffDecisions: {},
   activeCodeSessionId: null,
   searchOpen: false,
   searchQuery: '',
   onboardingVisible: false,
   newProjectModalOpen: false,
-  newTaskModalOpen: false,
-  newTaskPreselectedProjectId: null,
   settingsPage: null,
   customizeOpen: false,
   previewFile: null,
@@ -79,7 +69,6 @@ export const useUIStore = create<UIState>((set) => ({
   setRightPanelOpen: (open) => set({ rightPanelOpen: open }),
   toggleSidebar: () => set(s => ({ sidebarCollapsed: !s.sidebarCollapsed })),
   setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
-  setActiveTab: (tab) => set({ activeTab: tab }),
   setDiffDecision: (toolCallId, decision) =>
     set(s => ({ diffDecisions: { ...s.diffDecisions, [toolCallId]: decision } })),
   clearDiffDecisions: () => set({ diffDecisions: {} }),
@@ -88,8 +77,6 @@ export const useUIStore = create<UIState>((set) => ({
   setSearchQuery: (q) => set({ searchQuery: q }),
   setOnboardingVisible: (v) => set({ onboardingVisible: v }),
   setNewProjectModal: (open) => set({ newProjectModalOpen: open }),
-  openNewTask: (preselectedProjectId = null) => set({ newTaskModalOpen: true, newTaskPreselectedProjectId: preselectedProjectId }),
-  closeNewTask: () => set({ newTaskModalOpen: false, newTaskPreselectedProjectId: null }),
   openSettings: (page = 'models') => set({ settingsPage: page, customizeOpen: false }),
   closeSettings: () => set({ settingsPage: null }),
   openCustomize: () => set({ customizeOpen: true, settingsPage: null }),

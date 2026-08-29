@@ -23,7 +23,14 @@ import { t } from "@cowrangler/core/i18n/index.js";
 import { missingKeyHint, showSetupGuide } from "./setup.js";
 import { SUB_AGENTS } from "@cowrangler/core/subagents.js";
 import { getSandboxConfig, configureSandbox } from "@cowrangler/core/sandbox.js";
-import { PermissionMode } from "@cowrangler/core/permissions.js";
+import {
+  MODE_INFO,
+  PERMISSION_MODES,
+  invalidatePermissionSettings,
+  normalizePermissionMode,
+  resolvePermissionSettings,
+  type PermissionMode,
+} from "@cowrangler/core/permissions.js";
 import {
   getCredentialPool,
   reloadCredentialPool,
@@ -1235,40 +1242,63 @@ After writing, reply: "✓ COWRNGLR.md written. Agent context is now active."
     // ── /permissions ──────────────────────────────────────────────────────────
     this.commands.set("/permissions", {
       description:
-        "Set permission mode: /permissions [ask|accept|plan|auto|bypass]",
-      execute: (args: string[], ctx: CommandContext) => {
-        // "default" eski ad — "ask" ile aynı; geriye-dönük uyumluluk için kabul.
-        const validModes: PermissionMode[] = [
-          "ask",
-          "accept",
-          "plan",
-          "auto",
-          "bypass",
-          "default",
-        ];
-        const requested = args[0]?.toLowerCase() as PermissionMode | undefined;
+        "Permission mode and rules: /permissions [default|acceptEdits|plan|auto|dontAsk|bypassPermissions]",
+      execute: (args: string[], _ctx: CommandContext) => {
+        const requested = args[0]
+          ? normalizePermissionMode(args[0])
+          : undefined;
+        const explicit = args[0]
+          ? PERMISSION_MODES.includes(normalizePermissionMode(args[0])) &&
+            normalizePermissionMode(args[0]) !== "default"
+          : false;
+        // `normalizePermissionMode` falls back to "default" for anything it
+        // does not recognise, so an unknown word must not silently reset the
+        // mode — only an explicit "default" (or alias) does that.
+        const namedDefault = ["default", "manual", "ask"].includes(
+          String(args[0] ?? "").toLowerCase(),
+        );
 
-        if (!requested || !validModes.includes(requested)) {
-          const cfgPath = DIRS.local.config;
-          let currentMode = "ask";
-          if (fs.existsSync(cfgPath)) {
-            const raw =
-              (yaml.load(fs.readFileSync(cfgPath, "utf-8")) as any) || {};
-            currentMode = raw.permission_mode ?? "ask";
-          }
-          const lines = [
-            `  ${Theme.dim("Active mode:")} ${Theme.accent.bold(currentMode)}\n`,
-            `  ${Theme.success("•")} ${Theme.accent("ask")}    ${Theme.dim("→ Ask before every destructive operation; blocks critical ones")}`,
-            `  ${Theme.success("•")} ${Theme.accent("accept")} ${Theme.dim("→ Auto-accept reversible edits; ask for irreversible/external")}`,
-            `  ${Theme.success("•")} ${Theme.accent("plan")}   ${Theme.dim("→ Approve once, then reuse approval for similar steps")}`,
-            `  ${Theme.success("•")} ${Theme.accent("auto")}   ${Theme.dim("→ Reversible ops flow in sandbox; ask only for irreversible/external")}`,
-            `  ${Theme.main("•")} ${Theme.accent("bypass")} ${Theme.dim("→ Disables all security checks (trusted environment only)")}`,
+        if (!args[0] || (!explicit && !namedDefault)) {
+          const settings = resolvePermissionSettings();
+          const active = normalizePermissionMode(settings.defaultMode);
+          const lines: string[] = [
+            `  ${Theme.dim("Active mode:")} ${Theme.accent.bold(MODE_INFO[active].label)} ${Theme.dim(`(${active})`)}\n`,
           ];
-          return UI.box(lines.join("\n"), "Permission Modes");
+          for (const id of PERMISSION_MODES) {
+            const info = MODE_INFO[id];
+            const bullet = id === "bypassPermissions" ? Theme.main("•") : Theme.success("•");
+            const marker = id === active ? Theme.main("›") : " ";
+            lines.push(
+              `  ${marker} ${bullet} ${Theme.accent(id.padEnd(18))} ${Theme.dim(info.summary)}`,
+            );
+          }
+          const counts = resolvePermissionSettings();
+          lines.push("");
+          lines.push(
+            `  ${Theme.dim("Rules:")} ${Theme.accent(String(counts.allow.length))} allow · ` +
+              `${Theme.accent(String(counts.ask.length))} ask · ` +
+              `${Theme.accent(String(counts.deny.length))} deny`,
+          );
+          lines.push(
+            `  ${Theme.dim("Edit them in")} ${Theme.accent(".cowrangler/settings.json")} ${Theme.dim("— rule syntax: Tool(specifier), e.g. Bash(npm run *)")}`,
+          );
+          if (counts.issues.length > 0) {
+            lines.push("");
+            for (const issue of counts.issues.slice(0, 5)) {
+              lines.push(`  ${Theme.fail("!")} ${Theme.dim(`${issue.raw} — ${issue.reason}`)}`);
+            }
+          }
+          if (args[0] && !namedDefault) {
+            lines.unshift(`  ${Theme.fail(`Unknown mode "${args[0]}".`)}\n`);
+          }
+          return UI.box(lines.join("\n"), "Permissions");
         }
 
-        if (requested === "bypass") {
-          UI.warn("WARNING: bypass mode disables all security checks!");
+        const mode = requested as PermissionMode;
+        if (mode === "bypassPermissions") {
+          UI.warn(
+            "bypassPermissions skips every check. Only run it in a container or VM you can throw away.",
+          );
         }
 
         const cfgPath = DIRS.local.config;
@@ -1276,11 +1306,14 @@ After writing, reply: "✓ COWRNGLR.md written. Agent context is now active."
         if (fs.existsSync(cfgPath)) {
           cfg = (yaml.load(fs.readFileSync(cfgPath, "utf-8")) as any) || {};
         }
-        cfg.permission_mode = requested;
+        cfg.permission_mode = mode;
         fs.mkdirSync(path.dirname(cfgPath), { recursive: true });
         fs.writeFileSync(cfgPath, yaml.dump(cfg), "utf-8");
+        invalidatePermissionSettings();
 
-        UI.success(`Permission mode: ${Theme.accent.bold(requested)}`);
+        UI.success(
+          `Permission mode: ${Theme.accent.bold(MODE_INFO[mode].label)} — ${MODE_INFO[mode].summary}`,
+        );
       },
     });
 

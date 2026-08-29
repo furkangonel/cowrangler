@@ -3,7 +3,7 @@
  *
  * Görseldeki "Context" kutusunu kodda merkezileştirir: Skills / Agents / Memory /
  * Instructions öğelerinin global / proje / session yollarını ve öncelik (precedence)
- * kurallarını tek yerden verir. Her yüzey (CLI/Cowork/Design/Code) scope'ları aynı
+ * kurallarını tek yerden verir. Her yüzey (CLI/Design/Code) scope'ları aynı
  * şekilde çözsün diye discovery kodları buradan beslenir.
  *
  * Precedence (düşük → yüksek, yüksek olan ezer):

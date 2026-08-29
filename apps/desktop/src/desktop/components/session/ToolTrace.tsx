@@ -1,7 +1,6 @@
 import React from 'react'
 import { Terminal, PenLine, FileText, Globe, Search, Loader2, Code2 } from 'lucide-react'
 import { ActiveToolCall } from '../../stores/agent.store'
-import { useUIStore } from '../../stores/ui.store'
 import { isEditTool, extractEdit } from '../../lib/codeEdit'
 import { DiffCard } from '../code/DiffCard'
 
@@ -35,7 +34,6 @@ function getToolLabel(name: string, args: any) {
 
 export function ToolTrace({ toolCall }: { toolCall: ActiveToolCall }) {
   const { name, args, status } = toolCall
-  const inCode = useUIStore(s => s.activeTab === 'code')
   const Icon = getToolIcon(name)
   const label = getToolLabel(name, args)
 
@@ -43,7 +41,7 @@ export function ToolTrace({ toolCall }: { toolCall: ActiveToolCall }) {
   const editFilename = isEdit ? (args?.path || args?.file_path || args?.TargetFile || '').split('/').pop() : ''
 
   // Code sekmesinde düzenlemeler inline diff kartı olarak, Accept/Reject ile gösterilir.
-  const showDiffCard = inCode && isEditTool(name) && !!extractEdit(name, args)
+  const showDiffCard = isEditTool(name) && !!extractEdit(name, args)
 
   const isCommand = name.toLowerCase().includes('run') || name.toLowerCase().includes('execute') || name.toLowerCase().includes('bash')
   const cmdString = args?.command || args?.CommandLine || args?.Command || ''

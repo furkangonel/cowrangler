@@ -5,7 +5,9 @@ import { RobotLoader } from "../shared/RobotLoader";
 import { CopyButton } from "../shared/CopyButton";
 import { ClampText } from "../ClampText";
 import { TimelineSegment } from "../../stores/agent.store";
-import { Brain, ChevronDown, ChevronRight, ArchiveRestore } from "lucide-react";
+import { useUIStore } from "../../stores/ui.store";
+import { parseAttachments, isImagePath, useLocalImage, fileName } from "../../lib/attachments";
+import { Brain, ChevronDown, ChevronRight, ArchiveRestore, FileText, ImageOff } from "lucide-react";
 
 // context_engine.ts'in ürettiği sıkıştırma özet mesajlarının önek imzası.
 // Kaynak: packages/core/src/context_engine.ts → compress()
@@ -146,6 +148,88 @@ function CompactionDivider({ compressedCount, summary }: { compressedCount: numb
   );
 }
 
+/** Tek bir görsel eki — yüklenemezse dosya chip'ine düşer. */
+function ImageAttachment({ path, onOpen }: { path: string; onOpen: () => void }) {
+  const { src, failed } = useLocalImage(path);
+  const [imgError, setImgError] = useState(false);
+  const broken = failed || imgError;
+
+  if (!broken && !src) {
+    // Yükleniyor — düzen zıplamasın diye küçük bir yer tutucu.
+    return (
+      <div
+        className="rounded-xl border border-border-subtle bg-bg-tertiary/40 animate-pulse"
+        style={{ width: 160, height: 108 }}
+      />
+    );
+  }
+
+  if (broken) {
+    return (
+      <button
+        onClick={onOpen}
+        title={path}
+        className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-bg-hover border border-border text-text-secondary text-xs font-medium max-w-[220px]"
+      >
+        <ImageOff size={11} className="flex-shrink-0 text-text-muted" />
+        <span className="truncate">{fileName(path)}</span>
+      </button>
+    );
+  }
+
+  return (
+    <button
+      onClick={onOpen}
+      title={fileName(path)}
+      data-testid="message-image-attachment"
+      className="block overflow-hidden rounded-xl border border-border-subtle bg-bg-tertiary/40 hover:border-accent/40 transition-colors"
+    >
+      <img
+        src={src}
+        alt={fileName(path)}
+        onError={() => setImgError(true)}
+        className="max-h-[260px] max-w-[320px] w-auto h-auto object-contain block"
+      />
+    </button>
+  );
+}
+
+/** Kullanıcı mesajına iliştirilen dosyalar: görseller render edilir, diğerleri chip. */
+function MessageAttachments({ files }: { files: string[] }) {
+  const setPreviewFile = useUIStore((s) => s.setPreviewFile);
+  if (!files.length) return null;
+
+  const images = files.filter(isImagePath);
+  const others = files.filter((f) => !isImagePath(f));
+
+  return (
+    <div className="flex flex-col items-end gap-1.5" data-testid="message-attachments">
+      {images.length > 0 && (
+        <div className="flex flex-wrap justify-end gap-1.5">
+          {images.map((p) => (
+            <ImageAttachment key={p} path={p} onOpen={() => setPreviewFile(p)} />
+          ))}
+        </div>
+      )}
+      {others.length > 0 && (
+        <div className="flex flex-wrap justify-end gap-1.5">
+          {others.map((p) => (
+            <button
+              key={p}
+              onClick={() => setPreviewFile(p)}
+              title={p}
+              className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-bg-hover border border-border text-text-secondary hover:text-text-primary text-xs font-medium max-w-[220px] transition-colors"
+            >
+              <FileText size={11} className="flex-shrink-0 text-text-muted" />
+              <span className="truncate">{fileName(p)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function MessageBubble({ message, timeline, isLast = false }: Props) {
   if (message.role === "user") {
     const compactionMatch = message.content.match(COMPACTION_MARKER);
@@ -157,18 +241,24 @@ export function MessageBubble({ message, timeline, isLast = false }: Props) {
         />
       );
     }
+    // "Attached files:" bloğunu ham yol listesi olarak göstermek yerine ayır;
+    // görseller composer'daki gibi gerçek görsel olarak render edilir.
+    const { text, files } = parseAttachments(message.content);
     return (
       <div className="flex justify-end animate-fade-in group" data-testid="user-message">
-        <div className="flex flex-col items-end max-w-[80%]">
-          <div className="px-4 py-2.5 rounded-2xl rounded-tr-md text-md selectable bg-user-bubble border border-user-bubble-border text-[#F3F1EC] w-full">
-            <ClampText
-              text={message.content}
-              className="whitespace-pre-wrap break-words leading-relaxed"
-              toggleClassName="mt-1.5 text-xs font-medium text-[#F3F1EC]/70 hover:text-[#F3F1EC] hover:underline"
-            />
-          </div>
-          <div className="mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <CopyButton text={message.content} className="text-xs flex items-center gap-1 bg-transparent hover:bg-black/5 dark:hover:bg-white/10" />
+        <div className="flex flex-col items-end gap-1.5 max-w-[80%]">
+          <MessageAttachments files={files} />
+          {text && (
+            <div className="px-4 py-2.5 rounded-2xl rounded-tr-md text-md selectable bg-user-bubble border border-user-bubble-border text-[#F3F1EC] w-full">
+              <ClampText
+                text={text}
+                className="whitespace-pre-wrap break-words leading-relaxed"
+                toggleClassName="mt-1.5 text-xs font-medium text-[#F3F1EC]/70 hover:text-[#F3F1EC] hover:underline"
+              />
+            </div>
+          )}
+          <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+            <CopyButton text={text || message.content} className="text-xs flex items-center gap-1 bg-transparent hover:bg-black/5 dark:hover:bg-white/10" />
           </div>
         </div>
       </div>

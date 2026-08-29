@@ -1,52 +1,71 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
-  PanelRight, PanelLeft, Plus, Terminal, LayoutGrid, Play,
-  MoreHorizontal, ListChecks, ListTodo, ShieldAlert,
+  ArrowRight, FolderOpen, PanelLeft, Terminal, LayoutGrid, Play,
+  MoreHorizontal, ListChecks, ListTodo, ShieldAlert, ShieldCheck, Sparkles,
 } from "lucide-react";
 import { useAgentStore } from "../../stores/agent.store";
-import { Octopus } from "../shared/Octopus";
 import { Sidebar } from "./Sidebar";
 import { RightPanel } from "./RightPanel";
-import { ProjectHome } from "../project/ProjectHome";
-import { SessionView } from "../session/SessionView";
 import { CodeSessionView } from "../session/CodeSessionView";
 import { ErrorBoundary } from "../shared/ErrorBoundary";
-import { FEATURES } from "../../lib/features";
 import { NewProjectModal } from "../project/NewProjectModal";
 
 import { useProjectsStore } from "../../stores/projects.store";
-import { useSessionsStore } from "../../stores/sessions.store";
 import { useSettingsStore } from "../../stores/settings.store";
-import { useUIStore, CodeRightTab } from "../../stores/ui.store";
+import { useUIStore } from "../../stores/ui.store";
+import { ipc } from "../../lib/ipc";
 
 export function AppShell() {
-  const { activeProjectId, projects } = useProjectsStore();
-  const { activeSessionId } = useSessionsStore();
+  const { activeProjectId, projects, addFolder } = useProjectsStore();
   const sandbox = useSettingsStore((s) => s.config.sandbox ?? {});
+  const [sandboxRuntimeHealthy, setSandboxRuntimeHealthy] = useState<boolean | null>(null);
+  const [sandboxPolicyEnabled, setSandboxPolicyEnabled] = useState(true);
   const {
     newProjectModalOpen,
-    rightPanelOpen,
-    toggleRightPanel,
     setNewProjectModal,
     sidebarCollapsed,
     toggleSidebar,
-    activeTab,
     codeRightTab,
     toggleCodeRightTab,
     setCodeRightTab,
+    openSettings,
   } = useUIStore();
 
   const project = projects.find((p) => p.id === activeProjectId);
-  const showSession =
-    activeTab === "projects" && !!activeProjectId && !!activeSessionId;
-  const showProjectHome =
-    activeTab === "projects" && !!activeProjectId && !activeSessionId;
-  const showEmptyProjects = activeTab === "projects" && !activeProjectId;
-  const showCode = FEATURES.code && activeTab === "code";
+  const showCode = !!project?.workdir;
   const sandboxLowTrust =
-    sandbox.enabled === false ||
+    sandboxPolicyEnabled === false ||
     sandbox.provider === "fallback" ||
-    sandbox.allowUnsandboxed === true;
+    sandboxRuntimeHealthy === false;
+
+  useEffect(() => {
+    let active = true;
+    const refreshSecurityState = async () => {
+      try {
+        const [health, policy] = await Promise.all([
+          ipc.settings.sandboxHealth(),
+          window.electronAPI.permissions.get(),
+        ]);
+        if (!active) return;
+        setSandboxRuntimeHealthy(health.isolated);
+        setSandboxPolicyEnabled(policy.sandbox.enabled);
+      } catch {
+        if (active) setSandboxRuntimeHealthy(false);
+      }
+    };
+    void refreshSecurityState();
+    window.addEventListener("cowrangler:permissions-changed", refreshSecurityState);
+    return () => {
+      active = false;
+      window.removeEventListener("cowrangler:permissions-changed", refreshSecurityState);
+    };
+  }, []);
+
+  async function reconnectProject() {
+    if (!project) return
+    const folder = await ipc.fs.pickFolder()
+    if (folder) await addFolder(project.id, folder)
+  }
 
   return (
     <div className="flex flex-col h-screen bg-bg-primary overflow-hidden">
@@ -70,13 +89,9 @@ export function AppShell() {
 
         {/* Title */}
         <span className="text-xs font-medium truncate flex items-center gap-1.5">
-          {activeTab === "code" ? (
-            <span className="brand-serif text-text-primary text-md tracking-tight">
-              Code
-            </span>
-          ) : project ? (
+          {project ? (
             <>
-              <span className="text-base leading-none">{project.icon}</span>
+              <FolderTitleIcon />
               <span className="text-text-primary font-medium">
                 {project.name}
               </span>
@@ -128,45 +143,27 @@ export function AppShell() {
             </div>
           )}
 
-          {/* Global right panel toggle (hidden on code tab) */}
-          {!showCode && (
-            <button
-              onClick={toggleRightPanel}
-              title="Toggle side panel"
-              className="p-1.5 rounded-md text-text-muted hover:text-text-secondary hover:bg-bg-hover transition-colors"
-            >
-              <PanelRight size={15} />
-            </button>
-          )}
         </div>
       </div>
 
       {/* ── Main layout ─────────────────────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden">
-        {!sidebarCollapsed && <Sidebar />}
+        <Sidebar />
 
         <main className="flex flex-col flex-1 overflow-hidden bg-bg-primary">
-          {showEmptyProjects && (
-            <ErrorBoundary label="Empty projects">
-              <EmptyState onNew={() => setNewProjectModal(true)} />
-            </ErrorBoundary>
-          )}
-          {showProjectHome && (
-            <ErrorBoundary label="Project home">
-              <ProjectHome projectId={activeProjectId!} />
-            </ErrorBoundary>
-          )}
-          {showSession && (
-            <ErrorBoundary label="Session">
-              <SessionView
-                projectId={activeProjectId!}
-                sessionId={activeSessionId!}
-              />
-            </ErrorBoundary>
-          )}
           {showCode && (
             <ErrorBoundary label="Code session">
-              <CodeSessionView />
+              <CodeSessionView projectId={project!.id} projectWorkdir={project!.workdir!} />
+            </ErrorBoundary>
+          )}
+          {!showCode && (
+            <ErrorBoundary label="Empty projects">
+              <EmptyState
+                hasProject={!!project}
+                onPrimary={() => project ? void reconnectProject() : setNewProjectModal(true)}
+                onSettings={() => openSettings('models')}
+                onDesign={() => void ipc.design.openWindow()}
+              />
             </ErrorBoundary>
           )}
         </main>
@@ -285,40 +282,41 @@ function MoreMenuItem({
   )
 }
 
-/* ── Empty state ────────────────────────────────────────────────────────── */
-function EmptyState({ onNew }: { onNew: () => void }) {
+function FolderTitleIcon() {
   return (
-    <div className="flex flex-col items-center justify-center flex-1 gap-6 text-center px-8 animate-fade-in">
-      {/* Avatar */}
+    <svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden="true" className="text-text-muted">
+      <path d="M2.5 6.5A1.5 1.5 0 0 1 4 5h4l1.6 2H16a1.5 1.5 0 0 1 1.5 1.5V15A1.5 1.5 0 0 1 16 16.5H4A1.5 1.5 0 0 1 2.5 15V6.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+    </svg>
+  )
+}
 
-      <Octopus size={56} />
-
-      {/* Text */}
-      <div className="space-y-2 max-w-sm">
-        <h3 className="text-2xl font-sans text-text-primary tracking-tight">
-          Welcome to Cowrangler
-        </h3>
-        <p className="text-text-secondary text-md leading-relaxed">
-          Create a project so the agent can work on your files, take on tasks,
-          and track progress live.
-        </p>
+/* ── Empty state ────────────────────────────────────────────────────────── */
+function EmptyState({ hasProject, onPrimary, onSettings, onDesign }: {
+  hasProject: boolean
+  onPrimary: () => void
+  onSettings: () => void
+  onDesign: () => void
+}) {
+  return (
+    <div className="welcome-stage animate-fade-in">
+      <div className="welcome-stage__glow" aria-hidden="true" />
+      <div className="welcome-stage__content">
+        <div className="workbench-eyebrow"><Sparkles size={13} /> Cowrangler local workspace</div>
+        <h1>{hasProject ? 'Reconnect the work.' : 'Bring the work.'}<br /><span>Keep control of the outcome.</span></h1>
+        <p>{hasProject
+          ? 'Choose the source folder for this project. Its conversations and settings will reconnect automatically.'
+          : 'Open a folder and work with an AI agent that can inspect, change and verify — without moving your source code to a Cowrangler cloud.'}</p>
+        <div className="welcome-stage__actions">
+          <button onClick={onPrimary} className="primary-action"><FolderOpen size={17} /> {hasProject ? 'Reconnect folder' : 'Open local project'} <ArrowRight size={15} /></button>
+          <button onClick={onDesign} className="quiet-action">Open Design</button>
+          <button onClick={onSettings} className="quiet-action">Choose a model</button>
+        </div>
+        <div className="welcome-stage__proof">
+          <span><ShieldCheck size={14} /> Local-first files</span>
+          <span>Explicit approvals</span>
+          <span>Bounded storage</span>
+        </div>
       </div>
-
-      {/* CTA */}
-      <button
-        onClick={onNew}
-        className="no-drag flex items-center gap-2 px-5 py-2.5 rounded-xl text-accent-fg text-sm font-medium
-                   transition-all active:scale-[0.97]"
-        style={{
-          background:
-            "linear-gradient(160deg, rgb(var(--accent)) 0%, rgb(var(--accent-press)) 100%)",
-          boxShadow:
-            "0 3px 12px color-mix(in srgb, rgb(var(--accent)) 35%, transparent), 0 1px 3px rgb(var(--shadow-rgb) / 0.10)",
-        }}
-      >
-        <Plus size={16} />
-        Create new project
-      </button>
     </div>
   );
 }

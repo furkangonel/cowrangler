@@ -1,22 +1,22 @@
-import React, { useEffect } from 'react'
+import React, { Suspense, useEffect } from 'react'
 import { AppShell } from './components/layout/AppShell'
-import { SettingsPage } from './components/settings/SettingsPage'
-import { DirectoryPage } from './components/extensions/DirectoryPage'
-import { NewTaskModal } from './components/project/NewTaskModal'
 import { FilePreviewModal } from './components/shared/FilePreviewModal'
 import { ErrorBoundary } from './components/shared/ErrorBoundary'
-import { DesignApp } from './components/design/DesignApp'
 import { useProjectsStore } from './stores/projects.store'
 import { useSettingsStore } from './stores/settings.store'
 import { useUIStore } from './stores/ui.store'
 
 // Check if this window was opened as the Design window
 const isDesignWindow = window.location.hash === '#/design'
+const SettingsPage = React.lazy(() => import('./components/settings/SettingsPage').then((module) => ({ default: module.SettingsPage })))
+const DirectoryPage = React.lazy(() => import('./components/extensions/DirectoryPage').then((module) => ({ default: module.DirectoryPage })))
+const DesignApp = React.lazy(() => import('./components/design/DesignApp').then((module) => ({ default: module.DesignApp })))
 
 export default function App() {
   const { loadProjects } = useProjectsStore()
   const { loadAll: loadSettings } = useSettingsStore()
   const settingsPage = useUIStore(s => s.settingsPage)
+  const customizeOpen = useUIStore(s => s.customizeOpen)
 
   useEffect(() => {
     if (!isDesignWindow) {
@@ -28,7 +28,7 @@ export default function App() {
   if (isDesignWindow) {
     return (
       <ErrorBoundary label="Design">
-        <DesignApp />
+        <Suspense fallback={<SurfaceLoader label="Opening Design" />}><DesignApp /></Suspense>
       </ErrorBoundary>
     )
   }
@@ -40,18 +40,21 @@ export default function App() {
       </ErrorBoundary>
       {settingsPage !== null && (
         <ErrorBoundary label="Settings">
-          <SettingsPage />
+          <Suspense fallback={null}><SettingsPage /></Suspense>
         </ErrorBoundary>
       )}
-      <ErrorBoundary label="Directory">
-        <DirectoryPage />
-      </ErrorBoundary>
-      <ErrorBoundary label="New task modal">
-        <NewTaskModal />
-      </ErrorBoundary>
+      {customizeOpen && (
+        <ErrorBoundary label="Directory">
+          <Suspense fallback={null}><DirectoryPage /></Suspense>
+        </ErrorBoundary>
+      )}
       <ErrorBoundary label="File preview">
         <FilePreviewModal />
       </ErrorBoundary>
     </>
   )
+}
+
+function SurfaceLoader({ label }: { label: string }) {
+  return <div className="grid h-screen place-items-center bg-bg-primary text-xs text-text-muted"><span className="animate-pulse">{label}…</span></div>
 }

@@ -56,11 +56,11 @@ const DEBUG_TIMING = process.env.COWRANGLER_DEBUG_TIMING === "1";
 import { BriefBuffer, createSendMessageTool } from "./tools/brief_tool.js";
 import { DIRS, getConfig } from "./init.js";
 import { scanContext } from "./context_security.js";
-import { setActiveSessionId, getProjectWorkdir, getProjectCowrnglrMd, getProjectMemoryDir } from "./project_context.js";
+import { setActiveSessionId, getProjectWorkdir, getProjectCowrnglrMd, getProjectMemoryDir, projectStoreDirFor } from "./project_context.js";
 import { buildToolFallbackInstructions } from "./tool_fallback.js";
 import { DefaultContextEngine, ContextSnapshot } from "./context_engine.js";
 import { getSessionDB } from "./session_db.js";
-import { modelSupportsThinking, estimateCost } from "./model_metadata.js";
+import { modelSupportsThinking, estimateCost, getModelCapabilities } from "./model_metadata.js";
 import { getLogger } from "./logger.js";
 import { rotateCredentialPoolKey } from "./credential_pool.js";
 import { TrajectoryRecorder, TRAJECTORY_RESULT_MAX_CHARS } from "./trajectory.js";
@@ -307,29 +307,8 @@ export class Agent {
     // hiç girmez (önceden tüm skill'ler enjekte ediliyordu, disabled dahil).
     const skills = this.skillManager.getEnabledSkills();
 
-    // setup-cowork ONBOARDING: yalnızca açıkça etkinleştirilmişse zorunlu direktif
-    // olarak enjekte edilir (config.onboarding.force veya COWRANGLER_ONBOARDING=1).
-    // Aksi halde normal bir skill gibi listelenir. Böylece model her "merhaba"da
-    // kurulum akışını (TODO listesi + rol sorma + dosya tarama) zorla çalıştırmaz.
-    let onboardingForced = false;
-    try {
-      onboardingForced =
-        process.env.COWRANGLER_ONBOARDING === "1" ||
-        Boolean((getConfig() as any)?.onboarding?.force);
-    } catch { /* config yoksa varsayılan: zorunlu değil */ }
-
-    const setupCowork = skills.find(s => s.id === 'setup-cowork');
-    if (setupCowork && onboardingForced) {
-      finalPrompt += `\n\n[SYSTEM DIRECTIVE: SETUP-COWORK]\nThe following is a core operating procedure that must ALWAYS be followed:\n---\n${setupCowork.content}\n---`;
-    }
-
-    // Onboarding zorlanmıyorsa setup-cowork'ü normal skill listesinde tut (kullanıcı
-    // isterse utilize_skill ile çalıştırır); zorlanıyorsa listeden çıkar (zaten enjekte edildi).
-    const visibleSkills = onboardingForced
-      ? skills.filter(s => s.id !== 'setup-cowork')
-      : skills;
-    if (visibleSkills.length > 0) {
-      const skillsText = visibleSkills
+    if (skills.length > 0) {
+      const skillsText = skills
         .map((s) => `- **${s.id}**: ${s.description}`)
         .join("\n");
       finalPrompt +=
@@ -544,110 +523,133 @@ export class Agent {
                 // stat başarısız (dosya yok vb.) → normal akışa düş.
               }
             }
-            // ── Centralized Permission Check ──
-            const { checkPermission, riskBadge, normalizePermissionMode, isOptionSelected } = await import("./permissions.js");
+            // ── Permission check ──────────────────────────────────────────
+            // One call answers allow / ask / deny, and carries everything the
+            // prompt needs to explain itself: the matched rule, the layer that
+            // decided, and the rule a "don't ask again" answer would save.
+            const {
+              evaluatePermission,
+              normalizePermissionMode,
+              riskBadge,
+              isOptionSelected,
+              saveRule,
+            } = await import("./permissions.js");
             const config = getConfig();
-            let permissionMode = normalizePermissionMode(args?.permission_mode ?? config.permission_mode ?? "default");
+            let permissionMode = normalizePermissionMode(
+              args?.permission_mode ?? config.permission_mode ?? "default",
+            );
 
-            // Design mode auto-bypass check
-            const isDesignMode = this.allowedTools &&
-                                 this.allowedTools.includes("generate_image") &&
-                                 !this.allowedTools.includes("execute_bash");
-            if (isDesignMode) {
-              permissionMode = "bypass";
-            }
+            // Design sessions have no shell and write only into their own
+            // project directory, so prompting there would be noise.
+            const isDesignMode =
+              this.allowedTools &&
+              this.allowedTools.includes("generate_image") &&
+              !this.allowedTools.includes("execute_bash");
+            if (isDesignMode) permissionMode = "bypassPermissions";
 
-            if (permissionMode !== "bypass") {
-              let extraInfo: string | undefined;
-              if (name === "execute_bash") {
-                extraInfo = args.command;
-              } else if (name === "delete_file" || name === "delete_folder" || name === "write_file" || name === "edit_file" || name === "append_to_file" || name === "create_folder") {
-                extraInfo = args.path ? path.resolve(getProjectWorkdir(), args.path) : args.path;
-              }
+            if (permissionMode !== "bypassPermissions") {
+              const decision = evaluatePermission({
+                tool: name,
+                input: args ?? {},
+                mode: permissionMode,
+                session: { legacyConfig: config },
+              });
 
-              const policy = {
-                allow: config["permissions.allow"],
-                deny: config["permissions.deny"],
-                alwaysAskDestructive: config["permissions.alwaysAskDestructive"] !== false,
-              };
-
-              const permResult = checkPermission(name, permissionMode, extraInfo, policy);
-              const recordPermDecision = (decision: "allowed" | "denied", source: "auto" | "user", reason?: string) => {
+              const recordPermDecision = (
+                outcome: "allowed" | "denied",
+                source: "auto" | "user",
+                reason?: string,
+              ) => {
                 try {
                   getSessionDB().recordPermissionDecision({
                     sessionId: this.sessionId ?? null,
                     toolName: name,
-                    riskLevel: permResult.riskLevel,
-                    decision,
+                    riskLevel: decision.riskLevel,
+                    decision: outcome,
                     source,
                     reason,
-                    extraInfo,
+                    extraInfo: decision.subject,
                   });
                 } catch {
-                  // Denetim kaydı best-effort — hata araç yürütmesini engellemesin.
+                  // The audit trail is best-effort; never block a tool on it.
                 }
               };
 
-              if (!permResult.allowed && !permResult.requiresApproval) {
-                const blockMsg = `${riskBadge(permResult.riskLevel)} BLOCKED: ${permResult.reason}`;
-                recordPermDecision("denied", "auto", permResult.reason);
+              if (decision.behavior === "deny") {
+                const blockMsg = `${riskBadge(decision.riskLevel)} BLOCKED: ${decision.reason}`;
+                recordPermDecision("denied", "auto", decision.reason);
                 this._onToolEvent?.({ id, name, phase: "done", durationMs: Date.now() - startedAt, result: blockMsg });
                 if (this.trajectoryRecorder) this._pendingToolResults.set(id, { result: blockMsg, isError: true });
                 return blockMsg;
               }
 
-              if (permResult.requiresApproval) {
-                const planKey = `${name}:${extraInfo ?? ""}`;
-                if (permissionMode === "plan" && this.approvedPlanActions.has(planKey)) {
-                  // Already approved in this plan context, proceed
-                } else {
+              if (decision.behavior === "ask") {
+                // Plan mode approves a shape of action once and reuses it for
+                // the rest of the plan, so a multi-step plan is not a queue of
+                // near-identical prompts.
+                const planKey = `${name}:${decision.subject ?? ""}`;
+                const alreadyApproved =
+                  permissionMode === "plan" && this.approvedPlanActions.has(planKey);
+
+                if (!alreadyApproved) {
                   const { executeAskUser } = await import("./tools/ask_user.js");
-                  const baseQuestion = name === "execute_bash"
-                    ? `Do you want to run this command: "${args.command}"?`
-                    : `Do you want to run tool: ${name}${extraInfo ? ` on "${extraInfo}"` : ""}?`;
-                  // Kullanıcı SADECE "izin ver mi" değil, NEDEN sorulduğunu da görsün.
-                  const questionText = permResult.reason
-                    ? `${baseQuestion}\n\n${riskBadge(permResult.riskLevel)} ${permResult.reason}`
-                    : baseQuestion;
+                  const headline =
+                    name === "execute_bash"
+                      ? `Run this command?\n\n    ${decision.subject}`
+                      : decision.subject
+                        ? `Run ${name} on "${decision.subject}"?`
+                        : `Run ${name}?`;
+                  const questionText = `${headline}\n\n${riskBadge(decision.riskLevel)} ${decision.reason}`;
 
-                  // Onay istemi cevapsız kalırsa sonsuza dek asılı kalma:
-                  // 10 dk sonra güvenli varsayılan olan Deny ile devam et.
-                  const isDestructive =
-                    permResult.actionClass === "irreversible" ||
-                    permResult.externalEffect ||
-                    permResult.riskLevel === "dangerous" ||
-                    permResult.riskLevel === "critical" ||
-                    name === "delete_file" ||
-                    name === "delete_folder";
+                  // "Always allow" is only offered when there is a rule worth
+                  // saving — never for a protected path, where the whole point
+                  // is that the answer does not persist.
+                  const options = decision.suggestedRule
+                    ? ["Allow", "Always allow", "Deny"]
+                    : ["Allow", "Deny"];
 
-                  const intent = isDestructive ? "destructive_confirmation" as const : "permission_approval" as const;
+                  const approval = await executeAskUser(
+                    {
+                      questions: [{ question: questionText, options }],
+                      intent:
+                        decision.actionClass === "irreversible" || decision.externalEffect
+                          ? ("destructive_confirmation" as const)
+                          : ("permission_approval" as const),
+                    },
+                    { sessionId: this.sessionId },
+                    // An unanswered prompt must not hang the run forever; after
+                    // ten minutes the safe answer is the one that changes nothing.
+                    { timeoutMs: 10 * 60_000, timeoutAnswer: "Deny" },
+                  );
 
-                  const approval = await executeAskUser({
-                    questions: [
-                      {
-                        question: questionText,
-                        options: ["Allow", "Deny"],
-                      }
-                    ],
-                    intent
-                  }, { sessionId: this.sessionId }, { timeoutMs: 10 * 60_000, timeoutAnswer: "Deny" });
-
-                  if (!isOptionSelected(approval, "Allow")) {
-                    const blockMsg = `${riskBadge("dangerous")} BLOCKED: User denied permission.`;
+                  const always = isOptionSelected(approval, "Always allow");
+                  if (!always && !isOptionSelected(approval, "Allow")) {
+                    const blockMsg = `${riskBadge("dangerous")} BLOCKED: permission denied.`;
                     recordPermDecision("denied", "user", "User denied permission.");
                     this._onToolEvent?.({ id, name, phase: "done", durationMs: Date.now() - startedAt, result: blockMsg });
                     if (this.trajectoryRecorder) this._pendingToolResults.set(id, { result: blockMsg, isError: true });
                     return blockMsg;
                   }
 
-                  recordPermDecision("allowed", "user");
-
-                  if (permissionMode === "plan") {
-                    this.approvedPlanActions.add(planKey);
+                  if (always && decision.suggestedRule) {
+                    try {
+                      saveRule(decision.suggestedRule, "allow", "local");
+                    } catch {
+                      // A failed write costs a future prompt, not this run.
+                    }
                   }
+
+                  recordPermDecision("allowed", "user");
+                  if (permissionMode === "plan") this.approvedPlanActions.add(planKey);
                 }
               } else {
                 recordPermDecision("allowed", "auto");
+              }
+
+              // The engine decides whether this call is confined by the OS
+              // sandbox; execute_bash reads it off the args.
+              if (name === "execute_bash" && args && typeof args === "object") {
+                (args as any).__useSandbox = decision.useSandbox;
               }
             }
 
@@ -716,7 +718,7 @@ export class Agent {
             }
             this._onToolEvent?.({ id, name, phase: "done", durationMs: Date.now() - startedAt, result: r });
             if (this.trajectoryRecorder) this._pendingToolResults.set(id, { result: r, isError: false });
-            return ["desktop_code", "desktop_session", "cli", "batch", "cron"].includes(this.sessionSource)
+            return ["desktop_code", "cli", "batch", "cron"].includes(this.sessionSource)
               ? compactToolResultForModel(r)
               : r;
           } catch (err) {
@@ -1013,7 +1015,14 @@ export class Agent {
     }
 
     // Kullanıcı mesajını ekle — ekli görseller varsa native vision içeriği kur.
-    this.messages.push({ role: "user", content: this._buildUserContent(finalUserMessage) });
+    // Renderer ön-kontrolü atlanabilen yüzeyler (Design/CLI) olduğu için
+    // modalite sözleşmesini çekirdekte de zorunlu tutuyoruz.
+    const userContent = this._buildUserContent(finalUserMessage);
+    const hasImageInput = Array.isArray(userContent) && userContent.some((part: any) => part?.type === "image");
+    if (hasImageInput && !getModelCapabilities(this.llm.model).supportsVision) {
+      throw new Error(`VISION_NOT_SUPPORTED:${this.llm.model}`);
+    }
+    this.messages.push({ role: "user", content: userContent });
 
     // Session DB'ye yaz — dahili nudge turları HARİÇ: [SYSTEM] yönergesi
     // transcript'e sızmasın (yeniden yüklemede balon olarak görünmesin).
@@ -1751,6 +1760,7 @@ export class Agent {
       const workdir = getProjectWorkdir();
       if (!workdir) return text;
       const root = path.resolve(workdir);
+      const supportRoot = path.resolve(projectStoreDirFor(workdir));
       const refRe = /^-\s+(.+\.(?:png|jpe?g|webp|gif))\s*$/gim;
       const images: any[] = [];
       const seen = new Set<string>();
@@ -1760,8 +1770,10 @@ export class Agent {
         const ext = path.extname(rel).toLowerCase();
         const mime = MIME[ext];
         if (!mime) continue;
-        const abs = path.resolve(root, rel);
-        if (abs !== root && !abs.startsWith(root + path.sep)) continue; // traversal guard
+        const abs = path.isAbsolute(rel) ? path.resolve(rel) : path.resolve(root, rel);
+        const inProject = abs === root || abs.startsWith(root + path.sep);
+        const inSupportStore = abs === supportRoot || abs.startsWith(supportRoot + path.sep);
+        if (!inProject && !inSupportStore) continue; // traversal / foreign path guard
         if (seen.has(abs) || !fs.existsSync(abs)) continue;
         seen.add(abs);
         const b64 = fs.readFileSync(abs).toString("base64");

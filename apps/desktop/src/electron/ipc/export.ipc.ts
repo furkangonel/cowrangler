@@ -28,6 +28,7 @@ import { PDFDocument } from 'pdf-lib'
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
+import { exportSource, readInlined } from './asset_inline.js'
 
 function writeTempHtml(html: string): string {
   const tmpPath = path.join(os.tmpdir(), `cowr_exp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.html`)
@@ -125,23 +126,26 @@ async function htmlToPng(html: string, width: number, height: number): Promise<B
 /** Render a self-contained HTML file to a fixed-size PNG (one slide / page). */
 async function fileToPng(filePath: string, width: number, height: number): Promise<Buffer> {
   const win = offscreenWindow(width, height)
+  // Yerel görseller gömülü, tam self-contained bir kopya üzerinden render et.
+  const src = exportSource(filePath)
   try {
-    await win.loadFile(filePath)
+    await win.loadFile(src.path)
     win.setContentSize(width, height)
     await settle(win)
     return await capture(win, width, height)
-  } finally { win.destroy() }
+  } finally { src.cleanup(); win.destroy() }
 }
 
 /** Render a self-contained HTML file to a NativeImage (for JPEG / clipboard). */
 async function fileToNativeImage(filePath: string, width: number, height: number): Promise<Electron.NativeImage> {
   const win = offscreenWindow(width, height)
+  const src = exportSource(filePath)
   try {
-    await win.loadFile(filePath)
+    await win.loadFile(src.path)
     win.setContentSize(width, height)
     await settle(win)
     return await win.webContents.capturePage({ x: 0, y: 0, width, height })
-  } finally { win.destroy() }
+  } finally { src.cleanup(); win.destroy() }
 }
 
 interface AdvPdfOpts { pageSize?: 'fit' | 'a4' | 'letter'; landscape?: boolean; marginIn?: number; scale?: number; fitW?: number; fitH?: number }
@@ -156,7 +160,12 @@ async function renderPdfPage(win: BrowserWindow, filePath: string, o: AdvPdfOpts
   const fitW = o.fitW ?? 794
   const fitH = o.fitH ?? 1123
   const wc = win.webContents
-  await win.loadFile(filePath)
+  // Yerel görselleri gömülü kopyadan yükle; shared.css enjeksiyonu ÖZGÜN yolu
+  // kullanmaya devam eder (kardeş dosya orada).
+  const src = exportSource(filePath)
+  try {
+    await win.loadFile(src.path)
+  } finally { src.cleanup() }
   win.setContentSize(fitW, fitH)
   await settle(win)
   // Emulated media resets on navigation → re-apply per page (best-effort).
@@ -288,8 +297,9 @@ async function fileToPdfVector(
   const win = offscreenWindow(wPx, hPx, false)
   const wc = win.webContents
   let attached = false
+  const src = exportSource(filePath)
   try {
-    await win.loadFile(filePath)
+    try { await win.loadFile(src.path) } finally { src.cleanup() }
     win.setContentSize(wPx, hPx)
     await settle(win)
     // Inject sibling shared.css (theme vars) so the export matches the canvas.
@@ -370,8 +380,9 @@ async function detectAndCaptureSlides(
   filePath: string, fallbackW: number, fallbackH: number,
 ): Promise<{ pngs: Buffer[]; w: number; h: number; multi: boolean }> {
   const win = offscreenWindow(fallbackW, fallbackH)
+  const src = exportSource(filePath)
   try {
-    await win.loadFile(filePath)
+    try { await win.loadFile(src.path) } finally { src.cleanup() }
     await settle(win)
     const info = await win.webContents.executeJavaScript(`(function(){
       const sels=['[data-slide]','.slide','section.slide','.slides > section','.slides > div','.deck > section','.reveal .slides > section','section','.page','[class*="slide"]'];
@@ -482,7 +493,9 @@ export function registerExportIPC(): void {
           return { ok: true, path: filePath, count: det.pngs.length }
         }
       }
-      const html = p.html ?? (p.srcPath ? fs.readFileSync(p.srcPath, 'utf-8') : '')
+      // Dosyadan geliyorsa yerel görselleri göm: htmlToPdf içeriği tmp'ye yazıp
+      // yüklüyor, orada göreli/mutlak yerel yollar çözülemezdi.
+      const html = p.html ?? (p.srcPath ? readInlined(p.srcPath).content : '')
       if (!html) return { ok: false, error: 'Nothing to export' }
       fs.writeFileSync(filePath, await htmlToPdf(html, !!p.landscape))
       return { ok: true, path: filePath, count: 1 }

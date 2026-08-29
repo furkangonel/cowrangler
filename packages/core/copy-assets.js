@@ -24,9 +24,24 @@ if (fs.existsSync(messagesSrc)) {
 // 2. Copy sandbox bundle recursively
 const sandboxSrc = path.join(srcDir, 'cowrangler-sandbox.bundle');
 const sandboxDest = path.join(distDir, 'cowrangler-sandbox.bundle');
-if (fs.existsSync(sandboxSrc)) {
-  fs.cpSync(sandboxSrc, sandboxDest, { recursive: true, force: true });
+const sandboxRequired = [
+  'Contents/Info.plist',
+  'Contents/Resources/sandbox.sb',
+  'Contents/Resources/scripts/runner.sh',
+  'Contents/Resources/scripts/runner.ps1',
+];
+const sandboxMissing = sandboxRequired.filter((relative) => {
+  try {
+    const stat = fs.statSync(path.join(sandboxSrc, relative));
+    return !stat.isFile() || stat.size === 0;
+  } catch {
+    return true;
+  }
+});
+if (sandboxMissing.length > 0) {
+  throw new Error(`Sandbox bundle incomplete; core build stopped. Missing: ${sandboxMissing.join(', ')}`);
 }
+fs.cpSync(sandboxSrc, sandboxDest, { recursive: true, force: true });
 
 // 3. Copy providers.json
 fs.mkdirSync(path.join(distDir, 'model'), { recursive: true });

@@ -20,6 +20,12 @@ ${buildSharedRules({ hasSendMessage: false, hasGit: false })}
 3. **Semantic & Accessible**: Use semantic HTML5 elements. Ensure ARIA labels and focus states are present.
 4. **Modularity**: Build reusable components rather than monolithic blocks.
 ${templateInfo}
+### Attached Images (user uploads)
+1. When a message ends with an \`Attached files:\` block, those absolute paths are REAL files on this machine and the images are already visible to you.
+2. If the user wants an attached image used INSIDE the design, embed it by its FULL ABSOLUTE PATH exactly as listed — e.g. \`<img src="/Users/…/uploads/shot.png" alt="…">\` or \`background-image: url('/Users/…/uploads/shot.png')\`.
+3. Never invent a relative path (\`./assets/…\`), never re-encode the image by hand, and never copy the file elsewhere: the canvas inlines these local files when rendering and every export (PDF/PNG/PPTX) embeds them, so the absolute path is the only reference that works everywhere.
+4. If the user only wants the image as a REFERENCE (style, layout, palette), do not embed it — reproduce the look in code instead.
+
 ### Prototyping and Implementation
 - Do NOT spawn heavy backend subagents for simple styling changes.
 - Focus purely on writing files (HTML, JSX, SVG) to fulfill the design request.

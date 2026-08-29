@@ -1,9 +1,9 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ipc } from './ipc'
 
 export interface AttachedFile {
   name: string
-  /** Proje workdir'ine göre yol, ör. "uploads/foo.png" */
+  /** Agent mesajına eklenecek proje-destek dosyası yolu. */
   relPath: string
   /** Görseller için anlık önizleme (object URL). Yalnızca UI; gönderime girmez. */
   previewUrl?: string
@@ -35,7 +35,8 @@ async function fileToBase64(file: File): Promise<string> {
  *
  * İki yol:
  *  1) Disk yolu OLAN dosyalar (Finder/Explorer) → `fs:addFiles` ile kopyalanır.
- *     Yol, önce Electron `webUtils.getPathForFile`, olmazsa `File.path` ile bulunur.
+ *     Yol, önce Electron `webUtils.getPathForFile`, olmazsa `File.path` ile bulunur;
+ *     kopya kaynak ağacına değil makine-lokal proje deposuna alınır.
  *  2) Disk yolu OLMAYAN sürüklemeler (tarayıcı sekmesi, design canvas, gömülü
  *     görsel) → byte'lar okunur ve `fs:addFileBytes` ile uploads/'a yazılır.
  *
@@ -47,6 +48,42 @@ export function useFileDrop(projectId?: string) {
   const [files, setFiles] = useState<AttachedFile[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const filesRef = useRef<AttachedFile[]>([])
+
+  useEffect(() => { filesRef.current = files }, [files])
+  useEffect(() => () => {
+    // The composer disappeared without sending: release previews and discard
+    // its managed copies. Sent attachments are removed from this ref by clear().
+    for (const file of filesRef.current) {
+      if (file.previewUrl) URL.revokeObjectURL(file.previewUrl)
+      if (projectId) void ipc.fs.discardUpload({ projectId, filePath: file.relPath })
+    }
+    filesRef.current = []
+  }, [projectId])
+
+  const attachPaths = useCallback(async (paths: string[]) => {
+    setError(null)
+    if (!projectId) { setError('Open a project before attaching files.'); return false }
+    if (!paths.length) return false
+    setBusy(true)
+    try {
+      const res = await ipc.fs.addFiles({ projectId, paths })
+      if (!res?.ok || !res.files?.length) {
+        setError(res?.error || 'The selected file could not be attached.')
+        return false
+      }
+      setFiles((current) => {
+        const seen = new Set(current.map((file) => file.relPath))
+        return [...current, ...res.files.filter((file) => !seen.has(file.relPath))]
+      })
+      return true
+    } catch (cause: any) {
+      setError(cause?.message || 'The selected file could not be attached.')
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }, [projectId])
 
   const onDragOver = useCallback((e: React.DragEvent) => {
     if (!hasFiles(e)) return
@@ -132,12 +169,19 @@ export function useFileDrop(projectId?: string) {
     setFiles(prev => {
       const gone = prev.find(f => f.relPath === relPath)
       if (gone?.previewUrl) URL.revokeObjectURL(gone.previewUrl)
-      return prev.filter(f => f.relPath !== relPath)
+      if (gone && projectId) void ipc.fs.discardUpload({ projectId, filePath: gone.relPath })
+      const next = prev.filter(f => f.relPath !== relPath)
+      filesRef.current = next
+      return next
     })
-  }, [])
+  }, [projectId])
 
   const clear = useCallback(() => {
-    setFiles(prev => { for (const f of prev) if (f.previewUrl) URL.revokeObjectURL(f.previewUrl); return [] })
+    setFiles(prev => {
+      for (const f of prev) if (f.previewUrl) URL.revokeObjectURL(f.previewUrl)
+      filesRef.current = []
+      return []
+    })
     setError(null)
   }, [])
 
@@ -152,6 +196,7 @@ export function useFileDrop(projectId?: string) {
     busy,
     files,
     error,
+    attachPaths,
     remove,
     clear,
     refText,

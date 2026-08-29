@@ -22,6 +22,7 @@ import { Box, Text, useInput } from "ink";
 import fs from "fs";
 import yaml from "js-yaml";
 import { DIRS } from "@cowrangler/core/init.js";
+import { Palette } from "../theme.js";
 
 // Kullanıcıya sunulan varsayılan model önerileri (saved_models boşsa gösterilir)
 const DEFAULT_SUGGESTIONS: Array<{ model: string; label: string }> = [
@@ -173,13 +174,13 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
     <Box
       flexDirection="column"
       borderStyle="round"
-      borderColor="#FF4C00"
+      borderColor={Palette.main}
       paddingX={1}
       width={boxWidth}
     >
       {/* Başlık */}
       <Box marginBottom={1}>
-        <Text color="#FF4C00" bold>
+        <Text color={Palette.main} bold>
           {"  Model Seç "}
         </Text>
         <Text dimColor>
@@ -191,7 +192,7 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
       <Box marginBottom={1}>
         <Text dimColor>{"  🔍 "}</Text>
         <Text>{filter || ""}</Text>
-        <Text color="#FF4C00">{"█"}</Text>
+        <Text color={Palette.main}>{"█"}</Text>
         {filter === "" && (
           <Text dimColor>{"  filtre için yaz..."}</Text>
         )}
@@ -212,11 +213,11 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
 
           return (
             <Box key={model} paddingLeft={1}>
-              <Text color={isSelected ? "#FF4C00" : undefined} bold={isSelected}>
+              <Text color={isSelected ? Palette.main : undefined} bold={isSelected}>
                 {isSelected ? "▶ " : "  "}
               </Text>
               <Text
-                color={isSelected ? "#FF4C00" : isCurrent ? "#34C759" : undefined}
+                color={isSelected ? Palette.main : isCurrent ? Palette.success : undefined}
                 bold={isSelected}
                 dimColor={!isSelected && !isCurrent}
               >
@@ -224,7 +225,7 @@ export const ModelPicker: React.FC<ModelPickerProps> = ({
               </Text>
               <Text dimColor={!isSelected}>{label}</Text>
               {isCurrent && (
-                <Text color="#34C759">{" ✓"}</Text>
+                <Text color={Palette.success}>{" ✓"}</Text>
               )}
             </Box>
           );

@@ -133,6 +133,30 @@ describe("Sandbox Engine", () => {
     expect(result.blocked).toBe(true);
     expect(result.output).toContain("outside the allowed sandbox paths");
   });
+
+  it("does not accept a workspace-name prefix sibling", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "cowrangler-path-root-"));
+    const workspace = path.join(root, "project");
+    const sibling = path.join(root, "project-evil");
+    fs.mkdirSync(workspace);
+    fs.mkdirSync(sibling);
+    try {
+      configureSandbox({
+        enabled: true,
+        workspaceRoot: workspace,
+        maxOutputBytes: 4096,
+        maxTimeoutMs: 1000,
+        networkRestricted: false,
+        allowedPaths: [],
+        blockedBinaries: [],
+      });
+      const result = await runInSandbox("pwd", sibling);
+      expect(result.blocked).toBe(true);
+      expect(result.output).toContain("outside the allowed sandbox paths");
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("Sandbox Backend Factory (selectBackend)", () => {
@@ -157,9 +181,10 @@ describe("Sandbox Backend Factory (selectBackend)", () => {
     expect(be.isolated).toBe(false);
   });
 
-  it("Windows falls back to a Job Object (weak) when WSL/Docker absent", () => {
+  it("Windows Job Object fallback is low-trust, not isolated", () => {
     const be = selectBackend("win32", no);
     expect(be.kind).toBe("win_jobobject");
+    expect(be.isolated).toBe(false);
   });
 
   it("honors forced 'fallback' provider -> no isolation", () => {
@@ -225,6 +250,16 @@ describe("Real isolation prevents workspace escape (macOS Seatbelt)", () => {
       blockedBinaries: [],
       provider: "mac_seatbelt",
     });
+    const inside = await runInSandbox(`echo confined > inside.txt`, ws);
+    if (inside.blocked && /SANDBOX UNAVAILABLE|sandbox_apply/i.test(inside.output)) {
+      // Some CI/agent hosts prohibit nested Seatbelt even though the binary is
+      // present. That is an environment policy, not proof of isolation.
+      fs.rmSync(ws, { recursive: true, force: true });
+      return;
+    }
+    expect(inside.blocked).toBe(false);
+    expect(fs.readFileSync(path.join(ws, "inside.txt"), "utf-8")).toContain("confined");
+
     const result = await runInSandbox(`echo escaped > "${escapeTarget}"`, ws);
     expect(result.isolated).toBe(true);
     // Seatbelt denies the write -> file must NOT exist outside workspace.

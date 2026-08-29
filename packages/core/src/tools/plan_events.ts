@@ -4,7 +4,7 @@
  * çekirdek (tool) tarafta bir listener kaydedilir, Electron IPC katmanı bu
  * listener'ı pencerelere `agent:plan` olayı olarak köprüler.
  *
- * Böylece plan yalnızca diske (.cowrangler/plans/<session>.md) yazılıp modele
+ * Böylece plan yalnızca makine-lokal proje deposuna yazılıp modele
  * dönmekle kalmaz; sağ paneldeki Plan bölümünde de canlı görünür.
  */
 

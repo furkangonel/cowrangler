@@ -1,7 +1,8 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react'
-import { ArrowUp, Square, Paperclip, BookOpen, CornerDownLeft, X, Plus, Box, Plug, ChevronRight, FileText, ChevronUp } from 'lucide-react'
+import { ArrowUp, Square, Paperclip, BookOpen, CornerDownLeft, X, Plus, Box, Plug, ChevronRight, FileText, ChevronUp, AlertTriangle } from 'lucide-react'
 import { ipc, SkillDef } from '../../lib/ipc'
 import { useFileDrop } from '../../lib/useFileDrop'
+import { isImagePath, useLocalImage } from '../../lib/attachments'
 import { useSettingsStore } from '../../stores/settings.store'
 import { useModelPool } from '../../hooks/useModelPool'
 
@@ -28,6 +29,16 @@ interface Props {
 const MAX_H_DEFAULT = 220
 const MAX_H_CODE = 232 // tam 10 satır: 10 × 22px (text-md line-height) + 12px (py-1.5) → sonrası scroll
 
+/**
+ * Ek dosya chip'inin küçük önizlemesi. Sürükle-bırakta anlık object URL vardır;
+ * dosya seçiciyle eklenende yoktur → diskteki kopya data: URL olarak okunur.
+ */
+function ChipThumb({ file }: { file: { name: string; relPath: string; previewUrl?: string } }) {
+  const { src } = useLocalImage(file.previewUrl || (isImagePath(file.relPath) ? file.relPath : undefined))
+  if (!src) return <FileText size={10} className="flex-shrink-0 text-text-muted" />
+  return <img src={src} alt={file.name} className="w-5 h-5 rounded object-cover flex-shrink-0" />
+}
+
 export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelPicker, placeholder, variant = 'default', busy }: Props) {
   const isCode = variant === 'code'
   const maxH = isCode ? MAX_H_CODE : MAX_H_DEFAULT
@@ -42,6 +53,7 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelP
   const [confirmedSkills, setConfirmedSkills] = useState<SkillDef[]>([])
   const [confirmedConnectors, setConfirmedConnectors] = useState<any[]>([])
   const [confirmedPlugins, setConfirmedPlugins] = useState<any[]>([])
+  const [composerNotice, setComposerNotice] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const [plusMenuOpen, setPlusMenuOpen] = useState(false)
@@ -156,12 +168,6 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelP
     )
   }
 
-  const MOCK_PLUGINS = [
-    { id: 'accessibility-review', name: 'accessibility-review' },
-    { id: 'design-critique', name: 'design-critique' },
-    { id: 'design-handoff', name: 'design-handoff' },
-  ]
-
   function togglePlugin(plugin: any) {
     setConfirmedPlugins(prev => 
       prev.some(p => p.id === plugin.id) ? prev.filter(p => p.id !== plugin.id) : [...prev, plugin]
@@ -170,8 +176,23 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelP
 
   const hasContent = value.trim().length > 0 || confirmedSkills.length > 0 || confirmedConnectors.length > 0 || confirmedPlugins.length > 0 || drop.files.length > 0
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     if (!hasContent || disabled) return
+    setComposerNotice(null)
+    const imageFiles = drop.files.filter((file) => /\.(png|jpe?g|webp|gif)$/i.test(file.relPath))
+    if (imageFiles.length > 0) {
+      const model = getModel()
+      if (!model) {
+        setComposerNotice('Choose a model before sending images.')
+        return
+      }
+      const capabilities = await ipc.settings.modelCapabilities(model).catch(() => null)
+      if (!capabilities?.supportsVision) {
+        const label = model.split('/').pop() || model
+        setComposerNotice(`${label} does not accept image input. Choose a vision-capable model or remove the image${imageFiles.length > 1 ? 's' : ''}.`)
+        return
+      }
+    }
     // Skill'leri mesajın başına ekle
     const skillPart = confirmedSkills.map(s => `/${s.id}`).join(' ')
     const connPart = confirmedConnectors.map(c => `/${c.name}`).join(' ')
@@ -187,7 +208,7 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelP
     setConfirmedPlugins([])
     drop.clear()
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
-  }, [value, confirmedSkills, confirmedConnectors, confirmedPlugins, disabled, onSend, hasContent, drop])
+  }, [value, confirmedSkills, confirmedConnectors, confirmedPlugins, disabled, onSend, hasContent, drop, getModel])
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (slashOpen && filtered.length > 0) {
@@ -198,7 +219,7 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelP
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      handleSend()
+      void handleSend()
     }
   }
 
@@ -247,11 +268,15 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelP
             <div className="py-1">
               <button
                 className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-bg-hover transition-colors"
-                onClick={async () => { await ipc.fs.pickFile(); setPlusMenuOpen(false) }}
+                onClick={async () => {
+                  const filePath = await ipc.fs.pickFile()
+                  if (filePath) await drop.attachPaths([filePath])
+                  setPlusMenuOpen(false)
+                }}
                 onMouseEnter={() => setHoverMenu(null)}
               >
                 <Paperclip size={14} className="text-text-muted" />
-                <span className="text-sm text-text-primary">Upload Project Files</span>
+                <span className="text-sm text-text-primary">Attach a file</span>
               </button>
 
               <div
@@ -337,9 +362,7 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelP
             <div className="flex flex-wrap gap-1.5 px-3 pt-2.5 pb-1">
               {drop.files.map(f => (
                 <div key={f.relPath} data-testid="attached-file-chip" className="flex items-center gap-1 pl-1 pr-2 py-0.5 rounded-md bg-bg-hover border border-border text-text-secondary text-xs font-medium max-w-[220px]">
-                  {f.previewUrl
-                    ? <img src={f.previewUrl} alt={f.name} className="w-5 h-5 rounded object-cover flex-shrink-0" />
-                    : <FileText size={10} className="flex-shrink-0 text-text-muted" />}
+                  <ChipThumb file={f} />
                   <span className="truncate">{f.name}</span>
                   <button onClick={() => drop.remove(f.relPath)} className="ml-0.5 hover:text-text-primary transition-colors" title="Remove"><X size={10} /></button>
                 </div>
@@ -348,6 +371,12 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelP
           )}
           {drop.error && (
             <div className="px-3 pt-1 text-2xs text-red-400">{drop.error}</div>
+          )}
+          {composerNotice && (
+            <div role="status" className="mx-3 mt-2 flex items-start gap-2 rounded-xl border border-amber-500/25 bg-amber-500/8 px-3 py-2 text-xs leading-relaxed text-amber-700 dark:text-amber-300">
+              <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+              <span>{composerNotice}</span>
+            </div>
           )}
           {/* Skill, Connector, Plugin chip'leri */}
           {(confirmedSkills.length > 0 || confirmedConnectors.length > 0 || confirmedPlugins.length > 0) && (
@@ -420,11 +449,12 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelP
             <textarea
               ref={textareaRef}
               data-testid="chat-input"
+              aria-label="Describe the outcome"
               value={value}
               onChange={handleInput}
               onKeyDown={handleKeyDown}
               disabled={disabled}
-              placeholder={placeholder || (disabled ? 'Agent is working…' : 'Type a task…  ( call a skill with / )')}
+              placeholder={placeholder || (disabled ? 'Cowrangler is working…' : 'Describe the outcome you want…  (use / for a skill)')}
               rows={1}
               className="flex-1 bg-transparent text-md text-text-primary placeholder-text-muted resize-none outline-none overflow-y-auto selectable py-1.5 disabled:opacity-60"
               style={{ minHeight: '28px', maxHeight: maxH }}
@@ -442,7 +472,7 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelP
             ) : isCode ? (
               /* Code varyantı — renksiz, minimal enter (↵) butonu */
               <button
-                onClick={handleSend}
+                onClick={() => void handleSend()}
                 disabled={!hasContent}
                 data-testid="chat-send-button"
                 title="Send (Enter)"
@@ -454,7 +484,7 @@ export function InputArea({ onSend, onInterrupt, disabled, projectId, hideModelP
               </button>
             ) : (
               <button
-                onClick={handleSend}
+                onClick={() => void handleSend()}
                 disabled={!hasContent}
                 data-testid="chat-send-button"
                 title="Send (Enter)"

@@ -271,7 +271,9 @@ export function getModelMeta(model: string): ModelMeta | null {
       inputPricePerMToken: 0,
       outputPricePerMToken: 0,
       supportsThinking: model.includes("thinking") || model.includes("reasoning") || model.includes("r1") || model.includes("o1") || model.includes("o3"),
-      supportsVision: model.includes("vision") || model.includes("llava") || model.includes("pixtral"),
+      supportsVision:
+        ["openai", "anthropic", "google", "vertex", "copilot", "xai"].includes(provider) ||
+        model.includes("vision") || model.includes("llava") || model.includes("pixtral"),
       supportsCaching: false,
       nativeToolCalling: false,
       provider: provider,

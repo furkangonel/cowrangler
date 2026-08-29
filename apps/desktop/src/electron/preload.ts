@@ -90,6 +90,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     create: (data: any) => ipcRenderer.invoke('projects:create', data),
     update: (id: string, data: any) => ipcRenderer.invoke('projects:update', id, data),
     delete: (id: string) => ipcRenderer.invoke('projects:delete', id),
+    reveal: (id: string) => ipcRenderer.invoke('projects:reveal', id),
     get: (id: string) => ipcRenderer.invoke('projects:get', id),
     ensureWorkdir: (id: string) => ipcRenderer.invoke('projects:ensureWorkdir', id),
     addFolder: (id: string, folderPath: string) => ipcRenderer.invoke('projects:addFolder', id, folderPath),
@@ -142,10 +143,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // ── Settings ───────────────────────────────────────────────────────────────
+  permissions: {
+    get: () => ipcRenderer.invoke('permissions:get'),
+    setMode: (mode: string, scope?: string) => ipcRenderer.invoke('permissions:setMode', mode, scope),
+    addRule: (type: string, rule: string, scope?: string) => ipcRenderer.invoke('permissions:addRule', type, rule, scope),
+    removeRule: (type: string, rule: string, scope?: string) => ipcRenderer.invoke('permissions:removeRule', type, rule, scope),
+    setDirectories: (dirs: string[], scope?: string) => ipcRenderer.invoke('permissions:setDirectories', dirs, scope),
+    setSandbox: (patch: Record<string, unknown>, scope?: string) => ipcRenderer.invoke('permissions:setSandbox', patch, scope),
+    validateRule: (rule: string) => ipcRenderer.invoke('permissions:validateRule', rule),
+  },
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     set: (key: string, value: any) => ipcRenderer.invoke('settings:set', key, value),
     getApiKeys: () => ipcRenderer.invoke('settings:apiKeys'),
+    credentialSecurity: () => ipcRenderer.invoke('settings:credentialSecurity'),
     setApiKey: (provider: string, key: string) => ipcRenderer.invoke('settings:setApiKey', provider, key),
     removeApiKey: (provider: string) => ipcRenderer.invoke('settings:removeApiKey', provider),
     getModels: (opts?: { refresh?: boolean }) => ipcRenderer.invoke('settings:models', opts),
@@ -213,6 +224,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('design:saveCanvas', payload),
     scanScreens: (projectId: string) => ipcRenderer.invoke('design:scanScreens', projectId),
     readFile: (filePath: string) => ipcRenderer.invoke('design:readFile', filePath),
+    /** Canvas önizlemesi: yerel görseller data: URL olarak gömülü içerik. */
+    readRendered: (filePath: string) => ipcRenderer.invoke('design:readRendered', filePath),
     readMeta: (screenPath: string) => ipcRenderer.invoke('design:readMeta', screenPath),
     saveMeta: (payload: { screenPath: string; meta: any }) => ipcRenderer.invoke('design:saveMeta', payload),
     deleteProject: (projectId: string) => ipcRenderer.invoke('design:deleteProject', projectId),
@@ -308,8 +321,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     /** Disk yolu olmayan (ör. tarayıcı/canvas'tan sürüklenen) görselleri byte olarak yaz. */
     addFileBytes: (payload: { projectId: string; files: { name: string; dataBase64: string }[] }) =>
       ipcRenderer.invoke('fs:addFileBytes', payload),
+    discardUpload: (payload: { projectId: string; filePath: string }) => ipcRenderer.invoke('fs:discardUpload', payload),
+    storageStats: () => ipcRenderer.invoke('fs:storageStats'),
+    cleanStorage: () => ipcRenderer.invoke('fs:cleanStorage'),
     fileTree: (dirPath: string, depth?: number) => ipcRenderer.invoke('fs:fileTree', dirPath, depth),
     readFile: (filePath: string) => ipcRenderer.invoke('fs:readFile', filePath),
+    /** Görsel dosyayı data: URL olarak okur (CSP `file:` şemasına izin vermiyor). */
+    readFileDataUrl: (filePath: string) => ipcRenderer.invoke('fs:readFileDataUrl', filePath),
     writeFile: (filePath: string, content: string) => ipcRenderer.invoke('fs:writeFile', filePath, content),
     openInFinder: (filePath: string) => ipcRenderer.invoke('fs:openInFinder', filePath),
     openExternal: (url: string) => ipcRenderer.invoke('fs:openExternal', url),

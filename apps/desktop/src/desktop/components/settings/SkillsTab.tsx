@@ -110,7 +110,14 @@ export function SkillsTab() {
     if (!file) return
     setUploadError('')
     setMenuOpen(false)
-    const res = await ipc.skills.importFile(file.path)
+    // Electron adds an absolute `path` to dropped files; the DOM File type
+    // does not declare it, and a browser-only build would not have it at all.
+    const droppedPath = (file as File & { path?: string }).path
+    if (!droppedPath) {
+      setUploadError('That file could not be read from the drop. Use Browse instead.')
+      return
+    }
+    const res = await ipc.skills.importFile(droppedPath)
     if (res.ok) {
       setShowUploadModal(false)
       load()

@@ -35,9 +35,11 @@ function send(win: BrowserWindow | null, status: UpdateStatus): void {
 }
 
 export function registerUpdateIPC(ipcMain: IpcMain, getWindow: () => BrowserWindow | null): void {
-  // We control the download moment from the UI, not automatically.
+  // Updates are a packaged-build feature. Development runs against the
+  // disposable Electron runtime in node_modules, which must never participate
+  // in the packaged application's update/install lifecycle.
   autoUpdater.autoDownload = false
-  autoUpdater.autoInstallOnAppQuit = true
+  autoUpdater.autoInstallOnAppQuit = app.isPackaged
 
   if (!wired) {
     autoUpdater.on('checking-for-update', () => send(getWindow(), { state: 'checking' }))
@@ -72,6 +74,7 @@ export function registerUpdateIPC(ipcMain: IpcMain, getWindow: () => BrowserWind
   })
 
   ipcMain.handle('updates:download', async () => {
+    if (!app.isPackaged) return { ok: false, reason: 'dev', version: app.getVersion() }
     try {
       await autoUpdater.downloadUpdate()
       return { ok: true }
@@ -82,6 +85,7 @@ export function registerUpdateIPC(ipcMain: IpcMain, getWindow: () => BrowserWind
 
   // Relaunch and apply. isSilent=false, isForceRunAfter=true.
   ipcMain.handle('updates:install', async () => {
+    if (!app.isPackaged) return { ok: false, reason: 'dev', version: app.getVersion() }
     setImmediate(() => autoUpdater.quitAndInstall(false, true))
     return { ok: true }
   })

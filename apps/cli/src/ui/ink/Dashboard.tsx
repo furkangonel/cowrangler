@@ -1,6 +1,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 import os from "os";
+import { Palette } from "../theme.js";
 
 /**
  * Dashboard — açılış banner'ı, artık Ink ağacının içinde.
@@ -16,8 +17,8 @@ import os from "os";
  */
 
 const OCTOPUS = ["  ▄▄▄▄▄▄▄", "  █ ███ █", "  ███████", " █▄█   █▄█"];
-const ORANGE = "#FF4C00";
-const BONE = "#F8F2E5";
+const ORANGE = Palette.main;
+const BONE = Palette.accent;
 
 interface DashboardProps {
   version: string;
@@ -48,7 +49,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       <Box flexDirection="column" marginBottom={1}>
         <Text>
           <Text color={ORANGE} bold>
-            ◆ Cowrangler
+            ◆ Co-Wrangler
           </Text>
           <Text dimColor>{`  v${version}`}</Text>
         </Text>
@@ -81,7 +82,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         <Box flexDirection="column">
           <Text>
             <Text color={ORANGE} bold>
-              Cowrangler
+              Co-Wrangler
             </Text>
             <Text dimColor>{`  v${version}`}</Text>
           </Text>
@@ -103,15 +104,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
       {/* Alt satır: özet + init ipucu */}
       <Box paddingLeft={1}>
-        <Text color="#5CA4D4">{`${toolCount} tools`}</Text>
+        <Text color={Palette.info}>{`${toolCount} tools`}</Text>
         <Text dimColor>{`  ·  ${skillCount} skills`}</Text>
         {hasInstructions ? (
-          <Text color="#A5C27C">{"  ·  COWRNGLR.md ✓"}</Text>
+          <Text color={Palette.success}>{"  ·  COWRNGLR.md ✓"}</Text>
         ) : (
           <Text dimColor>
             {"  ·  "}
             <Text color={ORANGE}>/init</Text>
-            {" → COWRNGLR.md oluştur"}
+            {" → create COWRNGLR.md"}
           </Text>
         )}
       </Box>

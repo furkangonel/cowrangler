@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Eye, EyeOff, Check, Plus, Trash2, AlertCircle, Database, Wrench, Image, Brain, Cpu, KeyRound, Server } from 'lucide-react'
+import { Eye, EyeOff, Check, Plus, Trash2, AlertCircle, Database, Wrench, Image, Brain, Cpu, KeyRound, Server, ShieldCheck, RefreshCw } from 'lucide-react'
 import { useSettingsStore } from '../../stores/settings.store'
 import { ipc, ModelCapabilities } from '../../lib/ipc'
 
@@ -38,7 +38,7 @@ function ModelCapabilityBadges({ modelId }: { modelId: string }) {
 }
 
 export function ModelsTab() {
-  const { apiKeys, savedModels, setApiKey, removeApiKey, addSavedModel, removeSavedModel } = useSettingsStore()
+  const { apiKeys, models, savedModels, setApiKey, removeApiKey, addSavedModel, removeSavedModel, refreshModels } = useSettingsStore()
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({})
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState<Record<string, boolean>>({})
@@ -46,6 +46,12 @@ export function ModelsTab() {
   const [newModelId, setNewModelId] = useState('')
   const [newModelCtx, setNewModelCtx] = useState('')
   const [addingModel, setAddingModel] = useState(false)
+  const [modelQuery, setModelQuery] = useState('')
+  const [keysEncrypted, setKeysEncrypted] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    ipc.settings.credentialSecurity().then((result) => setKeysEncrypted(result.encrypted)).catch(() => setKeysEncrypted(false))
+  }, [])
 
   async function saveKey(provider: string) {
     const key = keyInputs[provider]?.trim()
@@ -165,11 +171,39 @@ export function ModelsTab() {
             ))}
           </div>
         )}
+
+        {models.length > 0 && (
+          <div className="mt-5 border-t border-border-subtle pt-4">
+            <div className="mb-2 flex items-center gap-2">
+              <input value={modelQuery} onChange={(event) => setModelQuery(event.target.value)} placeholder="Search discovered models" className="min-w-0 flex-1 rounded-xl border border-border bg-bg-tertiary px-3 py-2 text-xs text-text-primary outline-none focus:border-accent/60" />
+              <button onClick={() => void refreshModels()} title="Refresh provider models" className="rounded-xl border border-border p-2 text-text-muted hover:bg-bg-hover hover:text-text-primary"><RefreshCw size={14} /></button>
+            </div>
+            <div className="max-h-56 space-y-1 overflow-y-auto pr-1">
+              {models
+                .filter((model) => !modelQuery.trim() || `${model.id} ${model.label}`.toLowerCase().includes(modelQuery.toLowerCase()))
+                .slice(0, 80)
+                .map((model) => {
+                  const saved = savedModels.includes(model.id)
+                  return (
+                    <div key={model.id} className="flex items-center gap-3 rounded-xl border border-border-subtle bg-bg-secondary px-3 py-2">
+                      <div className="min-w-0 flex-1"><p className="truncate text-xs font-medium text-text-primary">{model.label}</p><p className="truncate font-mono text-[10px] text-text-muted">{model.id}</p></div>
+                      <ModelCapabilityBadges modelId={model.id} />
+                      <button disabled={saved} onClick={() => void addSavedModel(model.id, model.contextK ? model.contextK * 1000 : undefined)} className="rounded-lg border border-border px-2 py-1 text-[10px] font-medium text-text-secondary hover:bg-bg-hover disabled:border-transparent disabled:text-success">{saved ? 'Added' : 'Add'}</button>
+                    </div>
+                  )
+                })}
+            </div>
+          </div>
+        )}
       </section>
 
       {/* API Keys */}
       <section className="control-section">
         <div className="control-section-title"><span><KeyRound size={14} /></span><div><h4>Provider access</h4><p>Keys stay local and are verified before save.</p></div></div>
+        <div className={`mb-3 flex items-center gap-2 rounded-xl border px-3 py-2 text-xs ${keysEncrypted ? 'border-success/25 bg-success/8 text-success' : 'border-border bg-bg-tertiary text-text-muted'}`}>
+          <ShieldCheck size={14} />
+          {keysEncrypted === null ? 'Checking credential storage…' : keysEncrypted ? 'Protected by your operating system keychain.' : 'Stored locally in a user-only credential file on this machine.'}
+        </div>
         <div className="grid grid-cols-2 gap-3 provider-grid">
           {apiKeys.map(key => (
             <div key={key.id} className="p-3.5 bg-bg-tertiary border border-border rounded-xl provider-card">

@@ -2,16 +2,16 @@
   <img src="../../../../assets/octopuses/oct.png" width="200" alt="Octopus" />
 </p>
 
-<h1 align="center">Cowrangler CLI</h1>
+<h1 align="center">Co-Wrangler CLI</h1>
 
 <p align="center">
-  <strong>The terminal-native personal AI developer agent</strong>
+  <strong>The same agent as the desktop app, without the window.</strong>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript&logoColor=white" alt="TypeScript">
   <img src="https://img.shields.io/badge/Node.js-339933?style=flat&logo=node.js&logoColor=white" alt="Node.js">
-  <img src="https://img.shields.io/badge/Interface-CLI-orange?style=flat" alt="Interface">
+  <img src="https://img.shields.io/badge/Interface-CLI-EC5A29?style=flat" alt="Interface">
 </p>
 
 ---
@@ -20,7 +20,10 @@
   <img src="../../assets/CLI.png" alt="Cowrangler CLI Terminal Interface" width="800" />
 </p>
 
-**Cowrangler CLI** is a terminal-native AI agent designed to automate your development workflows right where you write code. It operates directly inside your project directories, maintaining context of your git branch, files, and project goals, with full access to a powerful set of local tools.
+**Co-Wrangler CLI** runs the same agent engine as the desktop app, in your
+terminal. It works inside your project directory with the same tools, the same
+skills and the same permission policy — and shares `~/.cowrangler` with Desktop,
+so credentials, sessions and settings carry across both.
 
 ---
 
@@ -106,12 +109,50 @@ Control the conversation and swap configuration on the fly:
 * `/skill <skill-id> [instructions]` — Force the agent to follow a specific Standard Operating Procedure (SOP).
 * `/exit` or `Ctrl+C` — Safely exit the chat session.
 
-### Centralized Permissions
+### Permissions
 
-To prevent destructive command runs (e.g. `rm -rf /` or unauthorized network scripts), Cowrangler uses a central gatekeeper:
-- If a tool requires permission (like running shell scripts or system file operations), a wizard prompt will appear in the CLI showing: `[↑/↓: Gezin | Enter: Seçimi onayla]`.
-- You can navigate options like **Allow** or **Deny** directly using keyboard arrow keys.
-- Approving a implementation plan automatically pre-approves modifications for the files listed in that plan.
+Co-Wrangler uses the permission model Anthropic ships with Claude Code — the
+same modes, the same `Tool(specifier)` rules, the same settings precedence.
+
+`/permissions` with no argument shows the active mode, every mode available, how
+many rules are in force, and any rule that could not be parsed.
+`/permissions <mode>` switches:
+
+| Mode | When no rule matches |
+| --- | --- |
+| `default` | Ask on first use of each tool; reads in the workspace run freely |
+| `acceptEdits` | Workspace edits apply; anything outside prompts |
+| `plan` | Explore and propose; no writes until you approve |
+| `auto` | Reversible work runs sandboxed and checkpointed; irreversible or external actions stop |
+| `dontAsk` | Nothing prompts — uncovered calls are refused |
+| `bypassPermissions` | No checks beyond deny rules. Containers and VMs only |
+
+`/plan` and `/act` are shortcuts for `plan` and `default`.
+
+Rules live in `.cowrangler/settings.json` (shared with the project),
+`.cowrangler/settings.local.json` (yours) or `~/.cowrangler/settings.json`:
+
+```json
+{
+  "permissions": {
+    "allow": ["Bash(npm run *)"],
+    "ask":   ["Bash(git push *)"],
+    "deny":  ["Read(.env)"]
+  }
+}
+```
+
+When a call needs your answer, the prompt names the command, the reason, and the
+rule that would be saved if you choose **Always allow**. Navigate with `↑/↓` and
+confirm with `Enter`. A prompt left unanswered for ten minutes resolves as
+**Deny**, so an unattended run stops rather than hanging.
+
+A command the sandbox can fully contain — confined to the workspace and the
+allowed domains, enforced by the OS — runs without a prompt in any mode. Writes
+to files that could widen the agent's own permissions always prompt, and a short
+list of commands (`rm -rf /`, `mkfs`, fork bombs) is refused in every mode.
+
+**[→ Full permission reference](../../../../docs/permissions.md)**
 
 ---
 

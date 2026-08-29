@@ -1,12 +1,10 @@
 /**
  * Desktop feature flags — tek kaynak.
  *
- * Chat (General Chat) modu tamamen kaldırıldı (2026-07-06). Kalan yüzeyler:
- *   - Cowork (projects) → varsayılan
- *   - Code → src/desktop/components/session/CodeSessionView.tsx (tab, sessionlar, git, sağ panel)
+ * Desktop has one project-based Code surface. Design runs in its own window.
  */
 export const FEATURES = {
-  /** Code sekmesi + kod yüzeyleri. Kendine özel tab — proje hiyerarşisinden bağımsız. */
+  /** Project-based Code workspace. */
   code: true,
 } as const;
 

@@ -6,6 +6,7 @@ import {
   Brain, ChevronRight, Paperclip, FileText,
 } from 'lucide-react'
 import { useFileDrop } from '../../lib/useFileDrop'
+import { parseAttachments, isImagePath, useLocalImage, fileName as attachFileName } from '../../lib/attachments'
 import { useDesignStore, DesignSystemRecord, DesignFrame, DesignTweak, DesignDevice, DesignActivity, InspectorPick } from '../../stores/design.store'
 import { useSettingsStore } from '../../stores/settings.store'
 import { DesignCanvas, isDeviceTemplate } from './DesignCanvas'
@@ -25,10 +26,71 @@ interface Props { onBack: () => void }
 type ContextModal = 'designsystem' | 'codebase' | 'figma' | null
 
 const CONTEXT: { key: Exclude<ContextModal, null>; icon: React.ReactNode; label: string; bg: string }[] = [
-  { key: 'designsystem', icon: <Database size={14} />, label: 'Design system', bg: '#c1693f' },
+  { key: 'designsystem', icon: <Database size={14} />, label: 'Design system', bg: '#c24a22' },
   { key: 'codebase', icon: <Code2 size={14} />, label: 'Codebase', bg: '#4a6ba8' },
   { key: 'figma', icon: <PenTool size={14} />, label: 'Figma', bg: '#9b59b6' },
 ]
+
+/* ── Ek dosyalar ───────────────────────────────────────────────────────────── */
+
+/** Composer chip'inin küçük görsel önizlemesi (sürükle-bırak URL'i yoksa diskten). */
+function DesignChipThumb({ file }: { file: { name: string; relPath: string; previewUrl?: string } }) {
+  const { src } = useLocalImage(file.previewUrl || (isImagePath(file.relPath) ? file.relPath : undefined))
+  if (!src) return <FileText size={10} className="flex-shrink-0" style={{ color: 'var(--d-ink-muted)' }} />
+  return <img src={src} alt={file.name} className="w-5 h-5 rounded object-cover flex-shrink-0" />
+}
+
+function DesignImageAttachment({ path }: { path: string }) {
+  const { src, failed } = useLocalImage(path)
+  if (failed) {
+    return (
+      <div className="px-2 py-1 rounded-lg text-xs font-medium max-w-[220px] truncate"
+        style={{ background: 'var(--d-cream-2)', border: '1px solid var(--d-line)', color: 'var(--d-ink-soft)' }}
+        title={path}
+      >{attachFileName(path)}</div>
+    )
+  }
+  if (!src) return <div className="rounded-xl animate-pulse" style={{ width: 140, height: 96, background: 'var(--d-cream-2)' }} />
+  return (
+    <button
+      onClick={() => ipc.fs.openInFinder(path)}
+      title={attachFileName(path)}
+      className="block overflow-hidden rounded-xl"
+      style={{ border: '1px solid var(--d-line)' }}
+    >
+      <img src={src} alt={attachFileName(path)} className="max-h-[220px] max-w-[280px] w-auto h-auto object-contain block" />
+    </button>
+  )
+}
+
+/** Kullanıcı mesajındaki ekler: görseller render edilir, diğerleri chip olur. */
+function DesignAttachments({ files }: { files: string[] }) {
+  if (!files.length) return null
+  const images = files.filter(isImagePath)
+  const others = files.filter(f => !isImagePath(f))
+  return (
+    <div className="flex flex-col items-end gap-1.5">
+      {images.length > 0 && (
+        <div className="flex flex-wrap justify-end gap-1.5">
+          {images.map(p => <DesignImageAttachment key={p} path={p} />)}
+        </div>
+      )}
+      {others.length > 0 && (
+        <div className="flex flex-wrap justify-end gap-1.5">
+          {others.map(p => (
+            <button key={p} onClick={() => ipc.fs.openInFinder(p)} title={p}
+              className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium max-w-[220px]"
+              style={{ background: 'var(--d-cream-2)', border: '1px solid var(--d-line)', color: 'var(--d-ink-soft)' }}
+            >
+              <FileText size={11} style={{ color: 'var(--d-ink-muted)' }} />
+              <span className="truncate">{attachFileName(p)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export function DesignEditor({ onBack }: Props) {
   const {
@@ -69,6 +131,7 @@ export function DesignEditor({ onBack }: Props) {
   const [versionsMenuOpen, setVersionsMenuOpen] = useState(false)
   const [a11yPanelOpen, setA11yPanelOpen] = useState(false)
   const [toast, setToast] = useState<{ ok: boolean; msg: string; path?: string; busy?: boolean } | null>(null)
+  const [composerNotice, setComposerNotice] = useState<string | null>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -270,6 +333,19 @@ export function DesignEditor({ onBack }: Props) {
     const text = input.trim()
     const attach = drop.refText()
     if ((!text && !attach && pickedRefs.length === 0) || chatLoading) return
+    setComposerNotice(null)
+    const hasImages = drop.files.some(file => /\.(png|jpe?g|webp|gif)$/i.test(file.name))
+    if (hasImages) {
+      if (!effectiveModel) {
+        setComposerNotice('Choose a model before sending an image. The file is still attached.')
+        return
+      }
+      const capabilities = await ipc.settings.modelCapabilities(effectiveModel).catch(() => null)
+      if (!capabilities?.supportsVision) {
+        setComposerNotice(`${capabilities?.displayName || effectiveModel} cannot read images. Choose a vision-capable model; the file is still attached.`)
+        return
+      }
+    }
     // Inspector chips → a scoped reference block prepended to the prompt.
     const refBlock = pickedRefs.length
       ? 'Targeted elements:\n' + pickedRefs.map(p => `- ${p.selector} (${p.text ? `"${p.text}"` : `<${p.tag}>`}) in ${p.filePath.split('/').pop()}`).join('\n')
@@ -388,19 +464,24 @@ export function DesignEditor({ onBack }: Props) {
               <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 space-y-5">
                 {messages.map(m => {
                   if (m.role === 'user') {
+                    // "Attached files:" bloğunu ham yol listesi yerine görsel olarak göster.
+                    const parsed = parseAttachments(m.content)
                     return (
                       <div key={m.id} className="flex justify-end group">
-                        <div className="flex flex-col items-end max-w-[88%]">
-                          <div className="px-3.5 py-2.5 text-sm leading-relaxed rounded-2xl w-full"
-                            style={{ background: 'var(--d-ink)', color: '#fff', borderBottomRightRadius: 4 }}>
-                            <ClampText
-                              text={m.content}
-                              className="whitespace-pre-wrap"
-                              toggleClassName="mt-1.5 text-xs font-medium underline opacity-80 hover:opacity-100"
-                            />
-                          </div>
-                          <div className="mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <CopyButton text={m.content} className="text-xs flex items-center gap-1 bg-transparent hover:bg-black/5 dark:hover:bg-white/10" />
+                        <div className="flex flex-col items-end gap-1.5 max-w-[88%]">
+                          <DesignAttachments files={parsed.files} />
+                          {parsed.text && (
+                            <div className="px-3.5 py-2.5 text-sm leading-relaxed rounded-2xl w-full"
+                              style={{ background: 'var(--d-ink)', color: '#fff', borderBottomRightRadius: 4 }}>
+                              <ClampText
+                                text={parsed.text}
+                                className="whitespace-pre-wrap"
+                                toggleClassName="mt-1.5 text-xs font-medium underline opacity-80 hover:opacity-100"
+                              />
+                            </div>
+                          )}
+                          <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                            <CopyButton text={parsed.text || m.content} className="text-xs flex items-center gap-1 bg-transparent hover:bg-black/5 dark:hover:bg-white/10" />
                           </div>
                         </div>
                       </div>
@@ -480,9 +561,7 @@ export function DesignEditor({ onBack }: Props) {
                   <div className="flex flex-wrap gap-1.5 pb-2">
                     {drop.files.map(f => (
                       <div key={f.relPath} className="flex items-center gap-1 pl-1 pr-2 py-0.5 rounded-md text-xs font-medium max-w-[200px]" style={{ background: 'var(--d-cream-2)', border: '1px solid var(--d-line)', color: 'var(--d-ink-soft)' }}>
-                        {f.previewUrl
-                          ? <img src={f.previewUrl} alt={f.name} className="w-5 h-5 rounded object-cover flex-shrink-0" />
-                          : <FileText size={10} className="flex-shrink-0" style={{ color: 'var(--d-ink-muted)' }} />}
+                        <DesignChipThumb file={f} />
                         <span className="truncate">{f.name}</span>
                         <button onClick={() => drop.remove(f.relPath)} className="ml-0.5" title="Remove" style={{ color: 'var(--d-ink-muted)' }}><X size={10} /></button>
                       </div>
@@ -491,6 +570,12 @@ export function DesignEditor({ onBack }: Props) {
                 )}
                 {drop.error && (
                   <div className="pb-2 text-2xs" style={{ color: 'var(--d-clay)' }}>{drop.error}</div>
+                )}
+                {composerNotice && (
+                  <div className="mb-2 flex items-start gap-1.5 rounded-lg px-2 py-1.5 text-xs" style={{ background: 'var(--d-clay-wash)', color: 'var(--d-clay)' }}>
+                    <AlertTriangle size={13} className="mt-0.5 flex-shrink-0" />
+                    <span>{composerNotice}</span>
+                  </div>
                 )}
                 <textarea
                   ref={textareaRef}
@@ -505,6 +590,21 @@ export function DesignEditor({ onBack }: Props) {
                 />
                 <div className="flex items-center justify-end pt-1.5">
                   <div className="flex items-center gap-2">
+                    <button
+                      onClick={async () => {
+                        const filePath = await ipc.fs.pickFile()
+                        if (filePath) {
+                          setComposerNotice(null)
+                          await drop.attachPaths([filePath])
+                        }
+                      }}
+                      disabled={drop.busy || chatLoading}
+                      className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-black/5 disabled:opacity-40"
+                      style={{ color: 'var(--d-ink-muted)' }}
+                      title="Attach file"
+                    >
+                      <Paperclip size={14} />
+                    </button>
                     <div className="relative" ref={modelRef}>
                       <button onClick={() => setModelPickerOpen(o => !o)} className="flex items-center gap-1 text-xs min-w-0 max-w-[240px]" style={{ color: 'var(--d-ink-muted)' }} title={effectiveModel}>
                         <span className="font-medium truncate min-w-0" style={{ color: 'var(--d-ink-soft)' }}>{modelLabel}</span>
@@ -648,7 +748,7 @@ export function DesignEditor({ onBack }: Props) {
                         if (issues.length === 0) return <p className="px-3 py-3 text-xs" style={{ color: '#2e7d5b' }}>No contrast or touch-target issues found. ✓</p>
                         return issues.map((it, i) => (
                           <div key={i} className="flex items-start gap-2 px-3 py-2 border-b" style={{ borderColor: 'var(--d-line)' }}>
-                            <AlertTriangle size={12} className="mt-0.5 flex-shrink-0" style={{ color: it.severity === 'error' ? '#c0392b' : '#c1693f' }} />
+                            <AlertTriangle size={12} className="mt-0.5 flex-shrink-0" style={{ color: it.severity === 'error' ? '#c0392b' : '#c24a22' }} />
                             <div className="min-w-0">
                               <p className="text-xs leading-snug" style={{ color: 'var(--d-ink-soft)' }}>{it.detail}</p>
                               <code className="text-[10px] truncate block" style={{ color: 'var(--d-ink-faint)' }}>{it.selector}</code>
@@ -1191,7 +1291,7 @@ function DesignReasoningBlock({ text, isLive = false }: { text: string; isLive?:
 function FileGlyph({ name }: { name: string }) {
   const ext = name.split('.').pop()?.toLowerCase()
   const label = ext === 'jsx' ? 'JSX' : ext === 'svg' ? 'SVG' : ext === 'mermaid' || ext === 'mmd' ? 'MMD' : 'HTML'
-  const color = ext === 'jsx' ? '#4a6ba8' : ext === 'svg' ? '#9b59b6' : ext === 'mermaid' || ext === 'mmd' ? '#2e8b6f' : '#c1693f'
+  const color = ext === 'jsx' ? '#4a6ba8' : ext === 'svg' ? '#9b59b6' : ext === 'mermaid' || ext === 'mmd' ? '#2e8b6f' : '#c24a22'
   return <span className="text-[8px] font-bold px-1 py-0.5 rounded" style={{ background: `${color}1a`, color }}>{label}</span>
 }
 

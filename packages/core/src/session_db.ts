@@ -122,7 +122,9 @@ export class SessionDB {
 
     this.db.pragma("foreign_keys = ON");
     this.db.pragma("synchronous = NORMAL");
-    this.db.pragma("cache_size = -64000"); // 64MB
+    // A desktop app may keep several agents alive. A bounded 16 MB page cache
+    // is enough for the chat workload without multiplying memory pressure.
+    this.db.pragma("cache_size = -16000");
     this.db.pragma("temp_store = MEMORY");
   }
 
@@ -455,7 +457,12 @@ export class SessionDB {
       guard++;
     }
 
-    this.vacuum();
+    // VACUUM rewrites the whole database and can stall startup. Only pay that
+    // cost when rows were removed or the file is meaningfully large.
+    if (archivedCount > 0 || sizeBeforeBytes > 100 * 1024 * 1024) this.vacuum();
+    else {
+      try { this.db.pragma("optimize") } catch { /* best effort */ }
+    }
     const sizeAfterBytes = fs.existsSync(this.dbPath) ? fs.statSync(this.dbPath).size : 0;
     this._setMeta("last_maintenance_at", String(Date.now()));
 

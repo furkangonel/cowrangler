@@ -1,632 +1,310 @@
-import React, { useEffect, useState, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
-  Settings, Plus, Search, Pin, MessageSquare, Home, FolderPlus,
-  ChevronRight, FolderKanban, PenLine, Trash2,
-  Boxes, Palette, Sparkles, Archive, SlidersHorizontal, CircleDashed, TriangleAlert, MoreHorizontal,
-  ChevronDown, ArrowUpRight, Circle, Code2
+  Boxes, ChevronDown, ChevronRight, Folder, FolderOpen, MoreHorizontal,
+  Palette, PenLine, Pin, PinOff, Plus, Search, Settings, Trash2, X,
 } from 'lucide-react'
 import { useProjectsStore } from '../../stores/projects.store'
 import { useSessionsStore } from '../../stores/sessions.store'
 import { useUIStore } from '../../stores/ui.store'
 import { useAgentStore } from '../../stores/agent.store'
-import { ipc } from '../../lib/ipc'
-import { CODE_PROJECT_ID, startNewCodeTask } from '../session/CodeSessionView'
-import { FEATURES } from '../../lib/features'
-import { formatRelative } from '../../lib/time'
+import { ipc, ProjectSummary, SessionRecord } from '../../lib/ipc'
+import { startNewCodeTask } from '../session/CodeSessionView'
+import { EditProjectModal } from '../project/EditProjectModal'
 import { UpdateBanner } from '../UpdateBanner'
 
-/* ── Template-card style SVG project icons ──────────────────────────────── */
-// Renk sistemi: CSS değişkenleri — light/dark'a göre otomatik adapte olur.
-// Stroke: text-secondary düzeyi (template'in rgba(33,29,24,0.42) karşılığı)
-// Fill:   text-muted/10 düzeyi (template'in rgba(33,29,24,0.10) karşılığı)
-
-/* ── Template-card stilinde ikon varyantları ─────────────────────────────
-   Tüm ikon SVG'leri `currentColor` kullanır — renk parent'daki text-color CSS
-   class'ından gelir (active → text-accent, normal → text-text-muted).
-   fillOpacity ile yarı saydam alanlar — SVG presentation attribute olarak
-   her browser'da güvenle çalışır.
-   ──────────────────────────────────────────────────────────────────────── */
-const ICON_VARIANTS: React.FC[] = [
-  // 0 — Folder with content lines
-  () => (
-    <svg viewBox="0 0 20 20" fill="none" width="100%" height="100%">
-      <path
-        d="M2 7.5C2 6.7 2.7 6 3.5 6H7.5L9 8H17C17.8 8 18.5 8.7 18.5 9.5V15.5C18.5 16.3 17.8 17 17 17H3.5C2.7 17 2 16.3 2 15.5V7.5Z"
-        stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"
-        fill="currentColor" fillOpacity="0.12"
-      />
-      <line x1="5.5" y1="11.5" x2="12.5" y2="11.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-      <line x1="5.5" y1="13.5" x2="10"   y2="13.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
-  ),
-  // 1 — Document with fold corner (closest to "Document" template card)
-  () => (
-    <svg viewBox="0 0 20 20" fill="none" width="100%" height="100%">
-      <path
-        d="M5 3h8l4 4v11a1 1 0 01-1 1H5a1 1 0 01-1-1V4a1 1 0 011-1z"
-        stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"
-        fill="currentColor" fillOpacity="0.10"
-      />
-      <path d="M13 3v4h4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-      <line x1="7" y1="10.5" x2="13"  y2="10.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-      <line x1="7" y1="13"   x2="13"  y2="13"   stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-      <line x1="7" y1="15.5" x2="10.5" y2="15.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
-  ),
-  // 2 — Stacked documents (depth / multi-file feel)
-  () => (
-    <svg viewBox="0 0 20 20" fill="none" width="100%" height="100%">
-      <rect x="4" y="6.5" width="13" height="10" rx="1.5"
-        fill="currentColor" fillOpacity="0.08" stroke="currentColor" strokeWidth="1.3" />
-      <rect x="3" y="4.5" width="11" height="9" rx="1.5"
-        fill="currentColor" fillOpacity="0.10" stroke="currentColor" strokeWidth="1.3" />
-      <rect x="2.5" y="3" width="10" height="8.5" rx="1.5"
-        fill="currentColor" fillOpacity="0.14" stroke="currentColor" strokeWidth="1.4" />
-      <line x1="5"   y1="6.5" x2="9.5" y2="6.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
-      <line x1="5"   y1="8.5" x2="9.5" y2="8.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
-    </svg>
-  ),
-  // 3 — Code / terminal (like "Animation" card but code-flavored)
-  () => (
-    <svg viewBox="0 0 20 20" fill="none" width="100%" height="100%">
-      <rect x="2" y="4" width="16" height="12" rx="2"
-        fill="currentColor" fillOpacity="0.10" stroke="currentColor" strokeWidth="1.4" />
-      <line x1="2" y1="8" x2="18" y2="8" stroke="currentColor" strokeWidth="1.2" strokeOpacity="0.5" />
-      <circle cx="4.5" cy="6" r="0.9" fill="currentColor" />
-      <circle cx="7"   cy="6" r="0.9" fill="currentColor" />
-      <circle cx="9.5" cy="6" r="0.9" fill="currentColor" />
-      <path d="M5.5 11.5L8 13.5 5.5 15.5"
-        stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-      <line x1="10" y1="15" x2="14.5" y2="15" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
-  ),
-  // 4 — Grid / dashboard (like "Prototype" card dual-panel)
-  () => (
-    <svg viewBox="0 0 20 20" fill="none" width="100%" height="100%">
-      <rect x="2" y="3" width="16" height="14" rx="2"
-        fill="currentColor" fillOpacity="0.08" stroke="currentColor" strokeWidth="1.4" />
-      <rect x="4" y="5.5" width="5" height="4" rx="1" fill="currentColor" fillOpacity="0.28" />
-      <rect x="11" y="5.5" width="5" height="4" rx="1" fill="currentColor" fillOpacity="0.16" />
-      <rect x="4" y="11" width="5" height="4" rx="1" fill="currentColor" fillOpacity="0.16" />
-      <rect x="11" y="11" width="5" height="4" rx="1" fill="currentColor" fillOpacity="0.28" />
-    </svg>
-  ),
-]
-
-/** Proje adından deterministik bir ikon varyantı seç */
-function pickVariant(name: string): number {
-  let hash = 0
-  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) | 0
-  return Math.abs(hash) % ICON_VARIANTS.length
-}
-
-/** Template card stilinde proje ikonu */
-function ProjectIcon({
-  icon, name, active, size = 32,
-}: {
-  icon?: string; name: string; active: boolean; size?: number
-}) {
-  // Emoji varsa (📁 default harici), emoji göster
-  const isCustomEmoji = icon && icon !== '📁' && /\p{Emoji}/u.test(icon)
-  const variant = pickVariant(name)
-  const IconComp = ICON_VARIANTS[variant]
-
-  return (
-    <div
-      className={`project-icon-box${active ? ' active' : ''}`}
-      style={{ width: size, height: size }}
-    >
-      {isCustomEmoji ? (
-        <span style={{ fontSize: size * 0.48, lineHeight: 1 }}>{icon}</span>
-      ) : (
-        // currentColor → parent class'tan miras alır
-        <div
-          className={active ? 'text-accent' : 'text-text-muted'}
-          style={{ width: size * 0.68, height: size * 0.68 }}
-        >
-          <IconComp />
-        </div>
-      )}
-    </div>
-  )
-}
-
-/* ══════════════════════════════════════════════════════════════════════════ */
-
 export function Sidebar() {
-  const { projects, activeProjectId, setActiveProject, loading } = useProjectsStore()
-  const { setActiveSession, activeSessionId, sessionsByProject, loadSessions } = useSessionsStore()
-  const { setNewProjectModal, openSettings, openCustomize, openNewTask, sidebarCollapsed, activeTab, setActiveTab } = useUIStore()
-  const { activeCodeSessionId, setActiveCodeSession } = useUIStore()
+  const { projects, activeProjectId, setActiveProject, loading, updateProject, deleteProject } = useProjectsStore()
+  const { sessionsByProject, loadSessions, deleteSession, renameSession, pinSession } = useSessionsStore()
+  const { sidebarCollapsed, setNewProjectModal, openCustomize, openSettings, activeCodeSessionId, setActiveCodeSession } = useUIStore()
   const [search, setSearch] = useState('')
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
+  const [showAll, setShowAll] = useState<Set<string>>(() => new Set())
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null)
+  const [menu, setMenu] = useState<{ project: ProjectSummary; rect: DOMRect } | null>(null)
 
-  const filtered = projects.filter(p =>
-    search === '' || p.name.toLowerCase().includes(search.toLowerCase())
-  )
-  const pinned   = filtered.filter(p => p.pinned)
-  const unpinned = filtered.filter(p => !p.pinned)
+  useEffect(() => {
+    if (!loading && projects.length > 0 && !activeProjectId) selectProject(projects[0].id)
+  }, [loading, projects, activeProjectId])
 
-  function selectProject(id: string) {
-    setActiveProject(id)
-    setActiveSession(null)
-    loadSessions(id)
+  useEffect(() => {
+    if (!activeProjectId) return
+    setExpanded((current) => new Set(current).add(activeProjectId))
+  }, [activeProjectId])
+
+  function selectProject(projectId: string, sessionId: string | null = null) {
+    const changedProject = projectId !== activeProjectId
+    setActiveProject(projectId)
+    if (changedProject || sessionId !== null) setActiveCodeSession(sessionId)
+    void loadSessions(projectId)
   }
 
-  /* ── Collapsed rail ─────────────────────────────────────────────────── */
+  async function newTask(projectId: string) {
+    selectProject(projectId)
+    await startNewCodeTask(projectId)
+  }
+
+  async function removeProject(project: ProjectSummary) {
+    const confirmed = window.confirm(
+      `Remove “${project.name}” from Cowrangler?\n\nLocal chat history and agent support data will be removed. Your source folder and files will not be deleted.`,
+    )
+    if (!confirmed) return
+    setMenu(null)
+    await deleteProject(project.id)
+    setActiveCodeSession(null)
+  }
+
+  const filtered = projects.filter((project) => project.name.toLowerCase().includes(search.trim().toLowerCase()))
+
   if (sidebarCollapsed) {
     return (
-      <aside
-        className="flex flex-col flex-shrink-0 border-r border-border-subtle bg-bg-secondary items-center py-3 gap-1.5"
-        style={{ width: '52px' }}
-      >
-        <NavIconBtn
-          onClick={() => setActiveTab('projects')}
-          active={activeTab === 'projects'}
-          title="Cowork"
-          icon={<FolderKanban size={16} />}
-        />
-        {FEATURES.code && (
-          <NavIconBtn
-            onClick={() => setActiveTab('code')}
-            active={activeTab === 'code'}
-            title="Code"
-            icon={<Code2 size={16} />}
-          />
-        )}
-
+      <aside className="flex w-[54px] shrink-0 flex-col items-center border-r border-border-subtle bg-bg-secondary py-3">
+        <button onClick={() => setNewProjectModal(true)} title="Add project" className="flex h-9 w-9 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary"><Plus size={16} /></button>
         <div className="flex-1" />
-        <UpdateBanner collapsed />
-
-        {activeTab === 'projects' && (
-          <NavIconBtn
-            onClick={() => ipc.design.openWindow()}
-            title="Design"
-            icon={<Palette size={16} />}
-          />
-        )}
-
-        <NavIconBtn onClick={() => openCustomize()} title="Customize" icon={<Boxes size={16} />} />
-        <NavIconBtn onClick={() => openSettings('models')} title="Settings" icon={<Settings size={16} />} />
+        <button onClick={() => void ipc.design.openWindow()} title="Design" className="flex h-9 w-9 items-center justify-center rounded-lg text-text-muted hover:bg-bg-hover hover:text-text-primary"><Palette size={16} /></button>
+        <button onClick={openCustomize} title="Customize" className="flex h-9 w-9 items-center justify-center rounded-lg text-text-muted hover:bg-bg-hover hover:text-text-primary"><Boxes size={16} /></button>
+        <button onClick={() => openSettings('models')} title="Settings" className="flex h-9 w-9 items-center justify-center rounded-lg text-text-muted hover:bg-bg-hover hover:text-text-primary"><Settings size={16} /></button>
       </aside>
     )
   }
 
-  /* ── Expanded sidebar ───────────────────────────────────────────────── */
   return (
-    <aside
-      className="flex flex-col flex-shrink-0 border-r border-border-subtle bg-bg-secondary transition-all duration-200"
-      style={{ width: 'var(--sidebar-width)' }}
-    >
-      {/* ── Tab switcher ── */}
-      <div className="px-3 pt-3 pb-2">
-        <div className="flex rounded-lg bg-bg-tertiary border border-border-subtle p-0.5 gap-0.5">
-          <TabBtn active={activeTab === 'projects'} onClick={() => setActiveTab('projects')} icon={<FolderKanban size={12} />}   label="Cowork" />
-          {FEATURES.code && (
-            <TabBtn active={activeTab === 'code'}     onClick={() => setActiveTab('code')}     icon={<Code2 size={12} />}          label="Code" />
-          )}
+    <>
+      <aside className="flex shrink-0 flex-col border-r border-border-subtle bg-bg-secondary" style={{ width: 'var(--sidebar-width)' }}>
+        <div className="px-3 pb-2 pt-4">
+          <div className="mb-3 flex items-center justify-between px-1">
+            <span className="workbench-eyebrow">Workspaces</span>
+            <button onClick={() => setNewProjectModal(true)} aria-label="Add project" title="Add project" className="grid h-7 w-7 place-items-center rounded-lg text-text-muted hover:bg-bg-hover hover:text-text-primary"><Plus size={14} /></button>
+          </div>
+          <div className="flex items-center gap-2 rounded-xl border border-border bg-bg-primary/60 px-2.5 py-2 text-text-muted transition-colors focus-within:border-accent/40 focus-within:bg-bg-elevated">
+            <Search size={12} />
+            <input aria-label="Search projects" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find a project" className="min-w-0 flex-1 bg-transparent text-xs text-text-primary outline-none placeholder:text-text-muted" />
+            {search && <button onClick={() => setSearch('')} aria-label="Clear search"><X size={11} /></button>}
+          </div>
         </div>
-      </div>
 
-      {/* ── Scrollable list ── */}
-      <div className="flex-1 overflow-y-auto px-2 pb-2">
-
-        {FEATURES.code && activeTab === 'code' && (
-          <>
-            {/* New task — taze workspace: ana sayfayı açar, klasör seçtirir */}
-            <div className="px-1 pt-0.5 pb-2">
-              <button
-                onClick={() => void startNewCodeTask()}
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium
-                           bg-bg-tertiary border border-border-subtle text-text-secondary
-                           hover:text-text-primary hover:border-accent/40 hover:bg-bg-hover transition-colors"
-              >
-                <Plus size={13} className="flex-shrink-0" />
-                <span>New task</span>
-              </button>
-            </div>
-            <CodeSessionsList />
-          </>
-        )}
-
-        {activeTab === 'projects' && (
-          <>
-            {/* Header */}
-            <div className="mb-1.5 px-2 flex items-center justify-between">
-              <p className="text-2xs text-text-muted font-semibold uppercase tracking-widest">Cowork</p>
-              <button
-                onClick={() => setNewProjectModal(true)}
-                className="p-1 rounded text-text-muted hover:text-accent transition-colors"
-                title="New Project"
-              >
-                <FolderPlus size={12} />
-              </button>
-            </div>
-
-            {/* Search */}
-            <div className="px-1 pb-2">
-              <div className="flex items-center gap-2 px-2.5 py-1.5 bg-bg-tertiary rounded-lg border border-border-subtle
-                              focus-within:border-accent/50 focus-within:bg-bg-elevated transition-all">
-                <Search size={12} className="text-text-muted flex-shrink-0" />
-                <input
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  placeholder="Search projects…"
-                  className="flex-1 bg-transparent text-xs text-text-primary placeholder-text-muted outline-none"
-                />
-              </div>
-            </div>
-
-            {/* Loading */}
-            {loading && (
-              <div className="space-y-1.5 px-1 py-1">
-                {[0, 1, 2].map(i => (
-                  <div key={i} className="flex items-center gap-2.5 p-2">
-                    <div className="w-8 h-8 rounded-xl shimmer flex-shrink-0" />
-                    <div className="flex-1 space-y-1.5">
-                      <div className="h-2.5 rounded shimmer w-3/4" />
-                      <div className="h-2 rounded shimmer w-1/2" />
+        {/* overflow-x-hidden is load-bearing: with only overflow-y-auto set, CSS
+            computes the other axis as auto too, so anything reaching past the
+            sidebar's right edge adds a horizontal scrollbar. Menus escape via a
+            portal instead (see SessionRow / ProjectMenu). */}
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-2 pb-4">
+          {loading && <ProjectSkeleton />}
+          {!loading && filtered.length === 0 && (
+            <div className="mx-2 mt-10 text-center"><Folder size={22} className="mx-auto mb-3 text-text-muted" /><p className="text-xs text-text-muted">{projects.length ? 'No matching projects' : 'No projects yet'}</p></div>
+          )}
+          <div className="space-y-1">
+            {filtered.map((project) => {
+              const isExpanded = expanded.has(project.id)
+              const active = project.id === activeProjectId
+              const sessions = sessionsByProject[project.id] ?? []
+              const visible = showAll.has(project.id) ? sessions : sessions.slice(0, 6)
+              return (
+                <div key={project.id} className={`project-accordion ${active ? 'is-active' : ''}`}>
+                  <div className="group relative flex h-10 items-center rounded-xl px-2 transition-colors hover:bg-bg-hover">
+                    {active && <span className="absolute bottom-2 left-0 top-2 w-[2px] rounded-full bg-accent" />}
+                    <button
+                      onClick={() => {
+                        setExpanded((current) => { const next = new Set(current); isExpanded ? next.delete(project.id) : next.add(project.id); return next })
+                        selectProject(project.id)
+                      }}
+                      className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                    >
+                      {isExpanded ? <ChevronDown size={12} className="shrink-0 text-text-muted" /> : <ChevronRight size={12} className="shrink-0 text-text-muted" />}
+                      <FolderOpen size={17} className={`shrink-0 ${active ? 'text-text-primary' : 'text-text-muted'}`} />
+                      <span className={`truncate text-[13px] ${active ? 'font-medium text-text-primary' : 'text-text-secondary'}`}>{project.name}</span>
+                      {!!project.pinned && <Pin size={10} className="shrink-0 rotate-45 text-text-muted" />}
+                    </button>
+                    <div className={`flex items-center ${active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                      <button onClick={() => void newTask(project.id)} title="New task" className="rounded-md p-1 text-text-muted transition-colors hover:bg-bg-tertiary hover:text-text-primary"><PenLine size={13} /></button>
+                      <button
+                        onClick={(event) => { event.stopPropagation(); setMenu({ project, rect: event.currentTarget.getBoundingClientRect() }) }}
+                        aria-label={`Project options for ${project.name}`}
+                        className="rounded-md p-1 text-text-muted transition-colors hover:bg-bg-tertiary hover:text-text-primary"
+                      ><MoreHorizontal size={15} /></button>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
 
-            {!loading && projects.length === 0 && (
-              <div className="flex flex-col items-center gap-2 py-8 px-4 text-center">
-                <div className="w-10 h-10 rounded-xl bg-bg-tertiary border border-border flex items-center justify-center">
-                  <FolderPlus size={16} className="text-text-muted" />
+                  {isExpanded && (
+                    <div className="ml-[30px] border-l border-border-subtle/70 py-1 pl-2">
+                      {visible.map((session) => (
+                        <SessionRow
+                          key={session.id}
+                          session={session}
+                          active={active && activeCodeSessionId === session.id}
+                          onSelect={() => selectProject(project.id, session.id)}
+                          onRename={(title) => renameSession(session.id, title)}
+                          onPin={() => pinSession(project.id, session.id, !session.pinned)}
+                          onDelete={async () => {
+                            await deleteSession(project.id, session.id)
+                            if (activeCodeSessionId === session.id) setActiveCodeSession(null)
+                          }}
+                        />
+                      ))}
+                      {sessions.length === 0 && <button onClick={() => void newTask(project.id)} className="w-full rounded-lg px-2 py-1.5 text-left text-[11px] text-text-muted hover:bg-bg-hover hover:text-text-secondary">Start the first task</button>}
+                      {sessions.length > 6 && (
+                        <button onClick={() => setShowAll((current) => { const next = new Set(current); next.has(project.id) ? next.delete(project.id) : next.add(project.id); return next })} className="w-full px-2 py-1 text-left text-[11px] text-text-muted hover:text-text-secondary">
+                          {showAll.has(project.id) ? 'Show less' : `Show ${sessions.length - 6} more`}
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <p className="text-xs text-text-muted">No cowork yet</p>
-                <button
-                  onClick={() => setNewProjectModal(true)}
-                  className="text-2xs text-accent hover:underline"
-                >
-                  Create your first project
-                </button>
-              </div>
-            )}
-
-            {pinned.length > 0 && (
-              <div className="mb-4">
-                <p className="text-xs text-text-muted px-2 py-1 mb-0.5">Pinned</p>
-                {pinned.map(p => (
-                  <PinnedProjectItem
-                    key={p.id} project={p}
-                    active={p.id === activeProjectId && !activeSessionId}
-                    onSelect={() => { selectProject(p.id); setActiveSession(null) }}
-                  />
-                ))}
-              </div>
-            )}
-
-            {filtered.length > 0 && (
-              <div className="space-y-4">
-                {filtered.map(p => (
-                  <ProjectSection
-                    key={p.id} project={p}
-                    activeSessionId={activeSessionId}
-                    sessions={sessionsByProject[p.id] ?? []}
-                    onSession={(sid) => { selectProject(p.id); setActiveSession(sid) }}
-                  />
-                ))}
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* ── Footer ── */}
-      <div className="border-t border-border-subtle pt-2 pb-3 flex flex-col">
-        <UpdateBanner />
-        <div className="px-2 space-y-0.5">
-          {/* Design — sade liste öğesi, yalnız Cowork tab'ında görünür */}
-          {activeTab === 'projects' && (
-            <FooterBtn
-              onClick={() => ipc.design.openWindow()}
-              icon={<Palette size={13} />}
-              label="Design"
-            />
-          )}
-          <FooterBtn onClick={() => openCustomize()}        icon={<Boxes size={13} />}    label="Customize" />
-          <FooterBtn onClick={() => openSettings('models')} icon={<Settings size={13} />} label="Settings" />
+              )
+            })}
+          </div>
         </div>
-      </div>
-    </aside>
-  )
-}
 
-/* ══════════════════════════════════════════════════════════════════════════
-   Helper bileşenler
-   ══════════════════════════════════════════════════════════════════════════ */
-
-function SidebarItem({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick?: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors text-sm font-medium"
-    >
-      <div className="text-text-muted">{icon}</div>
-      <span>{label}</span>
-    </button>
-  )
-}
-
-function NavIconBtn({ onClick, active, title, icon }: {
-  onClick: () => void; active?: boolean; title: string; icon: React.ReactNode
-}) {
-  return (
-    <button
-      onClick={onClick} title={title}
-      className={`w-9 h-9 flex items-center justify-center rounded-lg transition-colors ${
-        active ? 'bg-accent/15 text-accent' : 'text-text-muted hover:text-text-secondary hover:bg-bg-hover'
-      }`}
-    >
-      {icon}
-    </button>
-  )
-}
-
-function TabBtn({ active, onClick, icon, label }: {
-  active: boolean; onClick: () => void; icon: React.ReactNode; label: string
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium transition-all outline-none focus:outline-none ${
-        active
-          ? 'bg-bg-secondary text-text-primary shadow-sm border border-border-subtle'
-          : 'text-text-muted hover:text-text-secondary border border-transparent'
-      }`}
-    >
-      {icon}{label}
-    </button>
-  )
-}
-
-function FooterBtn({ onClick, icon, label }: {
-  onClick: () => void; icon: React.ReactNode; label: string
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-text-muted
-                 hover:bg-bg-hover hover:text-text-secondary transition-colors text-xs"
-    >
-      {icon}<span>{label}</span>
-    </button>
-  )
-}
-
-function CodeSessionsList() {
-  const { sessionsByProject, loadSessions, renameSession, deleteSession } = useSessionsStore()
-  const { activeCodeSessionId, setActiveCodeSession } = useUIStore()
-  const { setActiveProject } = useProjectsStore()
-  const agentStore = useAgentStore()
-  const sessions = sessionsByProject[CODE_PROJECT_ID] ?? []
-
-  useEffect(() => { loadSessions(CODE_PROJECT_ID) }, [])
-
-  async function handleDelete(sid: string) {
-    if (!window.confirm('Delete this code session and all its messages?')) return
-    const wasActive = activeCodeSessionId === sid
-    await deleteSession(CODE_PROJECT_ID, sid)
-    if (wasActive) {
-      await ipc.agent.newSession(CODE_PROJECT_ID)
-      agentStore.setStatus('idle')
-      agentStore.clearToolCalls()
-      agentStore.clearTimelines()
-      useSessionsStore.getState().clearUIMessages()
-      setActiveCodeSession(null)
-    }
-  }
-
-  if (sessions.length === 0) return (
-    <div className="flex flex-col items-center gap-2 py-8 px-4 text-center">
-      <p className="text-xs text-text-muted">No code sessions yet</p>
-      <p className="text-2xs text-text-muted/70">Start a new session to begin coding</p>
-    </div>
-  )
-
-  const pinned = sessions.filter(s => s.pinned)
-  const recents = sessions.filter(s => !s.pinned)
-
-  return (
-    <div className="mb-3 space-y-3">
-      {pinned.length > 0 && (
-        <div className="space-y-0.5">
-          <p className="text-2xs text-text-muted font-semibold uppercase tracking-widest px-2 py-1 flex items-center gap-1">
-            <Pin size={10} className="text-accent rotate-45" />
-            <span>Pinned</span>
-          </p>
-          {pinned.map(s => (
-            <SessionRow
-              key={s.id}
-              session={s}
-              active={activeCodeSessionId === s.id}
-              onSelect={() => { setActiveCodeSession(s.id); setActiveProject(null) }}
-              onRename={t => renameSession(s.id, t)}
-              onDelete={() => handleDelete(s.id)}
-              onPin={() => useSessionsStore.getState().pinSession(CODE_PROJECT_ID, s.id, !s.pinned)}
-            />
-          ))}
+        <div className="border-t border-border-subtle px-2 pb-3 pt-2">
+          <UpdateBanner />
+          <FooterButton icon={<Palette size={14} />} label="Design" onClick={() => void ipc.design.openWindow()} />
+          <FooterButton icon={<Boxes size={14} />} label="Customize" onClick={openCustomize} />
+          <FooterButton icon={<Settings size={14} />} label="Settings" onClick={() => openSettings('models')} />
         </div>
-      )}
+      </aside>
 
-      {(recents.length > 0 || pinned.length === 0) && (
-        <div className="space-y-0.5">
-          <p className="text-2xs text-text-muted font-semibold uppercase tracking-widest px-2 py-1">Recents</p>
-          {recents.map(s => (
-            <SessionRow
-              key={s.id}
-              session={s}
-              active={activeCodeSessionId === s.id}
-              onSelect={() => { setActiveCodeSession(s.id); setActiveProject(null) }}
-              onRename={t => renameSession(s.id, t)}
-              onDelete={() => handleDelete(s.id)}
-              onPin={() => useSessionsStore.getState().pinSession(CODE_PROJECT_ID, s.id, !s.pinned)}
-            />
-          ))}
-        </div>
+      {menu && (
+        <ProjectMenu
+          project={menu.project}
+          rect={menu.rect}
+          onClose={() => setMenu(null)}
+          onPin={async () => { await updateProject(menu.project.id, { pinned: menu.project.pinned ? 0 : 1 }); setMenu(null) }}
+          onReveal={async () => { await ipc.projects.reveal(menu.project.id); setMenu(null) }}
+          onEdit={() => { setEditingProjectId(menu.project.id); setMenu(null) }}
+          onRemove={() => void removeProject(menu.project)}
+        />
       )}
-    </div>
+      {editingProjectId && <EditProjectModal projectId={editingProjectId} onClose={() => setEditingProjectId(null)} />}
+    </>
   )
 }
 
-function Section({ label, icon, children }: {
-  label?: string; icon?: React.ReactNode; children: React.ReactNode
+function ProjectMenu({ project, rect, onClose, onPin, onReveal, onEdit, onRemove }: {
+  project: ProjectSummary; rect: DOMRect; onClose: () => void; onPin: () => void; onReveal: () => void; onEdit: () => void; onRemove: () => void
 }) {
-  return (
-    <div className="mb-1">
-      {label && (
-        <p className="text-2xs text-text-muted px-2 py-1 font-semibold uppercase tracking-widest flex items-center gap-1.5">
-          {icon}{label}
-        </p>
-      )}
-      {children}
-    </div>
-  )
-}
-
-function PinnedProjectItem({ project, active, onSelect }: { project: any; active: boolean; onSelect: () => void }) {
-  return (
-    <button
-      onClick={onSelect}
-      className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left transition-colors mb-0.5 ${
-        active
-          ? 'bg-bg-tertiary text-text-primary'
-          : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'
-      }`}
-    >
-      <Archive size={14} className={active ? 'text-text-primary' : 'text-text-muted'} />
-      <span className="text-xs truncate font-medium">{project.name}</span>
-    </button>
-  )
-}
-
-function ProjectSection({ project, activeSessionId, sessions, onSession }: {
-  project: any; activeSessionId: string | null
-  sessions: any[]; onSession: (id: string | null) => void
-}) {
-  const { renameSession, deleteSession, pinSession, loadSessions } = useSessionsStore()
-  const [expanded, setExpanded] = useState(false)
-
   useEffect(() => {
-    loadSessions(project.id)
-  }, [project.id])
-
-  return (
-    <div>
-      {/* Header Row */}
-      <div className="flex items-center justify-between px-2 mb-1 group cursor-pointer" onClick={() => setExpanded(!expanded)}>
-        <div className="flex items-center gap-1.5 min-w-0 text-text-secondary group-hover:text-text-primary transition-colors">
-          <span className="text-[11px] font-medium truncate">{project.name}</span>
-          {expanded ? <ChevronDown size={10} className="text-text-muted" /> : <ChevronRight size={10} className="text-text-muted" />}
-        </div>
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button onClick={(e) => { e.stopPropagation(); onSession(null) }} className="p-0.5 text-text-muted hover:text-accent transition-colors" title="Open Project">
-            <ArrowUpRight size={12} />
-          </button>
-        </div>
+    const close = () => onClose()
+    window.addEventListener('resize', close)
+    window.addEventListener('scroll', close, true)
+    return () => { window.removeEventListener('resize', close); window.removeEventListener('scroll', close, true) }
+  }, [onClose])
+  return createPortal(
+    <>
+      <div className="fixed inset-0 z-[80]" onMouseDown={onClose} />
+      <div className="fixed z-[81] w-56 rounded-2xl border border-border bg-bg-elevated p-1.5 shadow-pop animate-slide-up" style={{ top: Math.min(rect.bottom + 6, window.innerHeight - 230), left: rect.right + 8 }}>
+        <MenuButton icon={project.pinned ? <PinOff size={16} /> : <Pin size={16} />} label={project.pinned ? 'Unpin project' : 'Pin project'} onClick={onPin} />
+        <MenuButton icon={<FolderOpen size={16} />} label="Reveal in Finder" onClick={onReveal} />
+        <MenuButton icon={<Settings size={16} />} label="Edit project" onClick={onEdit} />
+        <div className="my-1 border-t border-border-subtle" />
+        <MenuButton icon={<Trash2 size={16} />} label="Remove" danger onClick={onRemove} />
       </div>
-
-      {/* Sessions List */}
-      {expanded && (
-        <div className="space-y-0.5 ml-1">
-          {sessions.slice(0, 12).map(s => (
-            <SessionRow
-              key={s.id}
-              session={s}
-              active={activeSessionId === s.id}
-              onSelect={() => onSession(s.id)}
-              onRename={t => renameSession(s.id, t)}
-              onDelete={() => deleteSession(project.id, s.id)}
-              onPin={() => pinSession(project.id, s.id, !s.pinned)}
-            />
-          ))}
-        </div>
-      )}
-    </div>
+    </>, document.body,
   )
 }
 
-function SessionRow({ session, active, onSelect, onRename, onDelete, onPin }: {
-  session: any; active: boolean; onSelect: () => void
-  onRename: (t: string) => void; onDelete: () => void; onPin: () => void
+function MenuButton({ icon, label, onClick, danger }: { icon: React.ReactNode; label: string; onClick: () => void; danger?: boolean }) {
+  return <button onClick={onClick} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm transition-colors hover:bg-bg-hover ${danger ? 'text-error' : 'text-text-primary'}`}>{icon}{label}</button>
+}
+
+function SessionRow({ session, active, onSelect, onRename, onPin, onDelete }: {
+  session: SessionRecord; active: boolean; onSelect: () => void; onRename: (title: string) => void; onPin: () => void; onDelete: () => void
 }) {
+  // The menu is portalled to <body>, so its position comes from the trigger's
+  // rect rather than from the row it belongs to.
+  const [menuRect, setMenuRect] = useState<DOMRect | null>(null)
   const [editing, setEditing] = useState(false)
-  const [val, setVal] = useState(session.title || '')
-  const [menuOpen, setMenuOpen] = useState(false)
-  const menuRef = useRef<HTMLDivElement>(null)
+  const [title, setTitle] = useState(session.title || 'New task')
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuOpen = menuRect !== null
 
+  // A portalled menu lives outside `ref`, so a contains() check would treat a
+  // click on the menu itself as an outside click and close it before the button
+  // fired. The backdrop below handles dismissal instead; this only has to
+  // follow the trigger when the layout moves out from under it.
   useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false)
-      }
-    }
-    if (menuOpen) document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    if (!menuOpen) return
+    const close = () => setMenuRect(null)
+    window.addEventListener('resize', close)
+    window.addEventListener('scroll', close, true)
+    return () => { window.removeEventListener('resize', close); window.removeEventListener('scroll', close, true) }
   }, [menuOpen])
 
   function commit() {
-    const t = val.trim()
-    if (t && t !== session.title) onRename(t)
+    const next = title.trim()
+    if (next && next !== session.title) onRename(next)
     setEditing(false)
   }
 
-  if (editing) {
-    return (
-      <input
-        autoFocus value={val}
-        onChange={e => setVal(e.target.value)}
-        onBlur={commit}
-        onKeyDown={e => {
-          if (e.key === 'Enter') commit()
-          else if (e.key === 'Escape') { setVal(session.title || ''); setEditing(false) }
-        }}
-        className="w-full px-2 py-1.5 rounded-md text-xs bg-bg-elevated border border-accent/40 text-text-primary outline-none"
-      />
-    )
-  }
-
-  // Basic mock logic for triangle alert if title contains words like bug/migration
-  const lowerTitle = (session.title || '').toLowerCase()
-  const isAlert = lowerTitle.includes('bug') || lowerTitle.includes('migrati')
-  const Icon = isAlert ? TriangleAlert : Circle
+  if (editing) return <input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === 'Enter') commit(); if (event.key === 'Escape') setEditing(false) }} className="my-0.5 w-full rounded-lg border border-accent/40 bg-bg-tertiary px-2 py-1.5 text-[11px] text-text-primary outline-none" />
 
   return (
-    <div className={`group relative flex items-center gap-2 w-full pl-3 pr-1 py-1 rounded-md text-[11px] transition-colors ${
-      active
-        ? 'text-text-primary bg-bg-hover font-medium'
-        : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover/50'
-    }`}>
-      <button onClick={onSelect} className="flex items-center gap-2 flex-1 min-w-0 text-left">
-        <Icon size={8} className={`flex-shrink-0 ${isAlert ? 'text-warning' : (active ? 'text-accent' : 'text-text-muted')} stroke-[3px]`} />
-        <span className="truncate">{session.title || 'New Session'}</span>
-      </button>
-
-      {/* Menu Trigger */}
+    <div className={`group relative flex items-center rounded-lg ${active ? 'bg-bg-hover text-text-primary' : 'text-text-muted hover:bg-bg-hover/60 hover:text-text-secondary'}`}>
+      <button onClick={onSelect} className="min-w-0 flex-1 truncate px-2 py-1.5 text-left text-[11px]">{session.title || 'New task'}</button>
+      {!!session.pinned && <Pin size={9} className="rotate-45" />}
       <button
-        onClick={e => { e.stopPropagation(); setMenuOpen(!menuOpen) }}
-        className={`p-0.5 rounded text-text-muted hover:text-accent transition-all flex-shrink-0 ${menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+        ref={triggerRef}
+        onClick={() => setMenuRect((open) => (open ? null : triggerRef.current?.getBoundingClientRect() ?? null))}
+        aria-label="Task options"
+        aria-expanded={menuOpen}
+        className={`mr-1 rounded p-0.5 transition-opacity hover:text-text-primary ${menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
       >
-        <MoreHorizontal size={14} />
+        <MoreHorizontal size={13} />
       </button>
-
-      {/* Dropdown Menu */}
-      {menuOpen && (
-        <div ref={menuRef} className="absolute right-6 top-0 mt-1 w-28 bg-bg-elevated border border-border-subtle rounded-lg shadow-lg py-1 z-50">
-          <button onClick={(e) => { e.stopPropagation(); onPin(); setMenuOpen(false) }} className="w-full text-left px-3 py-1.5 text-xs hover:bg-bg-hover text-text-secondary">
-            {session.pinned ? 'Unpin' : 'Pin'}
-          </button>
-          <button onClick={(e) => { e.stopPropagation(); setVal(session.title || ''); setEditing(true); setMenuOpen(false) }} className="w-full text-left px-3 py-1.5 text-xs hover:bg-bg-hover text-text-secondary">
-            Rename
-          </button>
-          <button onClick={(e) => { e.stopPropagation(); onDelete(); setMenuOpen(false) }} className="w-full text-left px-3 py-1.5 text-xs hover:bg-bg-hover text-error">
-            Delete
-          </button>
-        </div>
+      {menuRect && (
+        <SessionMenu
+          rect={menuRect}
+          pinned={!!session.pinned}
+          onClose={() => setMenuRect(null)}
+          onPin={() => { onPin(); setMenuRect(null) }}
+          onRename={() => { setEditing(true); setMenuRect(null) }}
+          onDelete={() => { onDelete(); setMenuRect(null) }}
+        />
       )}
     </div>
   )
+}
+
+/**
+ * SessionMenu — the task row's Pin / Rename / Delete popover.
+ *
+ * Portalled to <body> and positioned from the trigger's viewport rect. Rendered
+ * in place it sat outside the sidebar's right edge, which gave the sidebar a
+ * horizontal scrollbar and let the menu scroll away from its own row.
+ */
+const SESSION_MENU_WIDTH = 128
+const SESSION_MENU_HEIGHT = 108
+
+function SessionMenu({ rect, pinned, onClose, onPin, onRename, onDelete }: {
+  rect: DOMRect; pinned: boolean; onClose: () => void
+  onPin: () => void; onRename: () => void; onDelete: () => void
+}) {
+  // Prefer opening to the right of the trigger; fall back to its left when
+  // that would run past the window edge.
+  const spillsRight = rect.right + 8 + SESSION_MENU_WIDTH > window.innerWidth - 8
+  const left = spillsRight
+    ? Math.max(8, rect.left - SESSION_MENU_WIDTH - 8)
+    : rect.right + 8
+  const top = Math.max(8, Math.min(rect.top, window.innerHeight - SESSION_MENU_HEIGHT - 8))
+
+  return createPortal(
+    <>
+      <div className="fixed inset-0 z-[80]" onMouseDown={onClose} />
+      <div
+        role="menu"
+        className="fixed z-[81] rounded-xl border border-border bg-bg-elevated p-1 shadow-pop animate-fade-in"
+        style={{ top, left, width: SESSION_MENU_WIDTH }}
+      >
+        <button role="menuitem" onClick={onPin} className="w-full rounded-lg px-2 py-1.5 text-left text-xs text-text-primary hover:bg-bg-hover">{pinned ? 'Unpin' : 'Pin'}</button>
+        <button role="menuitem" onClick={onRename} className="w-full rounded-lg px-2 py-1.5 text-left text-xs text-text-primary hover:bg-bg-hover">Rename</button>
+        <button role="menuitem" onClick={onDelete} className="w-full rounded-lg px-2 py-1.5 text-left text-xs text-error hover:bg-bg-hover">Delete</button>
+      </div>
+    </>, document.body,
+  )
+}
+
+function FooterButton({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
+  return <button onClick={onClick} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs text-text-muted transition-colors hover:bg-bg-hover hover:text-text-secondary">{icon}{label}</button>
+}
+
+function ProjectSkeleton() {
+  return <div className="space-y-2 px-2 py-3">{[0, 1, 2].map((item) => <div key={item} className="h-9 rounded-xl shimmer" />)}</div>
 }

@@ -13,7 +13,7 @@
  * - Asenkron (non-blocking) çalıştırma ile Electron UI donmalarını engeller.
  */
 
-import { exec, execSync } from "child_process";
+import { exec, execFile, execSync, spawnSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -132,7 +132,10 @@ const BACKEND_META: Record<SandboxBackendKind, Omit<SandboxBackend, "kind">> = {
   linux_firejail: { isolated: true,  providerArg: "linux_firejail", label: "Linux Firejail" },
   docker:         { isolated: true,  providerArg: "docker",         label: "Docker container" },
   wsl_bwrap:      { isolated: true,  providerArg: "wsl_bwrap",      label: "WSL2 + Bubblewrap" },
-  win_jobobject:  { isolated: true,  providerArg: "win_jobobject",  label: "Windows Job Object (weak)" },
+  // A Job Object limits process lifetime/resources; it is not a filesystem or
+  // network security boundary. Treating it as isolated silently overstated the
+  // protection on Windows machines without WSL2/Docker.
+  win_jobobject:  { isolated: false, providerArg: "win_jobobject",  label: "Windows Job Object (low-trust)" },
   none:           { isolated: false, providerArg: "fallback",       label: "No isolation (low-trust)" },
 };
 
@@ -207,7 +210,11 @@ const DEFAULT_CONFIG: SandboxConfig = {
   maxOutputBytes: 512 * 1024,  // 512KB
   maxTimeoutMs: 30_000,         // 30s
   networkRestricted: false,
-  allowedPaths: [os.homedir(), "/tmp", "/var/tmp"],
+  // The home directory is deliberately not a default execution root. Commands
+  // may read selected user configuration inside the OS sandbox, but being able
+  // to choose any directory under $HOME as cwd would turn "workspace confined"
+  // into "whole home directory writable".
+  allowedPaths: [os.tmpdir(), "/tmp", "/var/tmp"],
   blockedBinaries: DEFAULT_BLOCKED_BINARIES,
   provider: "auto",
 };
@@ -220,13 +227,41 @@ const GLOBAL_BUNDLE_PATH = path.join(os.homedir(), ".cowrangler", "cowrangler-sa
  * Bundle sürümü. Runner script'leri her değiştiğinde ARTIR — böylece eski
  * kopyalar (stale cache) otomatik olarak yeniden kopyalanır.
  */
-const SANDBOX_BUNDLE_VERSION = "4";
+const SANDBOX_BUNDLE_VERSION = "5";
 const BUNDLE_VERSION_FILE = path.join(GLOBAL_BUNDLE_PATH, ".bundle_version");
 
-/** Global bundle güncel sürümde mi? */
+/** The runner script a bundle must actually contain to be usable. */
+function runnerScriptPath(bundlePath: string): string {
+  return path.join(
+    bundlePath,
+    "Contents",
+    "Resources",
+    "scripts",
+    process.platform === "win32" ? "runner.ps1" : "runner.sh",
+  );
+}
+
+/**
+ * A bundle is only usable if the runner script is really there. Checking the
+ * version file alone was not enough: an interrupted copy, a deleted file or a
+ * quarantined script leaves a directory that looks current but cannot run
+ * anything, and the failure surfaces much later as "runner.sh doesn't exist"
+ * on every single command.
+ */
+export function isSandboxBundleUsable(bundlePath: string): boolean {
+  try {
+    return fs.existsSync(runnerScriptPath(bundlePath));
+  } catch {
+    return false;
+  }
+}
+
+/** Global bundle güncel sürümde VE bütün mü? */
 function globalBundleIsCurrent(): boolean {
   try {
-    return fs.readFileSync(BUNDLE_VERSION_FILE, "utf-8").trim() === SANDBOX_BUNDLE_VERSION;
+    const versionMatches =
+      fs.readFileSync(BUNDLE_VERSION_FILE, "utf-8").trim() === SANDBOX_BUNDLE_VERSION;
+    return versionMatches && isSandboxBundleUsable(GLOBAL_BUNDLE_PATH);
   } catch {
     return false;
   }
@@ -253,10 +288,16 @@ export function ensureBundle(): string {
     path.resolve(__dirname, "cowrangler-sandbox.bundle"),
     path.resolve(__dirname, "../../src/core/cowrangler-sandbox.bundle"),
     path.resolve(__dirname, "../core/cowrangler-sandbox.bundle"),
+    // In a packaged Electron app the bundle ships in extraResources. This has
+    // to be a candidate for copying, not just a last-resort return value —
+    // otherwise a packaged build never populates the global copy.
+    ...((process as any).resourcesPath
+      ? [path.join((process as any).resourcesPath, "cowrangler-sandbox.bundle")]
+      : []),
   ];
 
   for (const localPath of possiblePaths) {
-    if (fs.existsSync(localPath)) {
+    if (isSandboxBundleUsable(localPath)) {
       try {
         // Eski/stale bir kopya varsa tamamen kaldır, sonra taze kopyala.
         fs.rmSync(GLOBAL_BUNDLE_PATH, { recursive: true, force: true });
@@ -277,17 +318,101 @@ export function ensureBundle(): string {
     }
   }
 
-  // Electron resources path control
-  // @ts-ignore
-  if (process.resourcesPath) {
-    // @ts-ignore
-    const electronPath = path.join(process.resourcesPath, "cowrangler-sandbox.bundle");
-    if (fs.existsSync(electronPath)) {
-      return electronPath;
-    }
+  // Nothing usable anywhere. Returning GLOBAL_BUNDLE_PATH here — a path that
+  // does not exist — is what produced the old failure mode: every command died
+  // with a confusing "runner.sh doesn't exist", and the agent, given no way
+  // forward, started improvising its way around the sandbox. Say so instead.
+  throw new SandboxBundleMissingError(
+    `The sandbox runner could not be found. Looked in:\n` +
+      possiblePaths.map((p) => `  - ${p}`).join("\n") +
+      `\n  - ${GLOBAL_BUNDLE_PATH}\n` +
+      `Reinstall Co-Wrangler, or run with sandboxing disabled if you trust this workspace.`,
+  );
+}
+
+/** Raised when no usable sandbox bundle exists on this machine. */
+export class SandboxBundleMissingError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SandboxBundleMissingError";
+  }
+}
+
+export interface SandboxHealth {
+  platform: NodeJS.Platform;
+  kind: SandboxBackendKind;
+  label: string;
+  isolated: boolean;
+  bundleUsable: boolean;
+  bundlePath?: string;
+  error?: string;
+}
+
+/**
+ * Live health for Desktop/doctor. `ensureBundle` intentionally runs here: a
+ * stale global copy missing runner.sh is repaired before the next command, not
+ * merely reported as broken.
+ */
+export function inspectSandboxHealth(forced?: SandboxConfig["provider"]): SandboxHealth {
+  const backend = selectBackend(process.platform, binaryExists, forced);
+  if (!backend.isolated) {
+    return {
+      platform: process.platform,
+      kind: backend.kind,
+      label: backend.label,
+      isolated: false,
+      bundleUsable: false,
+      error: "No OS isolation backend is available.",
+    };
   }
 
-  return GLOBAL_BUNDLE_PATH;
+  try {
+    const bundlePath = ensureBundle();
+    const bundleUsable = isSandboxBundleUsable(bundlePath);
+    const probeError = bundleUsable ? probeIsolationBackend(backend, bundlePath) : undefined;
+    return {
+      platform: process.platform,
+      kind: backend.kind,
+      label: backend.label,
+      isolated: backend.isolated && bundleUsable && !probeError,
+      bundleUsable,
+      bundlePath,
+      error: !bundleUsable
+        ? "Sandbox runner is missing from the resolved bundle."
+        : probeError,
+    };
+  } catch (cause: any) {
+    return {
+      platform: process.platform,
+      kind: backend.kind,
+      label: backend.label,
+      isolated: false,
+      bundleUsable: false,
+      error: cause?.message ?? String(cause),
+    };
+  }
+}
+
+/**
+ * Binary presence is not enough on locked-down hosts: sandbox-exec/bwrap may
+ * exist while the parent security policy rejects creating a nested sandbox.
+ * Probe cheap local backends with a no-op so the UI reports usable isolation,
+ * not merely a binary found on PATH. Docker/WSL have their own readiness probe.
+ */
+function probeIsolationBackend(backend: SandboxBackend, bundlePath: string): string | undefined {
+  if (!["mac_seatbelt", "linux_bwrap", "linux_firejail"].includes(backend.kind)) return undefined;
+  const runnerPath = path.join(bundlePath, "Contents", "Resources", "scripts", "runner.sh");
+  const result = spawnSync(
+    "/bin/bash",
+    [runnerPath, backend.providerArg, os.tmpdir(), "true", "true"],
+    { encoding: "utf-8", timeout: 5_000, maxBuffer: 64 * 1024 },
+  );
+  if (result.status === 0) return undefined;
+  const detail = [result.stdout, result.stderr, result.error?.message]
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+  return `Isolation backend probe failed${result.status != null ? ` (exit ${result.status})` : ""}: ${detail || "no diagnostic output"}`;
 }
 
 export function configureSandbox(partial: Partial<SandboxConfig>): void {
@@ -309,13 +434,18 @@ function isPathAllowed(cwdPath: string): boolean {
   const resolved = path.resolve(cwdPath);
   const workspaceResolved = path.resolve(_config.workspaceRoot);
 
-  if (resolved.startsWith(workspaceResolved)) return true;
+  if (isSameOrDescendant(resolved, workspaceResolved)) return true;
 
   for (const allowed of _config.allowedPaths) {
-    if (resolved.startsWith(path.resolve(allowed))) return true;
+    if (isSameOrDescendant(resolved, path.resolve(allowed))) return true;
   }
 
   return false;
+}
+
+function isSameOrDescendant(candidate: string, root: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 /**
@@ -489,20 +619,44 @@ export function runInSandbox(
   }
 
   // ── 6b. Execute via Bundle Runner (Asenkron & Non-blocking) ────────────────
-  const bundlePath = ensureBundle();
+  let bundlePath: string;
+  try {
+    bundlePath = ensureBundle();
+  } catch (cause: any) {
+    const durationMs = Date.now() - start;
+    const blockReason =
+      `SANDBOX UNAVAILABLE: ${cause?.message ?? String(cause)}`;
+    writeAuditLog({ id: auditId, command, cwd, riskLevel, blocked: true, blockReason, durationMs, outputBytes: 0 });
+    return Promise.resolve({
+      output: blockReason, exitCode: 1, sandboxed: false, isolated: false,
+      backend: "none", riskLevel, blocked: true, blockReason, durationMs, auditId,
+    });
+  }
   const networkRestrictedStr = _config.networkRestricted ? "true" : "false";
 
-  let runCmd = "";
+  let executable = "";
+  let runnerArgs: string[] = [];
   if (process.platform === "win32") {
     const runnerPath = path.join(bundlePath, "Contents", "Resources", "scripts", "runner.ps1");
-    runCmd = `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "${runnerPath}" -Provider "${backend.providerArg}" -Cwd "${cwd}" -NetworkRestricted "${networkRestrictedStr}" -Command ${JSON.stringify(command)}`;
+    executable = "powershell.exe";
+    runnerArgs = [
+      "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", runnerPath,
+      "-Provider", backend.providerArg,
+      "-Cwd", cwd,
+      "-NetworkRestricted", networkRestrictedStr,
+      "-Command", command,
+    ];
   } else {
     const runnerPath = path.join(bundlePath, "Contents", "Resources", "scripts", "runner.sh");
-    runCmd = `bash "${runnerPath}" "${backend.providerArg}" "${cwd}" "${networkRestrictedStr}" ${JSON.stringify(command)}`;
+    executable = "/bin/bash";
+    runnerArgs = [runnerPath, backend.providerArg, cwd, networkRestrictedStr, command];
   }
 
   return new Promise<SandboxResult>((resolve) => {
-    exec(runCmd, {
+    // Avoid constructing another shell command around the runner. execFile
+    // preserves cwd/command arguments exactly (spaces, quotes, $, newlines) and
+    // eliminates a second injection/escaping surface.
+    execFile(executable, runnerArgs, {
       cwd,
       timeout: effectiveTimeout,
       maxBuffer: _config.maxOutputBytes,
@@ -517,6 +671,34 @@ export function runInSandbox(
         const blockReason = `SANDBOX TIMEOUT: Command exceeded ${effectiveTimeout}ms limit.`;
         writeAuditLog({ id: auditId, command, cwd, riskLevel, blocked: true, blockReason, durationMs, outputBytes: 0 });
         resolve({ output: blockReason, exitCode: 124, sandboxed: true, isolated: backend.isolated, backend: backend.kind, riskLevel, blocked: true, blockReason, durationMs, auditId });
+        return;
+      }
+
+      const infrastructureFailure =
+        error?.code === "ENOENT" ||
+        error?.code === "EACCES" ||
+        error?.status === 125 ||
+        /SANDBOX UNAVAILABLE:/i.test(out) ||
+        /sandbox-exec:\s*(sandbox_apply|invalid|failed)/i.test(out) ||
+        /bwrap:.*(operation not permitted|permission denied|creating new namespace failed)/i.test(out);
+      if (infrastructureFailure) {
+        const detail = out || error?.message || "Sandbox runner could not start.";
+        const blockReason = detail.startsWith("SANDBOX UNAVAILABLE:")
+          ? detail
+          : `SANDBOX UNAVAILABLE: ${detail}`;
+        writeAuditLog({ id: auditId, command, cwd, riskLevel, blocked: true, blockReason, durationMs, outputBytes: blockReason.length });
+        resolve({
+          output: blockReason,
+          exitCode: 125,
+          sandboxed: false,
+          isolated: false,
+          backend: backend.kind,
+          riskLevel,
+          blocked: true,
+          blockReason,
+          durationMs,
+          auditId,
+        });
         return;
       }
 

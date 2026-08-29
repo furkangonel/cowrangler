@@ -24,6 +24,7 @@ import { registerPreviewIPC } from './ipc/preview.ipc.js'
 import { registerPluginsIPC } from './ipc/plugins.ipc.js'
 import { installTrustedIpcGuard, openAllowedExternalUrl } from './ipc/security.js'
 import { agentManager } from './agent_manager.js'
+import { maybeRunHousekeeping } from './housekeeping.js'
 // KRİTİK: Tüm yerleşik araçları (system/git/web/dev/skill/file/brief/computer_use +
 // mcp_status) registry'ye kaydet. Bu import olmadan desktop agent'ı yalnızca
 // file_tools + send_message araçlarına sahip oluyordu.
@@ -175,6 +176,12 @@ function createWindow(): void {
 
 app.whenReady().then(async () => {
   createWindow()
+
+  // Keep generated caches, old exports and copied attachments bounded. This
+  // never traverses or mutates a user's source folder.
+  setImmediate(() => {
+    try { maybeRunHousekeeping() } catch (err) { console.warn('[housekeeping] skipped', err) }
+  })
 
   // ── MCP sunucularını başlat ────────────────────────────────────────────────
   // KRİTİK: Desktop'ta MCP init'i SADECE burada gerçekleşir. Önceden yalnızca

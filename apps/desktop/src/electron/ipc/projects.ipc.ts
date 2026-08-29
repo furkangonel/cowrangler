@@ -1,8 +1,9 @@
-import { IpcMain, dialog } from 'electron'
+import { IpcMain, shell } from 'electron'
 import fs from 'fs'
 import path from 'path'
 import { getProjectDB, CreateProjectInput } from '../project_db.js'
-import { ensureProjectWorkdir } from './managed_workspace.js'
+import { projectStoreDirFor } from '@cowrangler/core/project_context.js'
+import { getSessionDB } from '@cowrangler/core/session_db.js'
 
 export function registerProjectsIPC(ipcMain: IpcMain): void {
   const db = getProjectDB()
@@ -13,16 +14,13 @@ export function registerProjectsIPC(ipcMain: IpcMain): void {
 
   ipcMain.handle('projects:create', async (_, input: CreateProjectInput) => {
     const project = db.create(input)
-    // workdir verilmediyse managed klasör oluştur (<root>/Cowrangler/<ad>/).
-    if (!project.workdir) {
-      try { ensureProjectWorkdir(project.id) } catch { /* best-effort */ }
-    }
+    if (project.workdir) db.addFolder(project.id, project.workdir, 'Primary source')
     return db.get(project.id) ?? project
   })
 
-  // Var olan (workdir'siz) projelere açılışta managed klasör ata.
+  // Backwards-compatible method. Code projects are local-folder backed now;
+  // never create a surprise directory when a project has no source folder.
   ipcMain.handle('projects:ensureWorkdir', async (_, id: string) => {
-    try { ensureProjectWorkdir(id) } catch { /* best-effort */ }
     return db.get(id)
   })
 
@@ -32,16 +30,43 @@ export function registerProjectsIPC(ipcMain: IpcMain): void {
   })
 
   ipcMain.handle('projects:delete', async (_, id: string) => {
+    const project = db.get(id)
+    const sessionIds = db.getSessionIds(id)
+    const sessionDB = getSessionDB()
+    for (const sessionId of sessionIds) {
+      try { sessionDB.deleteSession(sessionId) } catch { /* best-effort cleanup */ }
+    }
     db.delete(id)
+    // Remove machine-local agent state, never the user's source folder.
+    if (project?.workdir) {
+      try { fs.rmSync(projectStoreDirFor(project.workdir), { recursive: true, force: true }) } catch { /* best effort */ }
+    }
+    return { ok: true }
+  })
+
+  ipcMain.handle('projects:reveal', async (_, id: string) => {
+    const project = db.get(id)
+    if (!project?.workdir || !fs.existsSync(project.workdir)) {
+      return { ok: false, error: 'Project folder is not available on this machine.' }
+    }
+    await shell.openPath(project.workdir)
     return { ok: true }
   })
 
   ipcMain.handle('projects:addFolder', async (_, id: string, folderPath: string) => {
-    return db.addFolder(id, folderPath)
+    const folder = db.addFolder(id, folderPath)
+    const project = db.get(id)
+    if (project && !project.workdir) db.update(id, { workdir: folderPath })
+    return folder
   })
 
   ipcMain.handle('projects:removeFolder', async (_, id: string, folderPath: string) => {
     db.removeFolder(id, folderPath)
+    const project = db.get(id)
+    if (project?.workdir === folderPath) {
+      const next = db.getFolders(id)[0]?.folder_path ?? null
+      db.update(id, { workdir: next })
+    }
     return { ok: true }
   })
 

@@ -26,8 +26,8 @@ test("app launches, shows the welcome/empty state, and preload wires up window.e
   // Temiz $HOME'da hiç proje yok → "Welcome to Cowrangler" boş durumu render
   // olmalı. Bu görünmüyorsa uygulama boş beyaz ekranda takılı kalmış demektir
   // (ör. preload yüklenemedi, window.electronAPI eksik — bkz. preload.ts).
-  await expect(window.getByText("Welcome to Cowrangler")).toBeVisible({ timeout: 20_000 });
-  await expect(window.getByRole("button", { name: "Create new project" })).toBeVisible();
+  await expect(window.getByText("Keep control of the outcome.")).toBeVisible({ timeout: 20_000 });
+  await expect(window.getByRole("button", { name: "Open local project" })).toBeVisible();
 
   expect(consoleErrors, `unexpected renderer console errors:\n${consoleErrors.join("\n")}`).toEqual([]);
 });

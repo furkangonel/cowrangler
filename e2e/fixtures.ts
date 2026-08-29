@@ -55,14 +55,24 @@ export async function closeApp(launched: LaunchedApp): Promise<void> {
  * İzole $HOME'da hiç proje yoktur (temiz kurulum) — "Welcome to Cowrangler"
  * boş durumu gösterilir. Testlerin çoğu bir composer'a (InputArea) ihtiyaç
  * duyar, ki bu yalnızca bir proje aktifken render olur. Bu yardımcı, boş
- * durumdan başlayıp ilk projeyi oluşturur ve ProjectHome'a düşer.
+ * durumdan başlayıp ilk yerel projeyi oluşturur ve Code composer'a düşer.
  */
 export async function createFirstProject(window: LaunchedApp["window"], name = "e2e-test-project"): Promise<void> {
-  await window.getByRole("button", { name: "Create new project" }).click();
-  const nameInput = window.getByPlaceholder("e.g. Marketing site");
+  await window.getByRole("button", { name: "Open local project" }).click();
+  const nameInput = window.getByPlaceholder("Project name");
   await nameInput.waitFor({ state: "visible" });
   await nameInput.fill(name);
-  await window.getByRole("button", { name: "Create project" }).click();
-  // Modal kapanana ve ProjectHome'un composer'ı (InlineNewTask) render olana kadar bekle.
+  // Native folder pickers are not suitable for headless E2E. Create through
+  // the preload-backed API using this isolated test home as the source folder.
+  await window.evaluate(async ({ name, workdir }) => {
+    const project = await window.electronAPI.projects.create({ name, workdir })
+    await window.electronAPI.projects.addFolder(project.id, workdir)
+  }, { name, workdir: launchedPath(window) });
+  await window.reload()
+  // Modal kapanana ve proje Code composer'ı render olana kadar bekle.
   await window.getByTestId("chat-input").waitFor({ state: "visible", timeout: 15_000 });
+}
+
+function launchedPath(_window: LaunchedApp["window"]): string {
+  return process.cwd()
 }

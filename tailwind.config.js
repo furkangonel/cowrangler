@@ -1,5 +1,6 @@
-// Co-Wrangler — Cowork design system.
-// Renkler CSS değişkenlerine bağlıdır (RGB triplet). Tema [data-theme] ile değişir.
+// Co-Wrangler design system.
+// Colours resolve to CSS custom properties (RGB triplets); the theme swaps via
+// [data-theme]. The accent ramp is derived from the Co-Wrangler mark (#EC5A29).
 // `<alpha-value>` Tailwind opacity modifier'larını (bg-accent/10 vb.) korur.
 /** @type {import('tailwindcss').Config} */
 const withVar = (name) => `rgb(var(${name}) / <alpha-value>)`
@@ -33,8 +34,14 @@ export default {
           hover:   withVar('--accent-hover'),
           press:   withVar('--accent-press'),
           fg:      withVar('--accent-fg'),
+          text:    withVar('--accent-text'),
           subtle:  'rgb(var(--accent) / 0.12)',
         },
+        brand: {
+          DEFAULT: withVar('--brand'),
+          bright:  withVar('--brand-bright'),
+        },
+        signal: withVar('--signal'),
         user: {
           bubble: withVar('--user-bubble-bg'),
           'bubble-border': withVar('--user-bubble-border'),

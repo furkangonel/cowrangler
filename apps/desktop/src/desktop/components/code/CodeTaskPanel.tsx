@@ -1,9 +1,8 @@
 /**
  * CodeTaskPanel — Code sağ panelinin ilkel "Task" yüzeyi.
  *
- * manage_task ile üretilen görev listesini (agentStore.progress) gösterir. Cowork
- * tarafındaki zengin ProgressPanel'den bilinçli olarak DAHA İLKEL: sade bir
- * checkbox listesi + ilerleme sayacı. Tıklanabilir değil — yalnızca canlı durum.
+ * manage_task ile üretilen görev listesini (agentStore.progress) sade bir
+ * checkbox listesi ve ilerleme sayacıyla gösterir. Yalnızca canlı durumdur.
  */
 import React from 'react'
 import { CheckSquare, Square, Loader2, ListTodo, X } from 'lucide-react'
