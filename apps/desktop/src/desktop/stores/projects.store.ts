@@ -16,6 +16,7 @@ interface ProjectsState {
   loadFolders: (id: string) => Promise<void>
   addFolder: (id: string, folderPath: string) => Promise<void>
   removeFolder: (id: string, folderPath: string) => Promise<void>
+  setPrimaryFolder: (id: string, folderPath: string) => Promise<void>
   loadInstructions: (id: string) => Promise<void>
   setInstructions: (id: string, content: string) => Promise<void>
   getActiveProject: () => ProjectSummary | null
@@ -76,6 +77,13 @@ export const useProjectsStore = create<ProjectsState>((set, get) => ({
   removeFolder: async (id, folderPath) => {
     await ipc.projects.removeFolder(id, folderPath)
     await get().loadFolders(id)
+    await get().loadProjects()
+  },
+
+  setPrimaryFolder: async (id, folderPath) => {
+    const result = await ipc.projects.setPrimaryFolder(id, folderPath)
+    if (!result.ok) throw new Error(result.error || 'Could not set primary folder.')
+    await Promise.all([get().loadFolders(id), get().loadProjects()])
   },
 
   loadInstructions: async (id) => {

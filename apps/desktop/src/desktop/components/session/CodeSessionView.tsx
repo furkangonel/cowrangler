@@ -296,6 +296,7 @@ export function CodeSessionView({ projectId, projectWorkdir }: { projectId: stri
 
         {/* Workspace chip bar — primary (kilitli) · branch · ek dizinler */}
         <CodeWorkspaceBar
+          projectId={projectId}
           workdir={workdir}
           repoName={repoName}
           branches={gitStore.branches}
@@ -412,9 +413,10 @@ export function CodeSessionView({ projectId, projectWorkdir }: { projectId: stri
 
 /* ── Code Workspace chip bar — primary (kilitli) · branch · ek dizinler ────── */
 function CodeWorkspaceBar({
-  workdir, repoName, branches, gitStatus, onPickFolder, onCheckout,
+  projectId, workdir, repoName, branches, gitStatus, onPickFolder, onCheckout,
   extraDirs, onAddFolder, onRemoveDir,
 }: {
+  projectId: string
   workdir: string | null
   repoName: string | null
   branches: import('../../lib/ipc').GitBranchInfo | null
@@ -435,13 +437,7 @@ function CodeWorkspaceBar({
       {!workdir ? (
         <Chip icon={<FolderOpen size={12} />} label="Open folder" onClick={onPickFolder} />
       ) : (
-        <div
-          className="flex items-center gap-1.5 px-2 py-1 rounded-md text-text-secondary cursor-default"
-          title={workdir}
-        >
-          <FolderOpen size={12} className="text-text-muted" />
-          <span className="font-medium truncate max-w-[140px]">{repoName}</span>
-        </div>
+        <ProjectSwitcher projectId={projectId} workdir={workdir} repoName={repoName} />
       )}
 
       {/* Branch (kilitli değil — dallar arası geçiş serbest) */}
@@ -476,6 +472,62 @@ function CodeWorkspaceBar({
       {/* Ek çalışma dizinleri + ekle */}
       {workdir && (
         <ExtraDirsChips extraDirs={extraDirs} onAddFolder={onAddFolder} onRemoveDir={onRemoveDir} />
+      )}
+    </div>
+  )
+}
+
+function ProjectSwitcher({ projectId, workdir, repoName }: { projectId: string; workdir: string; repoName: string | null }) {
+  const [open, setOpen] = useState(false)
+  const { projects, setActiveProject } = useProjectsStore()
+  const loadSessions = useSessionsStore(state => state.loadSessions)
+  const { setActiveCodeSession, setNewProjectModal } = useUIStore()
+
+  function selectProject(nextId: string) {
+    setOpen(false)
+    if (nextId === projectId) return
+    setActiveProject(nextId)
+    setActiveCodeSession(null)
+    void loadSessions(nextId)
+  }
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(value => !value)}
+        className={`flex items-center gap-1.5 rounded-lg border px-2 py-1 font-medium transition-colors ${open ? 'border-accent/35 bg-bg-hover text-text-primary' : 'border-transparent text-text-secondary hover:border-border hover:bg-bg-hover'}`}
+        title={`${workdir} · Switch project`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        <FolderOpen size={12} className="text-text-muted" />
+        <span className="max-w-[150px] truncate">{repoName}</span>
+        <ChevronDown size={11} className={`text-text-muted transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div role="menu" className="absolute bottom-full left-0 z-50 mb-1.5 w-72 overflow-hidden rounded-2xl border border-border bg-bg-elevated p-1.5 shadow-pop animate-slide-up">
+            <div className="px-2.5 pb-1.5 pt-1 text-[9px] font-semibold uppercase tracking-[0.14em] text-text-muted">Projects</div>
+            <div className="max-h-64 overflow-y-auto">
+              {projects.map(project => {
+                const folderName = project.workdir?.split(/[\\/]/).filter(Boolean).pop() ?? 'No folder'
+                return (
+                  <button key={project.id} role="menuitem" onClick={() => selectProject(project.id)} className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left hover:bg-bg-hover">
+                    <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-lg border ${project.id === projectId ? 'border-accent/30 bg-accent/10 text-accent' : 'border-border bg-bg-tertiary text-text-muted'}`}><FolderOpen size={14} /></span>
+                    <span className="min-w-0 flex-1"><strong className="block truncate text-xs font-medium text-text-primary">{project.name}</strong><small className="block truncate text-[10px] text-text-muted">{folderName}</small></span>
+                    {project.id === projectId && <Check size={13} className="shrink-0 text-accent" />}
+                  </button>
+                )
+              })}
+            </div>
+            <div className="my-1 border-t border-border-subtle" />
+            <button role="menuitem" onClick={() => { setOpen(false); setNewProjectModal(true) }} className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs font-medium text-text-secondary hover:bg-bg-hover hover:text-text-primary">
+              <span className="grid h-7 w-7 place-items-center rounded-lg border border-dashed border-border text-text-muted"><Plus size={14} /></span>
+              Add new project
+            </button>
+          </div>
+        </>
       )}
     </div>
   )

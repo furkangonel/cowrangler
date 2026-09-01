@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useCallback, useMemo } from 'react'
 import { CheckCircle2, Circle, Info, AlertTriangle, Lightbulb, AlertCircle } from 'lucide-react'
 import { renderMarkdown } from '../../lib/markdown'
 import { useUIStore } from '../../stores/ui.store'
@@ -38,7 +38,7 @@ function parseCallouts(text: string): { cleaned: string; callouts: ParsedCallout
 }
 
 export function AssistantMessage({ content, isStreaming }: Props) {
-  const { setPreviewFile } = useUIStore()
+  const { setPreviewFile, setRightPanelOpen } = useUIStore()
   const { projects, activeProjectId } = useProjectsStore()
 
   const { cleanContent, tasks, callouts } = useMemo(() => {
@@ -62,6 +62,16 @@ export function AssistantMessage({ content, isStreaming }: Props) {
   }, [content])
 
   const html = useMemo(() => (cleanContent ? renderMarkdown(cleanContent) : ''), [cleanContent])
+  const openReferencedFile = useCallback(async (event: React.MouseEvent<HTMLElement>) => {
+    const target = (event.target as HTMLElement).closest<HTMLElement>('[data-cowr-file]')
+    if (!target || !activeProjectId) return
+    event.preventDefault()
+    const reference = decodeURIComponent(target.dataset.cowrFile ?? '')
+    const resolved = await window.electronAPI.projects.resolveFile(activeProjectId, reference)
+    if (!resolved.ok || !resolved.path) return
+    setPreviewFile(resolved.path)
+    setRightPanelOpen(true)
+  }, [activeProjectId, setPreviewFile, setRightPanelOpen])
 
   // Split html on callout placeholders so we can interleave rendered callout cards
   const htmlSegments = useMemo(() => {
@@ -167,6 +177,7 @@ export function AssistantMessage({ content, isStreaming }: Props) {
           <div
             key={i}
             className={`prose selectable ${isStreaming && i === htmlSegments.length - 1 ? 'cursor-after' : ''}`}
+            onClick={openReferencedFile}
             dangerouslySetInnerHTML={{ __html: seg.value }}
           />
         ) : null

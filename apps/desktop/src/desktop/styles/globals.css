@@ -336,6 +336,35 @@ button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px
 textarea { resize: none; font-family: inherit; }
 textarea:focus, input:focus { outline: none; }
 
+.prose .cowr-file-link {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  margin: 0 .08em;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  color: rgb(var(--accent));
+  vertical-align: baseline;
+  cursor: pointer;
+  transition: background-color .14s ease, box-shadow .14s ease;
+}
+.prose .cowr-file-link:hover { background: rgb(var(--accent) / .1); box-shadow: 0 0 0 3px rgb(var(--accent) / .1); }
+.prose .cowr-file-link code { color: inherit; text-decoration: underline; text-decoration-color: rgb(var(--accent) / .35); text-underline-offset: 3px; }
+
+.office-preview { height: 100%; overflow: auto; padding: 24px; color: rgb(var(--text-primary)); background: rgb(var(--bg-primary)); }
+.office-preview h2 { margin: 0 0 14px; font-family: 'Charter', Georgia, serif; font-size: 20px; }
+.office-preview p { margin: 7px 0; color: rgb(var(--text-secondary)); line-height: 1.55; }
+.office-sheet + .office-sheet { margin-top: 28px; padding-top: 24px; border-top: 1px solid rgb(var(--border-subtle)); }
+.office-table-wrap { overflow: auto; border: 1px solid rgb(var(--border)); border-radius: 10px; }
+.office-preview table { min-width: 100%; border-collapse: collapse; font-size: 11px; }
+.office-preview th, .office-preview td { min-width: 90px; padding: 7px 9px; border-right: 1px solid rgb(var(--border-subtle)); border-bottom: 1px solid rgb(var(--border-subtle)); text-align: left; white-space: nowrap; }
+.office-preview th { position: sticky; top: 0; background: rgb(var(--bg-tertiary)); color: rgb(var(--text-primary)); font-weight: 650; }
+.office-slide { aspect-ratio: 16 / 9; margin: 0 auto 18px; padding: 7%; overflow: hidden; border: 1px solid rgb(var(--border)); border-radius: 8px; background: #fff; color: #202124; box-shadow: 0 16px 36px color-mix(in srgb, var(--shadow-rgb) 12%, transparent); }
+.office-slide > span { display: block; margin-bottom: 10%; color: #8a8d91; font-size: 9px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.office-slide h2 { color: #202124; font-size: clamp(18px, 3vw, 30px); line-height: 1.08; }
+.office-slide p { color: #50545a; font-size: 12px; }
+
 /* ── Utility ─────────────────────────────────────────────────────────────── */
 .task-completed { text-decoration: line-through; opacity: 0.65; }
 

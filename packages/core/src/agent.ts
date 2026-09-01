@@ -171,6 +171,8 @@ export class Agent {
   private baseSystemPrompt: string;
   private messages: CoreMessage[] = [];
   private allowedTools?: string[];
+  /** Project-scoped workspace roots beyond the primary workdir. */
+  private additionalDirectories: string[] = [];
 
   /** Interrupt flag — /stop veya Ctrl+C */
   private _interruptRequested = false;
@@ -342,6 +344,10 @@ export class Agent {
   /** Re-scope the tools exposed to the model (e.g. a lean set for chat mode). */
   public setAllowedTools(tools?: string[]): void {
     this.allowedTools = tools;
+  }
+
+  public setAdditionalDirectories(directories: string[]): void {
+    this.additionalDirectories = Array.from(new Set(directories.map((directory) => path.resolve(directory))));
   }
 
   private getTools() {
@@ -552,7 +558,7 @@ export class Agent {
                 tool: name,
                 input: args ?? {},
                 mode: permissionMode,
-                session: { legacyConfig: config },
+                session: { legacyConfig: config, additionalDirectories: this.additionalDirectories },
               });
 
               const recordPermDecision = (
@@ -650,6 +656,7 @@ export class Agent {
               // sandbox; execute_bash reads it off the args.
               if (name === "execute_bash" && args && typeof args === "object") {
                 (args as any).__useSandbox = decision.useSandbox;
+                (args as any).__additionalDirectories = this.additionalDirectories;
               }
             }
 

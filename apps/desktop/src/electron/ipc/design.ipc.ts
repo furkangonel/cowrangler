@@ -85,6 +85,9 @@ THE TWEAKS CONTRACT (do this for every visual screen — it powers live editing)
   {
     "title": "Home",
     "device": "mobile" | "tablet" | "desktop" | null,   // set for app/site screens so the canvas shows the right device mockup; null for slides, docs, posters, diagrams
+    "width": 1280, "height": 720,                         // REQUIRED: exact canonical viewport for preview AND export
+    "engine": "html" | "react" | "three" | "remotion" | "svg" | "mermaid",
+    "fps": 30, "durationInFrames": 180,                  // animation only; omit for static work
     "tweaks": [
       { "id": "accent", "label": "Accent", "type": "color",  "var": "--accent", "default": "#c1693f" },
       { "id": "radius", "label": "Corner radius", "type": "range", "var": "--radius", "min": 0, "max": 28, "step": 1, "unit": "px", "default": 14 },
@@ -94,6 +97,7 @@ THE TWEAKS CONTRACT (do this for every visual screen — it powers live editing)
     ]
   }
 - Only list tweaks that ACTUALLY exist and matter for THAT screen — never a generic boilerplate set. Each tweak's \`var\` must be a CSS variable the screen genuinely uses. 3–6 well-chosen controls is ideal.
+- SIZE IS A CONTRACT. Root content must use exact meta width/height; never render another aspect ratio and rely on export scaling. Preview, PNG, PDF, PPTX, and motion output consume these same dimensions.
 
 QUALITY BAR (aim to make the user say "wow"):
 - Ship work that looks like a senior designer labored over it: confident type scale, real visual hierarchy, intentional color, generous whitespace, considered micro-detail (shadows, radii, borders that agree). Never a default-bootstrap look.
@@ -117,6 +121,7 @@ const TEMPLATE_PROMPTS: Record<string, string> = {
   slides: `THIS PROJECT IS A SLIDE DECK.
 - One .html file per slide, named slide-01.html, slide-02.html, … in order. meta \`device\` = null.
 - Each slide is exactly 1280×720 (16:9). Use a shared master layout: consistent margins, a title zone, and a body zone.
+- Every sidecar declares width 1280, height 720, engine "html". Set html/body and slide root to exactly 1280×720 with overflow hidden.
 - One idea per slide. Large, confident display type. Minimal text per slide.`,
 
   document: `THIS PROJECT IS A PRINTABLE DOCUMENT (exports to a multi-page A4 PDF).
@@ -154,7 +159,9 @@ TYPOGRAPHY
   animation: `THIS PROJECT IS AN ANIMATION SET.
 - One self-contained .html animation per file, named by motion: loader.html, logo-reveal.html, page-transition.html. meta \`device\` = null.
 - Each must auto-play and, where it loops, loop cleanly. It must fully restart when the iframe reloads (no reliance on user interaction to start).
-- Center the motion on a neutral stage. Prefer CSS/Web Animations; keep JS minimal and dependency-free.`,
+- Use a 1280×720 stage. Every sidecar declares width 1280, height 720, fps 30, durationInFrames, and engine "remotion" for frame-driven React work or "html" for small CSS/Web Animations.
+- Use frame-derived timing (frame / fps) for deterministic exports. Respect prefers-reduced-motion in interactive preview while keeping export timing deterministic.
+- For engine "remotion", listen for \`window.addEventListener('cowrangler:frame', event => renderFrame(event.detail))\`. The detail contains frame, fps, time, progress, and durationInFrames. Never start a second independent requestAnimationFrame clock.`,
 
   'live-artifact': `THIS PROJECT IS A LIVE ARTIFACT — a data-backed dashboard, live report, or synced view.
 - A .jsx component is ideal (state, charts, filters). A single index.html with inline JS also works. Set meta \`device\` to "desktop" unless it's clearly a mobile widget.
@@ -178,7 +185,7 @@ TYPOGRAPHY
 - Include @page A4 CSS and prevent section breaks. Expose only meaningful type/accent/density tweaks.`,
 
   '3d-object': `THIS PROJECT IS AN INTERACTIVE 3D OBJECT STUDY.
-- Output one index.html on a 1280×720 stage, meta device = null. Use Three.js from a pinned CDN version; include a polished CSS fallback silhouette if WebGL or network loading fails.
+- Output one index.html on a 1280×720 stage, meta device = null. Sidecar declares width 1280, height 720, engine "three". The app injects bundled Three.js as \`window.THREE\` before body scripts run and emits \`cowrangler:three-ready\`; use it first. A pinned CDN may be a secondary export fallback. Include a polished CSS fallback silhouette if WebGL is unavailable.
 - Build deliberate camera, materials, lighting, floor/contact shadow, orbit interaction, and a reset-view control. Avoid a default spinning cube.
 - Auto-introduce the object once, then let user control it. Respect reduced motion. Keep GPU cost modest and resize correctly.`,
 
@@ -226,6 +233,18 @@ export function getDesignType(description: string | null | undefined): string {
   return description!.slice(DESIGN_DESC_PREFIX.length)
 }
 
+function templateViewport(type: string): { width: number; height: number; engine?: string; fps?: number; durationInFrames?: number } {
+  if (type === 'mobile-app') return { width: 390, height: 844, engine: 'react' }
+  if (type === 'slides') return { width: 1280, height: 720, engine: 'html' }
+  if (type === 'animation' || type === 'hyperframes') return { width: 1280, height: 720, engine: 'remotion', fps: 30, durationInFrames: 180 }
+  if (type === '3d-object') return { width: 1280, height: 720, engine: 'three' }
+  if (['document', 'research', 'resume', 'flier'].includes(type)) return { width: 794, height: 1123, engine: 'html' }
+  if (type === 'html-email') return { width: 600, height: 900, engine: 'html' }
+  if (type === 'diagram') return { width: 1200, height: 800, engine: 'mermaid' }
+  if (type === 'color-type') return { width: 1280, height: 900, engine: 'html' }
+  return { width: 1280, height: 800 }
+}
+
 export function registerDesignIPC(): void {
   fs.mkdirSync(DESIGN_BASE_DIR, { recursive: true })
   fs.mkdirSync(DESIGN_SYSTEMS_DIR, { recursive: true })
@@ -271,6 +290,7 @@ export function registerDesignIPC(): void {
       icon: '🎨',
       color: '#7c3aed',
     })
+    db.addFolder(project.id, workdir, 'Design workspace')
 
     // Inject template-specific design instructions so the shared core agent
     // behaves as a dedicated design tool for this project type.
@@ -339,6 +359,7 @@ export function registerDesignIPC(): void {
     const project = db.get(projectId)
     if (!project?.workdir) return []
     const screensDir = path.join(project.workdir, 'screens')
+    const viewport = templateViewport(getDesignType(project.description))
     if (!fs.existsSync(screensDir)) return []
     try {
       return fs.readdirSync(screensDir)
@@ -346,7 +367,8 @@ export function registerDesignIPC(): void {
         .map((f: string) => {
           const filePath = path.join(screensDir, f)
           const stat = fs.statSync(filePath)
-          return { name: f, filePath, mtime: stat.mtimeMs, kind: kindOf(f), meta: readMetaSidecar(filePath) }
+          const declared = readMetaSidecar(filePath) ?? {}
+          return { name: f, filePath, mtime: stat.mtimeMs, kind: kindOf(f), meta: { ...viewport, ...declared } }
         })
     } catch {
       return []
@@ -395,12 +417,17 @@ export function registerDesignIPC(): void {
     if (!project?.workdir) return { ok: false, count: 0 }
     const screensDir = path.join(project.workdir, 'screens')
     if (!fs.existsSync(screensDir)) return { ok: false, count: 0 }
-    const files = fs.readdirSync(screensDir).filter((f: string) => f.endsWith('.html') || f.endsWith('.htm'))
+    const files = fs.readdirSync(screensDir).filter((f: string) => !f.startsWith('.'))
     const safe = (project.name || 'design').replace(/[^\w.-]+/g, '_')
     const target = path.join(destDir, safe)
     try {
       fs.mkdirSync(target, { recursive: true })
-      for (const f of files) fs.copyFileSync(path.join(screensDir, f), path.join(target, f))
+      for (const f of files) {
+        const source = path.join(screensDir, f)
+        const destination = path.join(target, f)
+        if (fs.statSync(source).isDirectory()) copyDir(source, destination)
+        else fs.copyFileSync(source, destination)
+      }
       return { ok: true, count: files.length, dir: target }
     } catch (e: any) {
       return { ok: false, count: 0, error: e.message }

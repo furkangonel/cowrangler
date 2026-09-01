@@ -120,6 +120,7 @@ export interface ProjectFolder {
   folder_path: string
   label: string | null
   added_at: number
+  is_primary: number
 }
 
 export interface SessionRecord {
@@ -432,6 +433,12 @@ export interface DesignTweak {
 export interface DesignMeta {
   title?: string
   device?: DesignDevice
+  /** Canonical viewport shared by preview and every export path. */
+  width?: number
+  height?: number
+  fps?: number
+  durationInFrames?: number
+  engine?: 'html' | 'react' | 'three' | 'remotion' | 'svg' | 'mermaid'
   tweaks?: DesignTweak[]
   /** User-applied tweak values, keyed by tweak id; persisted into the sidecar. */
   values?: Record<string, string | number | boolean>
@@ -572,6 +579,8 @@ export interface ElectronAPI {
     ensureWorkdir: (id: string) => Promise<ProjectRecord | null>
     addFolder: (id: string, folderPath: string) => Promise<ProjectFolder>
     removeFolder: (id: string, folderPath: string) => Promise<{ ok: boolean }>
+    setPrimaryFolder: (id: string, folderPath: string) => Promise<{ ok: boolean; folder?: ProjectFolder; project?: ProjectRecord; error?: string }>
+    resolveFile: (id: string, reference: string) => Promise<{ ok: boolean; path?: string; error?: string }>
     getFolders: (id: string) => Promise<ProjectFolder[]>
     getOutputs: (id: string) => Promise<OutputFile[]>
     getInstructions: (id: string) => Promise<string>
@@ -735,6 +744,7 @@ export interface ElectronAPI {
     cleanStorage: () => Promise<CleanupResult>
     fileTree: (dirPath: string, depth?: number) => Promise<FileNode[]>
     readFile: (filePath: string) => Promise<{ content?: string; error?: string }>
+    previewFile: (filePath: string) => Promise<{ kind: 'image' | 'pdf' | 'video' | 'audio' | 'html' | 'markdown' | 'text' | 'document' | 'spreadsheet' | 'presentation' | 'unsupported'; content?: string; dataUrl?: string; mime?: string; error?: string; warnings?: string[]; size?: number }>
     /** Görseli data: URL olarak okur — <img src> için (CSP `file:` şemasını engelliyor). */
     readFileDataUrl: (filePath: string) => Promise<{ dataUrl?: string; error?: string }>
     writeFile: (filePath: string, content: string) => Promise<{ ok: boolean; error?: string }>

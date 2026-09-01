@@ -81,7 +81,7 @@ export const useUIStore = create<UIState>((set) => ({
   closeSettings: () => set({ settingsPage: null }),
   openCustomize: () => set({ customizeOpen: true, settingsPage: null }),
   closeCustomize: () => set({ customizeOpen: false }),
-  setPreviewFile: (file) => set({ previewFile: file }),
+  setPreviewFile: (file) => set(state => ({ previewFile: file, rightPanelOpen: file ? true : state.rightPanelOpen })),
   toggleCodeRightTab: (tab) =>
     set(s => ({ codeRightTab: s.codeRightTab === tab ? null : tab })),
   setCodeRightTab: (tab) => set({ codeRightTab: tab }),

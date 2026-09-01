@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Folder, FolderPlus, X } from 'lucide-react'
+import { Check, Folder, FolderPlus, Star, X } from 'lucide-react'
 import { useProjectsStore } from '../../stores/projects.store'
 import { ipc } from '../../lib/ipc'
 
@@ -11,7 +11,7 @@ interface Props {
 export function EditProjectModal({ projectId, onClose }: Props) {
   const {
     projects, folders, loadFolders, addFolder, removeFolder,
-    updateProject, deleteProject,
+    setPrimaryFolder, updateProject, deleteProject,
   } = useProjectsStore()
   const project = useMemo(() => projects.find((item) => item.id === projectId), [projects, projectId])
   const sourceFolders = folders[projectId] ?? []
@@ -19,9 +19,15 @@ export function EditProjectModal({ projectId, onClose }: Props) {
   const [saving, setSaving] = useState(false)
   const [removing, setRemoving] = useState(false)
   const [error, setError] = useState('')
+  const [primaryPath, setPrimaryPath] = useState(project?.workdir ?? '')
 
   useEffect(() => { void loadFolders(projectId) }, [loadFolders, projectId])
   useEffect(() => { if (project) setName(project.name) }, [project])
+  useEffect(() => {
+    const persisted = sourceFolders.find(folder => folder.is_primary)?.folder_path
+    const next = persisted ?? project?.workdir ?? sourceFolders[0]?.folder_path ?? ''
+    if (!sourceFolders.some(folder => folder.folder_path === primaryPath)) setPrimaryPath(next)
+  }, [sourceFolders, project?.workdir, primaryPath])
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
@@ -40,14 +46,22 @@ export function EditProjectModal({ projectId, onClose }: Props) {
     setSaving(true)
     setError('')
     try {
-      const primary = sourceFolders[0]?.folder_path ?? project?.workdir ?? null
-      await updateProject(projectId, { name: name.trim(), workdir: primary })
+      if (!primaryPath) throw new Error('Choose a primary folder.')
+      await setPrimaryFolder(projectId, primaryPath)
+      await updateProject(projectId, { name: name.trim() })
       onClose()
     } catch (cause: any) {
       setError(cause?.message || 'Could not save project changes.')
     } finally {
       setSaving(false)
     }
+  }
+
+  async function handleRemoveFolder(folderPath: string) {
+    if (sourceFolders.length <= 1) { setError('A project must keep one primary folder.'); return }
+    const wasPrimary = folderPath === primaryPath
+    await removeFolder(projectId, folderPath)
+    if (wasPrimary) setPrimaryPath(sourceFolders.find(folder => folder.folder_path !== folderPath)?.folder_path ?? '')
   }
 
   async function handleRemove() {
@@ -97,20 +111,26 @@ export function EditProjectModal({ projectId, onClose }: Props) {
 
           <h3 className="mb-3 mt-6 text-[15px] font-medium text-text-primary">Source folders</h3>
           <div className="overflow-hidden rounded-2xl border border-border bg-bg-tertiary/70">
-            {sourceFolders.map((folder, index) => (
-              <div key={folder.id} className="flex min-h-[58px] items-center gap-3 border-b border-border-subtle px-5 last:border-b-0">
-                <Folder size={19} className="shrink-0 text-text-muted" />
+            {sourceFolders.map((folder) => {
+              const primary = folder.folder_path === primaryPath
+              return (
+              <div key={folder.id} className={`group flex min-h-[62px] items-center gap-3 border-b border-border-subtle px-4 last:border-b-0 ${primary ? 'bg-accent/[0.045]' : ''}`}>
+                <button type="button" onClick={() => setPrimaryPath(folder.folder_path)} aria-label={`Use ${folder.folder_path} as primary folder`} aria-pressed={primary} className={`grid h-8 w-8 shrink-0 place-items-center rounded-xl border transition-colors ${primary ? 'border-accent/45 bg-accent/12 text-accent' : 'border-border text-text-muted hover:border-accent/30 hover:text-text-primary'}`}>
+                  {primary ? <Check size={15} strokeWidth={2.5} /> : <Folder size={16} />}
+                </button>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-text-primary">{folder.folder_path.split(/[\\/]/).filter(Boolean).pop()}</p>
-                  <p className="truncate text-[10px] text-text-muted">{folder.folder_path}{index === 0 ? ' · Primary' : ''}</p>
+                  <p className="truncate text-[10px] text-text-muted">{folder.folder_path}</p>
                 </div>
+                {primary && <span className="flex items-center gap-1 rounded-full border border-accent/20 bg-accent/10 px-2 py-1 text-[10px] font-semibold text-accent"><Star size={10} fill="currentColor" /> Primary</span>}
                 <button
-                  onClick={() => void removeFolder(projectId, folder.folder_path)}
+                  onClick={() => void handleRemoveFolder(folder.folder_path)}
                   aria-label={`Remove ${folder.folder_path}`}
-                  className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-bg-hover hover:text-error"
+                  disabled={sourceFolders.length <= 1}
+                  className="rounded-lg p-1.5 text-text-muted opacity-0 transition-all hover:bg-bg-hover hover:text-error group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-20"
                 ><X size={17} /></button>
               </div>
-            ))}
+            )})}
             <button onClick={() => void pickFolder()} className="flex min-h-[58px] w-full items-center gap-3 px-5 text-left text-sm font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary">
               <FolderPlus size={19} className="text-text-muted" /> Add folder
             </button>
@@ -128,7 +148,7 @@ export function EditProjectModal({ projectId, onClose }: Props) {
               <button onClick={onClose} className="rounded-xl px-4 py-2.5 text-sm font-medium text-text-muted transition-colors hover:bg-bg-hover hover:text-text-primary">Cancel</button>
               <button
                 onClick={() => void handleSave()}
-                disabled={saving || !name.trim() || sourceFolders.length === 0}
+                disabled={saving || !name.trim() || sourceFolders.length === 0 || !primaryPath}
                 className="rounded-xl bg-text-primary px-5 py-2.5 text-sm font-semibold text-bg-primary transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35"
               >{saving ? 'Saving…' : 'Save'}</button>
             </div>

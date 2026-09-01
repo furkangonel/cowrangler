@@ -28,6 +28,7 @@ export interface ProjectFolder {
   folder_path: string
   label: string | null
   added_at: number
+  is_primary: number
 }
 
 export interface ProjectSummary extends ProjectRecord {
@@ -58,6 +59,10 @@ export class ProjectDB {
     this._migrate()
   }
 
+  close(): void {
+    this.db.close()
+  }
+
   private _migrate(): void {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS projects (
@@ -78,7 +83,8 @@ export class ProjectDB {
         project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
         folder_path TEXT NOT NULL,
         label TEXT,
-        added_at INTEGER NOT NULL
+        added_at INTEGER NOT NULL,
+        is_primary INTEGER NOT NULL DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS project_instructions (
@@ -97,6 +103,12 @@ export class ProjectDB {
       CREATE INDEX IF NOT EXISTS idx_project_sessions_project ON project_sessions(project_id);
     `)
 
+    // v2.3: folder order is not a stable primary-workspace contract. Persist it.
+    const folderColumns = this.db.pragma('table_info(project_folders)') as Array<{ name: string }>
+    if (!folderColumns.some(column => column.name === 'is_primary')) {
+      this.db.exec('ALTER TABLE project_folders ADD COLUMN is_primary INTEGER NOT NULL DEFAULT 0')
+    }
+
     // Pre-v2 databases could contain the same source folder more than once
     // because project_folders only had a random-id primary key. Keep the oldest
     // row, then make the actual project/path pair unique.
@@ -107,6 +119,35 @@ export class ProjectDB {
       );
       CREATE UNIQUE INDEX IF NOT EXISTS idx_project_folders_unique
       ON project_folders(project_id, folder_path);
+
+      UPDATE project_folders
+      SET is_primary = CASE WHEN folder_path = (
+        SELECT workdir FROM projects WHERE projects.id = project_folders.project_id
+      ) THEN 1 ELSE 0 END;
+
+      UPDATE project_folders SET is_primary = 1
+      WHERE id IN (
+        SELECT pf.id FROM project_folders pf
+        WHERE NOT EXISTS (
+          SELECT 1 FROM project_folders primary_folder
+          WHERE primary_folder.project_id = pf.project_id AND primary_folder.is_primary = 1
+        )
+        AND pf.id = (
+          SELECT candidate.id FROM project_folders candidate
+          WHERE candidate.project_id = pf.project_id
+          ORDER BY candidate.added_at ASC LIMIT 1
+        )
+      );
+
+      UPDATE projects
+      SET workdir = (
+        SELECT folder_path FROM project_folders
+        WHERE project_id = projects.id AND is_primary = 1 LIMIT 1
+      )
+      WHERE EXISTS (SELECT 1 FROM project_folders WHERE project_id = projects.id);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_project_folders_one_primary
+      ON project_folders(project_id) WHERE is_primary = 1;
 
       -- Archive is no longer a product concept. Older archived projects become
       -- normal local projects again instead of being stranded in the database.
@@ -188,7 +229,7 @@ export class ProjectDB {
   // ── Folders ───────────────────────────────────────────────────────────────
 
   getFolders(projectId: string): ProjectFolder[] {
-    return this.db.prepare('SELECT * FROM project_folders WHERE project_id = ? ORDER BY added_at ASC').all(projectId) as ProjectFolder[]
+    return this.db.prepare('SELECT * FROM project_folders WHERE project_id = ? ORDER BY is_primary DESC, added_at ASC').all(projectId) as ProjectFolder[]
   }
 
   addFolder(projectId: string, folderPath: string, label?: string): ProjectFolder {
@@ -199,15 +240,52 @@ export class ProjectDB {
 
     const id = crypto.randomUUID()
     const now = Date.now()
+    const project = this.get(projectId)
+    const hasPrimary = !!this.db.prepare(
+      'SELECT 1 FROM project_folders WHERE project_id = ? AND is_primary = 1'
+    ).get(projectId)
+    const isPrimary = !hasPrimary || project?.workdir === folderPath ? 1 : 0
     this.db.prepare(`
-      INSERT OR IGNORE INTO project_folders (id, project_id, folder_path, label, added_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(id, projectId, folderPath, label ?? null, now)
-    return { id, project_id: projectId, folder_path: folderPath, label: label ?? null, added_at: now }
+      INSERT OR IGNORE INTO project_folders (id, project_id, folder_path, label, added_at, is_primary)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(id, projectId, folderPath, label ?? null, now, isPrimary)
+    if (isPrimary) this.db.prepare('UPDATE projects SET workdir = ?, updated_at = ? WHERE id = ?').run(folderPath, now, projectId)
+    return { id, project_id: projectId, folder_path: folderPath, label: label ?? null, added_at: now, is_primary: isPrimary }
   }
 
   removeFolder(projectId: string, folderPath: string): void {
-    this.db.prepare('DELETE FROM project_folders WHERE project_id = ? AND folder_path = ?').run(projectId, folderPath)
+    const remove = this.db.transaction(() => {
+      const folder = this.db.prepare(
+        'SELECT * FROM project_folders WHERE project_id = ? AND folder_path = ?'
+      ).get(projectId, folderPath) as ProjectFolder | undefined
+      if (!folder) return
+      this.db.prepare('DELETE FROM project_folders WHERE project_id = ? AND folder_path = ?').run(projectId, folderPath)
+      if (!folder.is_primary) return
+      const next = this.db.prepare(
+        'SELECT * FROM project_folders WHERE project_id = ? ORDER BY added_at ASC LIMIT 1'
+      ).get(projectId) as ProjectFolder | undefined
+      if (next) {
+        this.db.prepare('UPDATE project_folders SET is_primary = 1 WHERE id = ?').run(next.id)
+      }
+      this.db.prepare('UPDATE projects SET workdir = ?, updated_at = ? WHERE id = ?')
+        .run(next?.folder_path ?? null, Date.now(), projectId)
+    })
+    remove()
+  }
+
+  setPrimaryFolder(projectId: string, folderPath: string): ProjectFolder | null {
+    const setPrimary = this.db.transaction(() => {
+      const folder = this.db.prepare(
+        'SELECT * FROM project_folders WHERE project_id = ? AND folder_path = ?'
+      ).get(projectId, folderPath) as ProjectFolder | undefined
+      if (!folder) return null
+      this.db.prepare('UPDATE project_folders SET is_primary = 0 WHERE project_id = ?').run(projectId)
+      this.db.prepare('UPDATE project_folders SET is_primary = 1 WHERE id = ?').run(folder.id)
+      this.db.prepare('UPDATE projects SET workdir = ?, updated_at = ? WHERE id = ?')
+        .run(folderPath, Date.now(), projectId)
+      return { ...folder, is_primary: 1 }
+    })
+    return setPrimary()
   }
 
   // ── Sessions ──────────────────────────────────────────────────────────────

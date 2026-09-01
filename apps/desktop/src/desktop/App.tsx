@@ -1,6 +1,5 @@
 import React, { Suspense, useEffect } from 'react'
 import { AppShell } from './components/layout/AppShell'
-import { FilePreviewModal } from './components/shared/FilePreviewModal'
 import { ErrorBoundary } from './components/shared/ErrorBoundary'
 import { useProjectsStore } from './stores/projects.store'
 import { useSettingsStore } from './stores/settings.store'
@@ -48,9 +47,6 @@ export default function App() {
           <Suspense fallback={null}><DirectoryPage /></Suspense>
         </ErrorBoundary>
       )}
-      <ErrorBoundary label="File preview">
-        <FilePreviewModal />
-      </ErrorBoundary>
     </>
   )
 }
