@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import { useFileDrop } from '../../lib/useFileDrop'
 import { parseAttachments, isImagePath, useLocalImage, fileName as attachFileName } from '../../lib/attachments'
-import { useDesignStore, DesignSystemRecord, DesignFrame, DesignTweak, DesignDevice, DesignActivity, InspectorPick } from '../../stores/design.store'
+import { useDesignStore, DesignSystemRecord, DesignFrame, DesignMeta, DesignTweak, DesignDevice, DesignActivity, InspectorPick } from '../../stores/design.store'
 import { useSettingsStore } from '../../stores/settings.store'
 import { DesignCanvas, isDeviceTemplate } from './DesignCanvas'
 import { buildSrcDoc, kindFromName } from './renderScreen'
@@ -113,7 +113,7 @@ export function DesignEditor({ onBack }: Props) {
   const { displayModels, modelGates, unlockingModel, unlockModel } = useModelPool(modelPickerOpen)
   const [chatOpen, setChatOpen] = useState(true)
   const [filesOpen, setFilesOpen] = useState(true)
-  const [preview, setPreview] = useState<{ name: string; content: string | null } | null>(null)
+  const [preview, setPreview] = useState<{ filePath: string; name: string; content: string | null; meta?: DesignMeta | null } | null>(null)
   const [headerMenu, setHeaderMenu] = useState(false)
   const [viewport, setViewport] = useState<DesignDevice>('desktop')
   const [viewportTouched, setViewportTouched] = useState(false)
@@ -244,7 +244,8 @@ export function DesignEditor({ onBack }: Props) {
   }
   // Natural page size per template — keeps the native dialog and the rendered
   // output in the right format (16:9 slides, A4 docs, desktop screens).
-  function dimsFor(type?: string): { w: number; h: number; landscape: boolean } {
+  function dimsFor(type?: string, frame?: DesignFrame | null): { w: number; h: number; landscape: boolean } {
+    if (frame?.meta?.width && frame.meta.height) return { w: frame.meta.width, h: frame.meta.height, landscape: frame.meta.width > frame.meta.height }
     if (type === 'slides' || type === 'animation' || type === '3d-object') return { w: 1280, h: 720, landscape: true }
     if (type === 'document' || type === 'research' || type === 'resume' || type === 'flier') return { w: 794, h: 1123, landscape: false }
     if (type === 'html-email') return { w: 600, h: 900, landscape: false }
@@ -268,12 +269,12 @@ export function DesignEditor({ onBack }: Props) {
     } catch (e: any) { showToast({ ok: false, msg: `Export failed — ${e?.message ?? e}` }) }
   }
   function downloadScreen(filePath: string, name: string, fmt: 'pdf' | 'png' | 'jpg' | 'copy' | 'pptx' | 'html') {
-    const { w, h } = dimsFor(activeProject?.designType)
+    const frame = frames.find(item => item.filePath === filePath)
+    const { w, h } = dimsFor(activeProject?.designType, frame)
     const base = name.replace(/\.[^.]+$/, '')
     setDlMenu(null)
     if (fmt === 'pdf') {
-      const fr = frames.find(x => x.filePath === filePath)
-      setPdfModal([{ filePath, name, tweaks: fr?.meta?.tweaks }])   // PDF → ölçekli önizleme modalı
+      setPdfModal([{ filePath, name, tweaks: frame?.meta?.tweaks, meta: frame?.meta }])   // PDF → ölçekli önizleme modalı
     }
     else if (fmt === 'png') runExport('PNG', ipc.exporter.toImage({ srcPath: filePath, name: base, width: w, height: h, format: 'png', scale: 2 }))
     else if (fmt === 'jpg') runExport('JPG', ipc.exporter.toImage({ srcPath: filePath, name: base, width: w, height: h, format: 'jpeg', scale: 2 }))
@@ -284,15 +285,16 @@ export function DesignEditor({ onBack }: Props) {
   function exportDeck(fmt: 'pdf' | 'pptx') {
     if (!activeProject || frames.length === 0) return
     const files = frames.map(f => f.filePath)
-    const { w, h } = dimsFor(activeProject.designType)
+    const { w, h } = dimsFor(activeProject.designType, frames[0])
     setDeckMenu(false)
-    if (fmt === 'pdf') setPdfModal(frames.map(f => ({ filePath: f.filePath, name: f.name, tweaks: f.meta?.tweaks })))  // PDF → önizleme modalı
+    if (fmt === 'pdf') setPdfModal(frames.map(f => ({ filePath: f.filePath, name: f.name, tweaks: f.meta?.tweaks, meta: f.meta })))  // PDF → önizleme modalı
     else runExport(`PowerPoint (${files.length} slides)`, ipc.exporter.deckToPptx({ files, name: activeProject.name, slideW: w, slideH: h }))
   }
   /** PDF önizleme modalından onaylanınca gelişmiş PDF export'unu çalıştırır. */
   function runPdfExport(exportFiles: ExportFile[], o: PdfExportOptions) {
     if (!activeProject) return
-    const { w, h } = dimsFor(activeProject.designType)
+    const sourceFrame = frames.find(frame => frame.filePath === exportFiles[0]?.filePath)
+    const { w, h } = dimsFor(activeProject.designType, sourceFrame)
     const files = exportFiles.map(f => f.filePath)
     const name = exportFiles.length > 1 ? activeProject.name : exportFiles[0].name.replace(/\.[^.]+$/, '')
     // Documents paginate (bir bölüm birden çok A4 sayfaya yayılabilir); slaytlar
@@ -307,10 +309,10 @@ export function DesignEditor({ onBack }: Props) {
     if (!activeProject) return
     const dir = await ipc.fs.pickFolder()
     if (!dir) return
-    showToast({ ok: true, msg: 'Exporting HTML files…', busy: true })
+    showToast({ ok: true, msg: 'Exporting source files…', busy: true })
     try {
       const r = await ipc.design.exportProject({ projectId: activeProject.id, destDir: dir })
-      if (r.ok && r.dir) { showToast({ ok: true, msg: 'HTML files exported', path: r.dir }); ipc.fs.openInFinder(r.dir) }
+      if (r.ok && r.dir) { showToast({ ok: true, msg: `${r.count} source files exported`, path: r.dir }); ipc.fs.openInFinder(r.dir) }
       else showToast({ ok: false, msg: 'Export failed' })
     } catch (e: any) { showToast({ ok: false, msg: `Export failed — ${e?.message ?? e}` }) }
   }
@@ -362,10 +364,13 @@ export function DesignEditor({ onBack }: Props) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
   }
 
-  async function openPreview(filePath: string, name: string) {
-    setPreview({ name, content: null })
-    const r = await ipc.design.readFile(filePath)
-    setPreview({ name, content: r.content ?? null })
+  async function openPreview(filePath: string, name: string, meta?: DesignMeta | null) {
+    setPreview({ filePath, name, content: null, meta })
+    const read = ipc.design.readRendered ?? ipc.design.readFile
+    const r = await read(filePath)
+    setPreview(current => current?.filePath === filePath
+      ? { filePath, name, content: r.content ?? null, meta }
+      : current)
   }
 
   if (!activeProject) return null
@@ -472,7 +477,7 @@ export function DesignEditor({ onBack }: Props) {
                           <DesignAttachments files={parsed.files} />
                           {parsed.text && (
                             <div className="px-3.5 py-2.5 text-sm leading-relaxed rounded-2xl w-full"
-                              style={{ background: 'var(--d-ink)', color: '#fff', borderBottomRightRadius: 4 }}>
+                              style={{ background: 'var(--d-user-bg)', color: 'var(--d-user-fg)', borderBottomRightRadius: 4 }}>
                               <ClampText
                                 text={parsed.text}
                                 className="whitespace-pre-wrap"
@@ -684,7 +689,7 @@ export function DesignEditor({ onBack }: Props) {
               <div className="flex items-center bg-black/5 rounded-lg p-0.5 ml-2">
                 {([['desktop', Monitor], ['tablet', Tablet], ['mobile', Smartphone]] as const).map(([d, Icon]) => (
                   <button key={d} onClick={() => { setViewport(d); setViewportTouched(true) }} className="px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1 capitalize"
-                    style={{ background: viewport === d ? '#fff' : 'transparent', boxShadow: viewport === d ? '0 1px 2px rgba(0,0,0,0.05)' : 'none', color: 'var(--d-ink)' }}>
+                    style={{ background: viewport === d ? 'var(--d-elevated)' : 'transparent', boxShadow: viewport === d ? '0 1px 2px rgba(0,0,0,0.12)' : 'none', color: viewport === d ? 'var(--d-ink)' : 'var(--d-ink-muted)' }}>
                     <Icon size={12} /> {d}
                   </button>
                 ))}
@@ -701,8 +706,8 @@ export function DesignEditor({ onBack }: Props) {
             </button>
 
             <div className="flex items-center bg-black/5 rounded-lg p-0.5 ml-2">
-               <button onClick={() => setViewMode('preview')} className="px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1" style={{ background: viewMode === 'preview' ? '#fff' : 'transparent', boxShadow: viewMode === 'preview' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none', color: 'var(--d-ink)' }}><Eye size={12}/> Preview</button>
-               <button onClick={() => setViewMode('code')} className="px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1" style={{ background: viewMode === 'code' ? '#fff' : 'transparent', boxShadow: viewMode === 'code' ? '0 1px 2px rgba(0,0,0,0.05)' : 'none', color: 'var(--d-ink)' }}><Code2 size={12}/> Code</button>
+               <button onClick={() => setViewMode('preview')} className="px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1" style={{ background: viewMode === 'preview' ? 'var(--d-elevated)' : 'transparent', boxShadow: viewMode === 'preview' ? '0 1px 2px rgba(0,0,0,0.12)' : 'none', color: viewMode === 'preview' ? 'var(--d-ink)' : 'var(--d-ink-muted)' }}><Eye size={12}/> Preview</button>
+               <button onClick={() => setViewMode('code')} className="px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1" style={{ background: viewMode === 'code' ? 'var(--d-elevated)' : 'transparent', boxShadow: viewMode === 'code' ? '0 1px 2px rgba(0,0,0,0.12)' : 'none', color: viewMode === 'code' ? 'var(--d-ink)' : 'var(--d-ink-muted)' }}><Code2 size={12}/> Code</button>
             </div>
 
             {/* Inspect — click an element on the canvas to target it in the next prompt. */}
@@ -807,7 +812,7 @@ export function DesignEditor({ onBack }: Props) {
                     <div className="absolute right-0 top-full mt-1 z-40 rounded-xl overflow-hidden py-1 design-elev-lg" style={{ minWidth: 190, background: 'var(--d-surface)', border: '1px solid var(--d-line)' }}>
                       <DlItem label={`PDF — all ${frames.length} screens`} onClick={() => exportDeck('pdf')} />
                       <DlItem label="PowerPoint (.pptx)" onClick={() => exportDeck('pptx')} />
-                      <DlItem label="All HTML files (folder)" onClick={exportAllHtml} />
+                      <DlItem label="All source files (folder)" onClick={exportAllHtml} />
                     </div>
                   </>
                 )}
@@ -847,7 +852,7 @@ export function DesignEditor({ onBack }: Props) {
                 </div>
               ) : frames.map(f => (
                 <div key={f.id} className="relative group flex items-center gap-2.5 px-2 py-2 rounded-lg transition-colors hover:bg-black/[0.03]">
-                  <button onClick={() => openPreview(f.filePath, f.name)} className="flex items-center gap-2.5 flex-1 min-w-0 text-left">
+                  <button onClick={() => openPreview(f.filePath, f.name, f.meta)} className="flex items-center gap-2.5 flex-1 min-w-0 text-left">
                     <div className="w-9 h-7 rounded-md flex items-center justify-center flex-shrink-0" style={{ background: 'var(--d-cream-2)', border: '1px solid var(--d-line)' }}><Monitor size={11} style={{ color: 'var(--d-ink-faint)' }} /></div>
                     <span className="flex-1 text-xs truncate" style={{ color: 'var(--d-ink-soft)' }}>{f.name}</span>
                   </button>
@@ -881,7 +886,7 @@ export function DesignEditor({ onBack }: Props) {
               <button onClick={() => setPreview(null)} className="p-1.5 rounded-lg hover:bg-black/5" style={{ color: 'var(--d-ink-muted)' }}>✕</button>
             </div>
             {preview.content
-              ? <iframe srcDoc={buildSrcDoc({ kind: kindFromName(preview.name), raw: preview.content, filePath: preview.name, resize: false })} className="flex-1 border-none w-full bg-white" sandbox="allow-scripts allow-same-origin" title={preview.name} />
+              ? <iframe srcDoc={buildSrcDoc({ kind: kindFromName(preview.name), raw: preview.content, filePath: preview.filePath, resize: false, engine: preview.meta?.engine })} className="flex-1 border-none w-full bg-white" sandbox="allow-scripts allow-same-origin" title={preview.name} />
               : <div className="flex-1 flex items-center justify-center text-sm" style={{ color: 'var(--d-ink-faint)' }}>Loading…</div>}
           </div>
         </div>
@@ -1306,16 +1311,23 @@ function TweaksPanel({ frame, tweaks, values, onChange, onReset, onSave, onClose
   values: Record<string, string | number | boolean>
   onChange: (id: string, v: string | number | boolean) => void
   onReset: () => void
-  onSave: () => void
+  onSave: () => void | Promise<void>
   onClose: () => void
 }) {
   const [saved, setSaved] = useState(false)
-  const save = async () => { await onSave(); setSaved(true); setTimeout(() => setSaved(false), 1600) }
+  const [dirty, setDirty] = useState(false)
+  const save = async () => { await onSave(); setDirty(false); setSaved(true); setTimeout(() => setSaved(false), 1600) }
+  const change = (id: string, value: string | number | boolean) => { onChange(id, value); setDirty(true); setSaved(false) }
+  useEffect(() => {
+    if (!dirty) return
+    const timer = setTimeout(() => { void save() }, 650)
+    return () => clearTimeout(timer)
+  }, [dirty, values])
   return (
     <div className="absolute top-4 right-4 z-30 rounded-2xl flex flex-col design-elev-lg" style={{ width: 264, maxHeight: 'calc(100% - 32px)', background: 'var(--d-surface)', border: '1px solid var(--d-line)' }}>
       <div className="flex items-center gap-2 px-4 py-3" style={{ borderBottom: '1px solid var(--d-line)' }}>
         <SlidersHorizontal size={14} style={{ color: 'var(--d-clay)' }} />
-        <span className="flex-1 text-sm font-semibold" style={{ color: 'var(--d-ink)' }}>Tweaks</span>
+        <span className="min-w-0 flex-1"><strong className="block text-sm font-semibold" style={{ color: 'var(--d-ink)' }}>Tweaks</strong><small className="block truncate text-[9px]" style={{ color: 'var(--d-ink-faint)' }}>{frame.meta?.title || frame.name} · live</small></span>
         <button onClick={onClose} className="p-1 rounded-lg hover:bg-black/5" style={{ color: 'var(--d-ink-muted)' }}><X size={14} /></button>
       </div>
 
@@ -1326,17 +1338,17 @@ function TweaksPanel({ frame, tweaks, values, onChange, onReset, onSave, onClose
       ) : (
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
           {tweaks.map(t => (
-            <TweakControl key={t.id} tweak={t} value={values[t.id] ?? (t.default as any)} onChange={v => onChange(t.id, v)} />
+            <TweakControl key={t.id} tweak={t} value={values[t.id] ?? (t.default as any)} onChange={v => change(t.id, v)} />
           ))}
         </div>
       )}
 
       {tweaks.length > 0 && (
         <div className="flex items-center gap-2 px-4 py-3" style={{ borderTop: '1px solid var(--d-line)' }}>
-          <button onClick={onReset} className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg hover:bg-black/5" style={{ color: 'var(--d-ink-muted)' }}><RotateCcw size={12} /> Reset</button>
+          <button onClick={() => { onReset(); setDirty(true) }} className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg hover:bg-black/5" style={{ color: 'var(--d-ink-muted)' }}><RotateCcw size={12} /> Reset</button>
           <div className="flex-1" />
-          <button onClick={save} className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg text-white" style={{ background: 'var(--d-clay)' }}>
-            {saved ? <><Check size={12} /> Saved</> : 'Save'}
+          <button onClick={() => void save()} disabled={!dirty && !saved} className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg disabled:opacity-60" style={{ background: 'var(--d-clay)', color: 'var(--d-on-accent)' }}>
+            {saved ? <><Check size={12} /> Saved</> : dirty ? 'Save now' : 'Saved'}
           </button>
         </div>
       )}
@@ -1376,7 +1388,7 @@ function TweakControl({ tweak, value, onChange }: { tweak: DesignTweak; value: a
           {(tweak.options ?? []).map(opt => {
             const on = String(value) === opt
             return (
-              <button key={opt} onClick={() => onChange(opt)} className="text-xs px-2.5 py-1 rounded-lg transition-colors" style={{ background: on ? 'var(--d-clay)' : 'var(--d-cream-2)', color: on ? '#fff' : 'var(--d-ink-soft)' }}>{opt}</button>
+              <button key={opt} onClick={() => onChange(opt)} className="text-xs px-2.5 py-1 rounded-lg transition-colors" style={{ background: on ? 'var(--d-clay)' : 'var(--d-cream-2)', color: on ? 'var(--d-on-accent)' : 'var(--d-ink-soft)' }}>{opt}</button>
             )
           })}
         </div>

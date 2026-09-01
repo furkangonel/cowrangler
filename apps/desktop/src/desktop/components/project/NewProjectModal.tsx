@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Folder, FolderOpen, Plus, X } from 'lucide-react'
+import { Check, Folder, FolderOpen, Plus, Star, X } from 'lucide-react'
 import { useProjectsStore } from '../../stores/projects.store'
 import { useUIStore } from '../../stores/ui.store'
 import { ipc } from '../../lib/ipc'
@@ -11,6 +11,7 @@ export function NewProjectModal() {
   const [folders, setFolders] = useState<string[]>([])
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState('')
+  const [primaryPath, setPrimaryPath] = useState('')
 
   const close = () => setNewProjectModal(false)
   useEffect(() => {
@@ -23,6 +24,7 @@ export function NewProjectModal() {
     const folderPath = await ipc.fs.pickFolder()
     if (!folderPath || folders.includes(folderPath)) return
     setFolders((current) => [...current, folderPath])
+    if (!primaryPath) setPrimaryPath(folderPath)
     if (!name.trim()) setName(folderPath.split(/[\\/]/).filter(Boolean).pop() ?? '')
   }
 
@@ -32,8 +34,9 @@ export function NewProjectModal() {
     setCreating(true)
     setError('')
     try {
-      const project = await createProject({ name: name.trim(), workdir: folders[0], icon: '📁' })
-      for (const folderPath of folders.slice(1)) await ipc.projects.addFolder(project.id, folderPath)
+      const ordered = [primaryPath, ...folders.filter(folder => folder !== primaryPath)]
+      const project = await createProject({ name: name.trim(), workdir: ordered[0], icon: '📁' })
+      for (const folderPath of ordered.slice(1)) await ipc.projects.addFolder(project.id, folderPath)
       setActiveProject(project.id)
       setActiveCodeSession(null)
       close()
@@ -60,20 +63,25 @@ export function NewProjectModal() {
 
           <h3 className="mb-3 mt-6 text-sm font-medium text-text-primary">Source folders</h3>
           <div className="overflow-hidden rounded-2xl border border-border bg-bg-tertiary/70">
-            {folders.map((folderPath, index) => (
-              <div key={folderPath} className="flex min-h-[56px] items-center gap-3 border-b border-border-subtle px-5">
-                <FolderOpen size={18} className="shrink-0 text-text-muted" />
-                <div className="min-w-0 flex-1"><p className="truncate text-sm text-text-primary">{folderPath.split(/[\\/]/).filter(Boolean).pop()}</p><p className="truncate text-[10px] text-text-muted">{folderPath}{index === 0 ? ' · Primary' : ''}</p></div>
-                <button onClick={() => setFolders((current) => current.filter((item) => item !== folderPath))} aria-label={`Remove ${folderPath}`} className="rounded-lg p-1 text-text-muted hover:bg-bg-hover hover:text-error"><X size={16} /></button>
+            {folders.map((folderPath) => {
+              const primary = folderPath === primaryPath
+              return (
+              <div key={folderPath} className={`group flex min-h-[60px] items-center gap-3 border-b border-border-subtle px-4 ${primary ? 'bg-accent/[0.045]' : ''}`}>
+                <button type="button" onClick={() => setPrimaryPath(folderPath)} aria-pressed={primary} aria-label={`Use ${folderPath} as primary folder`} className={`grid h-8 w-8 shrink-0 place-items-center rounded-xl border ${primary ? 'border-accent/45 bg-accent/12 text-accent' : 'border-border text-text-muted hover:text-text-primary'}`}>
+                  {primary ? <Check size={15} strokeWidth={2.5} /> : <FolderOpen size={16} />}
+                </button>
+                <div className="min-w-0 flex-1"><p className="truncate text-sm text-text-primary">{folderPath.split(/[\\/]/).filter(Boolean).pop()}</p><p className="truncate text-[10px] text-text-muted">{folderPath}</p></div>
+                {primary && <span className="flex items-center gap-1 rounded-full border border-accent/20 bg-accent/10 px-2 py-1 text-[10px] font-semibold text-accent"><Star size={10} fill="currentColor" /> Primary</span>}
+                <button onClick={() => { setFolders((current) => current.filter((item) => item !== folderPath)); if (primary) setPrimaryPath(folders.find(item => item !== folderPath) ?? '') }} aria-label={`Remove ${folderPath}`} className="rounded-lg p-1 text-text-muted opacity-0 hover:bg-bg-hover hover:text-error group-hover:opacity-100"><X size={16} /></button>
               </div>
-            ))}
+            )})}
             <button onClick={() => void pickFolder()} className="flex min-h-[56px] w-full items-center gap-3 px-5 text-left text-sm font-medium text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"><Plus size={18} className="text-text-muted" /> Choose folder</button>
           </div>
 
           {error && <p className="mt-3 text-xs text-error" role="alert">{error}</p>}
           <div className="mt-7 flex justify-end gap-2">
             <button onClick={close} className="rounded-xl px-4 py-2.5 text-sm font-medium text-text-muted hover:bg-bg-hover hover:text-text-primary">Cancel</button>
-            <button onClick={() => void handleCreate()} disabled={creating || !name.trim() || folders.length === 0} className="rounded-xl bg-text-primary px-5 py-2.5 text-sm font-semibold text-bg-primary transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35">{creating ? 'Adding…' : 'Add project'}</button>
+            <button onClick={() => void handleCreate()} disabled={creating || !name.trim() || folders.length === 0 || !primaryPath} className="rounded-xl bg-text-primary px-5 py-2.5 text-sm font-semibold text-bg-primary transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35">{creating ? 'Adding…' : 'Add project'}</button>
           </div>
         </div>
       </div>

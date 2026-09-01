@@ -22,6 +22,8 @@
  * Babel path is only used as a fallback.
  */
 
+import * as THREE from 'three'
+
 export type RenderKind = 'html' | 'jsx' | 'svg' | 'mermaid'
 
 export interface BuildOpts {
@@ -41,7 +43,16 @@ export interface BuildOpts {
    * When present the iframe runs it directly and skips loading Babel entirely.
    */
   compiledJs?: string
+  /** Runtime requested by the screen sidecar. */
+  engine?: 'html' | 'react' | 'three' | 'remotion' | 'svg' | 'mermaid'
 }
+
+// Design iframes are same-origin sandboxed srcDoc documents. Expose the bundled
+// Three.js module once in the renderer so 3D previews do not depend on a CDN.
+declare global {
+  interface Window { __COWR_THREE__?: typeof THREE }
+}
+if (typeof window !== 'undefined') window.__COWR_THREE__ = THREE
 
 // Ordered fallback mirrors per library. The first reachable one wins; if a
 // mirror 404s or the network drops, the loader advances to the next. (The pinned
@@ -192,6 +203,13 @@ function runtimeScript(filePath: string, resize: boolean): string {
       else if(d.type==='set_inspect'){ setInspect(!!d.on); }
       else if(d.type==='run_a11y'){ try{ runA11y(); }catch(err){ post({type:'a11y_report', issues:[], count:0, error:String(err&&err.message||err)}); } }
       else if(d.type==='highlight_selector'){ try{ highlightSelector(d.selector); }catch(e){} }
+      else if(d.type==='remotion_frame'){
+        var root=document.documentElement;
+        root.style.setProperty('--cw-frame', String(d.frame||0));
+        root.style.setProperty('--cw-time', String(d.time||0));
+        root.style.setProperty('--cw-progress', String(d.progress||0));
+        window.dispatchEvent(new CustomEvent('cowrangler:frame',{detail:d}));
+      }
     });
     /* Flash the inspector overlay on an element by selector (chip → canvas link). */
     var hlTimer=null;
@@ -320,17 +338,44 @@ ${loader}</head>
 ${runtime}</body></html>`
 }
 
-function htmlDoc(raw: string, varsCss: string, runtime: string, css = ''): string {
+function threeBootstrap(): string {
+  return `<script>(function(){try{
+    var three=window.parent&&window.parent.__COWR_THREE__;
+    if(three){window.THREE=three;window.dispatchEvent(new CustomEvent('cowrangler:three-ready',{detail:{source:'bundled'}}));}
+  }catch(e){}})();</script>`
+}
+
+/**
+ * Three screens frequently arrive with a parser-blocking CDN script in their
+ * source. Inside an Electron srcDoc that request can remain pending forever,
+ * which means even the screen's own timeout/error handling never executes.
+ * The app already supplies its pinned, bundled Three runtime above, so remove
+ * only external Three script tags from the preview document. The source file
+ * remains untouched and therefore stays portable when exported as HTML.
+ */
+function stripExternalThreeScripts(raw: string): string {
+  return raw.replace(
+    /<script\b(?=[^>]*\bsrc\s*=\s*(["'])[^"']*three[^"']*\.js(?:[?#][^"']*)?\1)[^>]*>\s*<\/script\s*>/gi,
+    '',
+  )
+}
+
+function htmlDoc(raw: string, varsCss: string, runtime: string, css = '', engine?: BuildOpts['engine']): string {
   const head = (css ? `<style>${css}</style>` : '') + (varsCss ? `<style id="od-tweak-vars">${varsCss}</style>` : '')
   const inject = head + runtime
-  if (/<\/body>/i.test(raw)) return raw.replace(/<\/body>/i, `${inject}</body>`)
-  if (/<\/html>/i.test(raw)) return raw.replace(/<\/html>/i, `${inject}</html>`)
-  return raw + inject
+  const boot = engine === 'three' ? threeBootstrap() : ''
+  const source = engine === 'three' ? stripExternalThreeScripts(raw) : raw
+  const prepared = boot && /<head(?:\s[^>]*)?>/i.test(source)
+    ? source.replace(/<head(\s[^>]*)?>/i, `<head$1>${boot}`)
+    : boot + source
+  if (/<\/body>/i.test(prepared)) return prepared.replace(/<\/body>/i, `${inject}</body>`)
+  if (/<\/html>/i.test(prepared)) return prepared.replace(/<\/html>/i, `${inject}</html>`)
+  return prepared + inject
 }
 
 /** Build the full iframe srcDoc for a screen. */
 export function buildSrcDoc(opts: BuildOpts): string {
-  const { kind, raw, filePath, vars, resize = true, css = '', compiledJs } = opts
+  const { kind, raw, filePath, vars, resize = true, css = '', compiledJs, engine } = opts
   const varsCss = varsToCss(vars)
   const runtime = runtimeScript(filePath, resize)
   const loader = loaderScript()
@@ -338,7 +383,7 @@ export function buildSrcDoc(opts: BuildOpts): string {
     case 'jsx': return jsxDoc(raw, varsCss, runtime, loader, css, compiledJs)
     case 'svg': return svgDoc(raw, varsCss, runtime)
     case 'mermaid': return mermaidDoc(raw, varsCss, runtime, loader)
-    default: return htmlDoc(raw, varsCss, runtime, css)
+    default: return htmlDoc(raw, varsCss, runtime, css, engine)
   }
 }
 

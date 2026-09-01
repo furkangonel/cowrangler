@@ -95,6 +95,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ensureWorkdir: (id: string) => ipcRenderer.invoke('projects:ensureWorkdir', id),
     addFolder: (id: string, folderPath: string) => ipcRenderer.invoke('projects:addFolder', id, folderPath),
     removeFolder: (id: string, folderPath: string) => ipcRenderer.invoke('projects:removeFolder', id, folderPath),
+    setPrimaryFolder: (id: string, folderPath: string) => ipcRenderer.invoke('projects:setPrimaryFolder', id, folderPath),
+    resolveFile: (id: string, reference: string) => ipcRenderer.invoke('projects:resolveFile', id, reference),
     getFolders: (id: string) => ipcRenderer.invoke('projects:getFolders', id),
     getOutputs: (id: string) => ipcRenderer.invoke('projects:outputs', id),
     getInstructions: (id: string) => ipcRenderer.invoke('projects:getInstructions', id),
@@ -326,6 +328,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     cleanStorage: () => ipcRenderer.invoke('fs:cleanStorage'),
     fileTree: (dirPath: string, depth?: number) => ipcRenderer.invoke('fs:fileTree', dirPath, depth),
     readFile: (filePath: string) => ipcRenderer.invoke('fs:readFile', filePath),
+    previewFile: (filePath: string) => ipcRenderer.invoke('fs:previewFile', filePath),
     /** Görsel dosyayı data: URL olarak okur (CSP `file:` şemasına izin vermiyor). */
     readFileDataUrl: (filePath: string) => ipcRenderer.invoke('fs:readFileDataUrl', filePath),
     writeFile: (filePath: string, content: string) => ipcRenderer.invoke('fs:writeFile', filePath, content),

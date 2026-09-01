@@ -2,9 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { X, FileDown } from 'lucide-react'
 import { ipc } from '../../lib/ipc'
 import { buildSrcDoc, kindFromName, resolveTweakVars } from './renderScreen'
-import { useDesignStore, DesignTweak } from '../../stores/design.store'
+import { useDesignStore, DesignMeta, DesignTweak } from '../../stores/design.store'
 
-export interface ExportFile { filePath: string; name: string; tweaks?: DesignTweak[] }
+export interface ExportFile { filePath: string; name: string; tweaks?: DesignTweak[]; meta?: DesignMeta | null }
 export interface PdfExportOptions {
   pageSize: 'fit' | 'a4' | 'letter'
   landscape: boolean
@@ -62,7 +62,7 @@ function useSrcDoc(file: ExportFile, enabled: boolean): string | null {
     const sharedPath = file.filePath.replace(/[^/]+$/, 'shared.css')
     const needShared = (kind === 'html' || kind === 'jsx') && !/shared\.css$/.test(file.filePath)
     Promise.all([
-      ipc.design.readFile(file.filePath),
+      (ipc.design.readRendered ?? ipc.design.readFile)(file.filePath),
       needShared ? ipc.design.readFile(sharedPath).catch(() => ({ content: '' })) : Promise.resolve({ content: '' }),
     ]).then(([rf, rc]) => {
       if (!alive) return
@@ -72,10 +72,10 @@ function useSrcDoc(file: ExportFile, enabled: boolean): string | null {
       // bar is suppressed (no overflow:hidden) so nothing gets clipped early.
       const noScroll = 'html{scrollbar-width:none!important;}html::-webkit-scrollbar,body::-webkit-scrollbar,*::-webkit-scrollbar{width:0!important;height:0!important;display:none!important;}'
       const css = (rc.content ?? '') + noScroll
-      setDoc(buildSrcDoc({ kind, raw, filePath: file.filePath, css, vars, resize: false }))
+      setDoc(buildSrcDoc({ kind, raw, filePath: file.filePath, css, vars, resize: false, engine: file.meta?.engine }))
     }).catch(() => alive && setDoc(''))
     return () => { alive = false }
-  }, [enabled, file.filePath, file.tweaks, tweakValues, refreshTick])
+  }, [enabled, file.filePath, file.tweaks, file.meta?.engine, tweakValues, refreshTick])
   return doc
 }
 

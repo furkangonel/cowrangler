@@ -5,11 +5,13 @@ import { LivePreviewPanel } from "../code/LivePreviewPanel";
 import { CodePlanPanel } from "../code/CodePlanPanel";
 import { CodeTaskPanel } from "../code/CodeTaskPanel";
 import { useUIStore } from "../../stores/ui.store";
+import { FilePreviewPanel } from "../shared/FilePreviewModal";
 
 export function RightPanel() {
   const {
     rightPanelOpen,
     codeRightTab,
+    previewFile,
   } = useUIStore();
 
   const [width, setWidth] = useState(() => {
@@ -50,7 +52,7 @@ export function RightPanel() {
 
   if (!rightPanelOpen) return null;
 
-  if (!codeRightTab) return null;
+  if (!codeRightTab && !previewFile) return null;
 
   return (
     <aside
@@ -64,11 +66,13 @@ export function RightPanel() {
         style={{ transform: "translateX(-3px)" }}
       />
       <div className="flex-1 min-h-0 overflow-hidden">
-        {codeRightTab === "terminal" && <TerminalPanel />}
-        {codeRightTab === "files" && <DiffPanel />}
-        {codeRightTab === "run" && <LivePreviewPanel />}
-        {codeRightTab === "plan" && <CodePlanPanel />}
-        {codeRightTab === "task" && <CodeTaskPanel />}
+        {previewFile ? <FilePreviewPanel /> : <>
+          {codeRightTab === "terminal" && <TerminalPanel />}
+          {codeRightTab === "files" && <DiffPanel />}
+          {codeRightTab === "run" && <LivePreviewPanel />}
+          {codeRightTab === "plan" && <CodePlanPanel />}
+          {codeRightTab === "task" && <CodeTaskPanel />}
+        </>}
       </div>
     </aside>
   );

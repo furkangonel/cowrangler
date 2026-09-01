@@ -186,6 +186,7 @@ Use execute_bash only when necessary. Prefer purpose-built tools (git_*, file_*)
     // deliberately absent from the schema above: a parameter the model can see
     // is a parameter the model will reason about and try to set.
     __useSandbox,
+    __additionalDirectories,
   }: {
     command: string;
     cwd?: string;
@@ -193,9 +194,13 @@ Use execute_bash only when necessary. Prefer purpose-built tools (git_*, file_*)
     permission_mode?: string;
     dangerouslyDisableSandbox?: boolean;
     __useSandbox?: boolean;
+    __additionalDirectories?: string[];
   }) => {
     const config = getConfig();
-    const permissionSettings = resolvePermissionSettings({ legacyConfig: config });
+    const permissionSettings = resolvePermissionSettings({
+      legacyConfig: config,
+      additionalDirectories: Array.isArray(__additionalDirectories) ? __additionalDirectories : [],
+    });
     const effectiveCwd = cwd ?? getProjectWorkdir();
     const effectivePermMode: PermissionMode = normalizePermissionMode(
       permission_mode ?? config.permission_mode ?? "default",

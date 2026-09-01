@@ -1,184 +1,97 @@
-import React, { useEffect, useState, useMemo } from 'react'
-import { X, ExternalLink, FileText, Image as ImageIcon, Code, Download, ChevronDown } from 'lucide-react'
+import React, { useEffect, useMemo, useState } from 'react'
+import { ChevronDown, Code, Download, ExternalLink, File, FileText, Image as ImageIcon, X } from 'lucide-react'
 import { useUIStore } from '../../stores/ui.store'
 import { ipc } from '../../lib/ipc'
 import { renderMarkdown } from '../../lib/markdown'
 
-const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg']
-const HTML_EXTS = ['.html', '.htm']
-const MD_EXTS = ['.md', '.markdown']
+type PreviewResult = Awaited<ReturnType<typeof ipc.fs.previewFile>>
 
-function getExt(filePath: string) {
-  const m = filePath.match(/(\.[^.]+)$/)
-  return m ? m[1].toLowerCase() : ''
+function getExt(filePath: string) { return filePath.match(/(\.[^.]+)$/)?.[1].toLowerCase() ?? '' }
+function getFileName(filePath: string) { return filePath.split(/[\\/]/).pop() ?? filePath }
+function formatBytes(bytes?: number) {
+  if (bytes == null) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
-
-function getFileName(filePath: string) {
-  return filePath.split('/').pop() ?? filePath
-}
-
-// Wrap rendered markdown in a printable, styled HTML document for PDF export.
 function mdDoc(html: string): string {
   return `<!doctype html><meta charset="utf-8"><style>body{font-family:Georgia,'Times New Roman',serif;max-width:760px;margin:40px auto;padding:0 28px;line-height:1.7;color:#1a1a1a}h1,h2,h3{line-height:1.3}pre{background:#f4f4f4;padding:12px 14px;border-radius:8px;overflow:auto;font-size:13px}code{font-family:ui-monospace,SFMono-Regular,monospace}img{max-width:100%}a{color:#9a4b2e}table{border-collapse:collapse}td,th{border:1px solid #ddd;padding:6px 10px}</style>${html}`
 }
-
-function DlRow({ label, onClick, testId }: { label: string; onClick: () => void; testId?: string }) {
-  return (
-    <button onClick={onClick} data-testid={testId} className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-text-secondary hover:text-text-primary hover:bg-bg-hover text-left transition-colors">
-      <Download size={12} className="text-text-muted" />{label}
-    </button>
-  )
+function ActionRow({ label, onClick }: { label: string; onClick: () => void }) {
+  return <button onClick={onClick} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary"><Download size={12} />{label}</button>
 }
 
-export function FilePreviewModal() {
+/** Right-panel file viewer. Kept in this file to preserve old imports. */
+export function FilePreviewPanel() {
   const { previewFile, setPreviewFile } = useUIStore()
-  const [content, setContent] = useState<string | null>(null)
+  const [preview, setPreview] = useState<PreviewResult | null>(null)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [dlOpen, setDlOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
 
   useEffect(() => {
-    if (!previewFile) {
-      setContent(null)
-      setError(null)
-      return
-    }
-    const ext = getExt(previewFile)
-    if (IMAGE_EXTS.includes(ext)) {
-      setContent(null); setError(null); setLoading(false)
-      return
-    }
-    setLoading(true); setError(null); setContent(null)
-    ipc.fs.readFile(previewFile)
-      .then(r => {
-        if (r.error) setError(r.error)
-        else setContent(r.content ?? '')
-      })
-      .catch(e => setError(String(e)))
-      .finally(() => setLoading(false))
+    if (!previewFile) { setPreview(null); return }
+    let alive = true
+    setLoading(true)
+    setPreview(null)
+    ipc.fs.previewFile(previewFile)
+      .then(result => { if (alive) setPreview(result) })
+      .catch(error => { if (alive) setPreview({ kind: 'unsupported', error: String(error) }) })
+      .finally(() => { if (alive) setLoading(false) })
+    return () => { alive = false }
   }, [previewFile])
 
-  const htmlContent = useMemo(() => {
-    if (!previewFile || !content) return ''
-    const ext = getExt(previewFile)
-    if (MD_EXTS.includes(ext)) return renderMarkdown(content)
-    return ''
-  }, [previewFile, content])
-
+  const markdownHtml = useMemo(() => preview?.kind === 'markdown' ? renderMarkdown(preview.content ?? '') : '', [preview])
   if (!previewFile) return null
 
   const ext = getExt(previewFile)
-  const isImage = IMAGE_EXTS.includes(ext)
-  const isHtml = HTML_EXTS.includes(ext)
-  const isMd = MD_EXTS.includes(ext)
-
-  function close() { setPreviewFile(null) }
+  const name = getFileName(previewFile)
+  const canRenderPdf = preview?.kind === 'html' || preview?.kind === 'markdown'
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-bg-overlay/80 backdrop-blur-sm"
-      onClick={close}
-    >
-      <div
-        className="relative bg-bg-primary border border-border rounded-2xl shadow-xl flex flex-col"
-        style={{ width: 'min(90vw, 860px)', height: 'min(85vh, 700px)' }}
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-border-subtle flex-shrink-0">
-          <FileIcon ext={ext} />
-          <span className="flex-1 text-sm font-medium text-text-primary truncate font-mono">
-            {getFileName(previewFile)}
-          </span>
-          <div className="relative">
-            <button
-              onClick={() => setDlOpen(o => !o)}
-              className="flex items-center gap-1 px-2 py-1.5 text-text-muted hover:text-text-primary hover:bg-bg-hover rounded-lg transition-colors text-xs"
-              title="Download"
-            >
-              <Download size={14} /><ChevronDown size={11} />
-            </button>
-            {dlOpen && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setDlOpen(false)} />
-                <div className="absolute right-0 top-full mt-1 z-50 bg-bg-primary border border-border rounded-xl shadow-xl overflow-hidden py-1 min-w-[170px]">
-                  {isHtml && <DlRow label="Export as PDF" onClick={() => { ipc.exporter.toPdf({ srcPath: previewFile }); setDlOpen(false) }} />}
-                  {isHtml && <DlRow label="Export as PNG" onClick={() => { ipc.exporter.toImage({ srcPath: previewFile }); setDlOpen(false) }} />}
-                  {isMd && <DlRow label="Export as PDF" onClick={() => { ipc.exporter.toPdf({ html: mdDoc(htmlContent), name: getFileName(previewFile).replace(/\.[^.]+$/, '') }); setDlOpen(false) }} />}
-                  <DlRow testId="export-save-copy" label={`Save a copy (${ext || 'file'})`} onClick={() => { ipc.exporter.saveCopy({ srcPath: previewFile }); setDlOpen(false) }} />
-                </div>
-              </>
-            )}
-          </div>
-          <button
-            onClick={() => ipc.fs.openInFinder(previewFile)}
-            className="p-1.5 text-text-muted hover:text-text-primary hover:bg-bg-hover rounded-lg transition-colors"
-            title="Reveal in Finder"
-          >
-            <ExternalLink size={14} />
-          </button>
-          <button
-            onClick={close}
-            className="p-1.5 text-text-muted hover:text-text-primary hover:bg-bg-hover rounded-lg transition-colors"
-          >
-            <X size={14} />
-          </button>
+    <div className="flex h-full min-h-0 flex-col bg-bg-secondary">
+      <header className="flex h-12 shrink-0 items-center gap-2.5 border-b border-border-subtle px-3">
+        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-border bg-bg-tertiary text-text-muted"><FileIcon kind={preview?.kind} ext={ext} /></span>
+        <div className="min-w-0 flex-1"><p className="truncate text-xs font-semibold text-text-primary">{name}</p><p className="truncate text-[9px] text-text-muted">{formatBytes(preview?.size)}{preview?.kind ? ` · ${preview.kind}` : ''}</p></div>
+        <div className="relative">
+          <button onClick={() => setMenuOpen(value => !value)} title="Export" className="flex items-center gap-1 rounded-lg p-1.5 text-text-muted hover:bg-bg-hover hover:text-text-primary"><Download size={14} /><ChevronDown size={10} /></button>
+          {menuOpen && <><div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} /><div className="absolute right-0 top-full z-50 mt-1 min-w-[178px] overflow-hidden rounded-xl border border-border bg-bg-elevated py-1 shadow-pop">
+            {preview?.kind === 'html' && <ActionRow label="Export as PNG" onClick={() => { void ipc.exporter.toImage({ srcPath: previewFile }); setMenuOpen(false) }} />}
+            {canRenderPdf && <ActionRow label="Export as PDF" onClick={() => { if (preview?.kind === 'html') void ipc.exporter.toPdf({ srcPath: previewFile }); else void ipc.exporter.toPdf({ html: mdDoc(markdownHtml), name: name.replace(/\.[^.]+$/, '') }); setMenuOpen(false) }} />}
+            <ActionRow label={`Save a copy (${ext || 'file'})`} onClick={() => { void ipc.exporter.saveCopy({ srcPath: previewFile }); setMenuOpen(false) }} />
+          </div></>}
         </div>
-
-        {/* Body */}
-        <div className="flex-1 overflow-hidden">
-          {loading && (
-            <div className="flex items-center justify-center h-full text-sm text-text-muted">Loading…</div>
-          )}
-          {error && (
-            <div className="flex items-center justify-center h-full text-sm text-error px-6 text-center">{error}</div>
-          )}
-          {!loading && !error && (
-            <>
-              {isImage && (
-                <div className="flex items-center justify-center h-full p-4 bg-bg-tertiary/40">
-                  <img
-                    src={`file://${previewFile}`}
-                    alt={getFileName(previewFile)}
-                    className="max-w-full max-h-full object-contain rounded-lg"
-                  />
-                </div>
-              )}
-              {isHtml && content !== null && (
-                <iframe
-                  srcDoc={content}
-                  className="w-full h-full border-none"
-                  sandbox="allow-scripts"
-                  title={getFileName(previewFile)}
-                />
-              )}
-              {isMd && (
-                <div
-                  className="prose h-full overflow-y-auto px-8 py-6 selectable"
-                  dangerouslySetInnerHTML={{ __html: htmlContent }}
-                />
-              )}
-              {!isImage && !isHtml && !isMd && content !== null && (
-                <pre className="h-full overflow-auto px-5 py-4 text-xs font-mono text-text-primary leading-relaxed whitespace-pre-wrap selectable">
-                  {content}
-                </pre>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* Footer: path */}
-        <div className="px-4 py-2 border-t border-border-subtle flex-shrink-0">
-          <p className="text-2xs text-text-muted font-mono truncate">{previewFile}</p>
-        </div>
+        <button onClick={() => void ipc.fs.openInFinder(previewFile)} title="Reveal in Finder" className="rounded-lg p-1.5 text-text-muted hover:bg-bg-hover hover:text-text-primary"><ExternalLink size={14} /></button>
+        <button onClick={() => setPreviewFile(null)} title="Close preview" className="rounded-lg p-1.5 text-text-muted hover:bg-bg-hover hover:text-text-primary"><X size={14} /></button>
+      </header>
+      <div className="min-h-0 flex-1 overflow-hidden bg-bg-primary">
+        {loading && <div className="grid h-full place-items-center text-xs text-text-muted"><span className="animate-pulse">Rendering preview…</span></div>}
+        {!loading && preview?.error && <EmptyPreview title="Preview unavailable" detail={preview.error} />}
+        {!loading && preview && !preview.error && <PreviewBody preview={preview} markdownHtml={markdownHtml} name={name} />}
       </div>
+      <footer className="shrink-0 border-t border-border-subtle px-3 py-2"><p className="truncate font-mono text-[9px] text-text-muted" title={previewFile}>{previewFile}</p></footer>
     </div>
   )
 }
 
-function FileIcon({ ext }: { ext: string }) {
-  if (IMAGE_EXTS.includes(ext)) return <ImageIcon size={15} className="text-text-muted flex-shrink-0" />
-  if (['.html', '.htm', '.jsx', '.tsx', '.ts', '.js', '.py', '.sh'].includes(ext))
-    return <Code size={15} className="text-text-muted flex-shrink-0" />
-  return <FileText size={15} className="text-text-muted flex-shrink-0" />
+function PreviewBody({ preview, markdownHtml, name }: { preview: PreviewResult; markdownHtml: string; name: string }) {
+  if (preview.kind === 'image') return <div className="grid h-full place-items-center overflow-auto p-5"><img src={preview.dataUrl} alt={name} className="max-h-full max-w-full rounded-lg object-contain shadow-panel" /></div>
+  if (preview.kind === 'pdf') return <embed src={preview.dataUrl} type="application/pdf" className="h-full w-full" />
+  if (preview.kind === 'video') return <div className="grid h-full place-items-center bg-black p-4"><video src={preview.dataUrl} controls className="max-h-full max-w-full" /></div>
+  if (preview.kind === 'audio') return <div className="grid h-full place-items-center p-6"><audio src={preview.dataUrl} controls className="w-full" /></div>
+  if (preview.kind === 'html') return <iframe srcDoc={preview.content} sandbox="allow-scripts" title={name} className="h-full w-full border-0 bg-white" />
+  if (preview.kind === 'markdown') return <article className="prose h-full overflow-y-auto px-6 py-5 selectable" dangerouslySetInnerHTML={{ __html: markdownHtml }} />
+  if (preview.kind === 'document' || preview.kind === 'spreadsheet' || preview.kind === 'presentation') return <div className={`office-preview office-preview--${preview.kind}`} dangerouslySetInnerHTML={{ __html: preview.content ?? '' }} />
+  if (preview.kind === 'text') return <pre className="h-full overflow-auto whitespace-pre-wrap break-words px-4 py-4 font-mono text-[11px] leading-relaxed text-text-primary selectable">{preview.content}</pre>
+  return <EmptyPreview title="No inline preview" detail="Save a copy or reveal this file in Finder." />
 }
+
+function EmptyPreview({ title, detail }: { title: string; detail: string }) {
+  return <div className="grid h-full place-items-center p-8 text-center"><div><File size={24} className="mx-auto mb-3 text-text-muted" /><p className="text-sm font-medium text-text-primary">{title}</p><p className="mt-1 text-xs leading-relaxed text-text-muted">{detail}</p></div></div>
+}
+function FileIcon({ kind, ext }: { kind?: PreviewResult['kind']; ext: string }) {
+  if (kind === 'image') return <ImageIcon size={14} />
+  if (kind === 'html' || ['.jsx', '.tsx', '.ts', '.js', '.py', '.sh'].includes(ext)) return <Code size={14} />
+  return <FileText size={14} />
+}
+
+export const FilePreviewModal = FilePreviewPanel

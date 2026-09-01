@@ -137,12 +137,14 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
 
     // Every local project is a Code project. Additional source folders are
     // scoped to that project; legacy __code__ sessions keep their old list.
-    if (!isDesign) {
-      const extraDirs = projectId === CODE_PROJECT_ID
+    const extraDirs = !isDesign
+      ? (projectId === CODE_PROJECT_ID
         ? getCodeExtraDirs()
         : projectDB.getFolders(projectId)
             .map((folder) => folder.folder_path)
-            .filter((folderPath) => folderPath !== project?.workdir)
+            .filter((folderPath) => folderPath !== project?.workdir))
+      : []
+    if (!isDesign) {
       if (extraDirs.length > 0) {
         systemPrompt +=
           `\n\n---\n\n## ADDITIONAL WORKSPACE DIRECTORIES\n\n` +
@@ -216,6 +218,7 @@ export function registerAgentIPC(ipcMain: IpcMain, win: BrowserWindow): void {
         model, systemPrompt, allowedTools, maxIterations,
         sessionSource: contextType,
       }, workdir)
+      agent.setAdditionalDirectories(extraDirs)
       // Design turunda thinking'i tercih et: reasoning destekli modelde muhakeme
       // görünür yanıt metnine sızmak yerine "Thought Process" accordion'una gider.
       // (Kullanıcı COWRANGLER_THINKING=0 ile açıkça kapattıysa yine kapalı kalır.)

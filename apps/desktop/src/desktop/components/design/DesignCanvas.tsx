@@ -5,6 +5,8 @@ import { ipc } from '../../lib/ipc'
 import { buildSrcDoc, resolveTweakVars, kindFromName, RenderKind } from './renderScreen'
 import { compileJsx } from './esbuildCompiler'
 import { DeviceMockup, deviceSpec } from './DeviceMockup'
+import { Player } from '@remotion/player'
+import { AbsoluteFill, useCurrentFrame, useVideoConfig } from 'remotion'
 
 interface Props {
   projectId: string
@@ -88,7 +90,13 @@ function useLiveVars(filePath: string, meta?: DesignMeta | null): Record<string,
  * `scale`, and keeps live tweaks flowing in via postMessage (no reload). Reports
  * the content's natural size so callers can hug content.
  */
-function ScaledScreen({ filePath, kind, meta, intrinsicW, intrinsicH, scale, reloadKey, interactive = false, onNatural }: {
+interface ScreenTimeline {
+  frame: number
+  fps: number
+  durationInFrames: number
+}
+
+function ScaledScreen({ filePath, kind, meta, intrinsicW, intrinsicH, scale, reloadKey, interactive = false, onNatural, timeline }: {
   filePath: string
   kind: RenderKind
   meta?: DesignMeta | null
@@ -98,6 +106,7 @@ function ScaledScreen({ filePath, kind, meta, intrinsicW, intrinsicH, scale, rel
   reloadKey?: number
   interactive?: boolean
   onNatural?: (w: number, h: number) => void
+  timeline?: ScreenTimeline
 }) {
   const raw = useScreenContent(filePath, true)
   const sharedCss = useSharedCss(filePath, kind)
@@ -129,8 +138,8 @@ function ScaledScreen({ filePath, kind, meta, intrinsicW, intrinsicH, scale, rel
   const jsxPending = kind === 'jsx' && raw != null && compiled?.src !== raw
 
   const srcDoc = useMemo(
-    () => (raw == null || jsxPending ? null : buildSrcDoc({ kind, raw, filePath, css: sharedCss, compiledJs })),
-    [raw, kind, filePath, sharedCss, compiledJs, jsxPending],
+    () => (raw == null || jsxPending ? null : buildSrcDoc({ kind, raw, filePath, css: sharedCss, compiledJs, engine: meta?.engine })),
+    [raw, kind, filePath, sharedCss, compiledJs, jsxPending, meta?.engine],
   )
 
   // Push tweak vars on first load and whenever they change.
@@ -138,6 +147,20 @@ function ScaledScreen({ filePath, kind, meta, intrinsicW, intrinsicH, scale, rel
     if (!loaded) return
     iframeRef.current?.contentWindow?.postMessage({ type: 'apply_tweaks', vars: liveVars }, '*')
   }, [loaded, liveVars, reloadKey])
+
+  // Remotion owns the clock; generated HTML consumes the exact same frame.
+  useEffect(() => {
+    if (!loaded || !timeline) return
+    const last = Math.max(1, timeline.durationInFrames - 1)
+    iframeRef.current?.contentWindow?.postMessage({
+      type: 'remotion_frame',
+      frame: timeline.frame,
+      fps: timeline.fps,
+      time: timeline.frame / timeline.fps,
+      progress: timeline.frame / last,
+      durationInFrames: timeline.durationInFrames,
+    }, '*')
+  }, [loaded, timeline?.frame, timeline?.fps, timeline?.durationInFrames, reloadKey])
 
   // Arm/disarm the in-iframe element inspector to match global inspect mode.
   useEffect(() => {
@@ -196,6 +219,35 @@ function ScaledScreen({ filePath, kind, meta, intrinsicW, intrinsicH, scale, rel
         background: '#fff',
       }}
     />
+  )
+}
+
+interface RemotionScreenProps {
+  filePath: string
+  kind: RenderKind
+  meta?: DesignMeta | null
+  width: number
+  height: number
+  reloadKey: number
+}
+
+function RemotionScreen({ filePath, kind, meta, width, height, reloadKey }: RemotionScreenProps) {
+  const frame = useCurrentFrame()
+  const { fps, durationInFrames } = useVideoConfig()
+  return (
+    <AbsoluteFill style={{ background: '#fff', overflow: 'hidden' }}>
+      <ScaledScreen
+        filePath={filePath}
+        kind={kind}
+        meta={meta}
+        intrinsicW={width}
+        intrinsicH={height}
+        scale={1}
+        reloadKey={reloadKey}
+        interactive
+        timeline={{ frame, fps, durationInFrames }}
+      />
+    </AbsoluteFill>
   )
 }
 
@@ -463,14 +515,18 @@ function StageCanvas({ kind, viewMode }: { kind: 'slides' | 'animation' | 'artif
   const [reload, setReload] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  const intrinsicW = 1280, intrinsicH = 720
+  const cur = frames[Math.min(idx, Math.max(frames.length - 1, 0))]
+  const intrinsicW = Math.max(1, cur?.meta?.width ?? 1280)
+  const intrinsicH = Math.max(1, cur?.meta?.height ?? 720)
   const fitScale = useFitScale(containerRef, intrinsicW, intrinsicH)
 
   useEffect(() => { if (frames.length > 0 && idx >= frames.length) setIdx(frames.length - 1) }, [frames.length, idx])
   useEffect(() => { setReload(r => r + 1) }, [refreshTick])
 
-  const cur = frames[Math.min(idx, Math.max(frames.length - 1, 0))]
   const curKind = cur ? (cur.kind ?? kindFromName(cur.name)) : 'html'
+  const isRemotion = kind === 'animation' && cur?.meta?.engine === 'remotion'
+  const fps = Math.max(1, cur?.meta?.fps ?? 30)
+  const durationInFrames = Math.max(1, cur?.meta?.durationInFrames ?? fps * 5)
   const go = (d: number) => { const n = idx + d; if (n >= 0 && n < frames.length) setIdx(n) }
 
   if (frames.length === 0) return <div className="flex-1 relative design-canvas-dots"><EmptyCanvas hint={kind === 'slides' ? 'Slides appear here as the agent creates them.' : kind === 'animation' ? 'Press play to watch motion render.' : 'Interactive object appears here when ready.'} /></div>
@@ -485,7 +541,22 @@ function StageCanvas({ kind, viewMode }: { kind: 'slides' | 'animation' | 'artif
         {kind === 'slides' && <button onClick={() => go(-1)} disabled={idx === 0} className="w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-30 design-elev flex-shrink-0" style={{ background: 'var(--d-surface)', color: 'var(--d-ink-soft)' }}><ChevronLeft size={18} /></button>}
         <div ref={containerRef} className="flex-1 h-full flex items-center justify-center min-w-0">
           <div className="rounded-2xl overflow-hidden design-elev-lg" style={{ width: intrinsicW * fitScale, height: intrinsicH * fitScale, background: '#fff', border: '1px solid var(--d-line)' }}>
-            {cur && <ScaledScreen filePath={cur.filePath} kind={curKind} meta={cur.meta} intrinsicW={intrinsicW} intrinsicH={intrinsicH} scale={fitScale} reloadKey={reload} interactive />}
+            {cur && (isRemotion ? (
+              <Player
+                component={RemotionScreen}
+                inputProps={{ filePath: cur.filePath, kind: curKind, meta: cur.meta, width: intrinsicW, height: intrinsicH, reloadKey: reload }}
+                durationInFrames={durationInFrames}
+                compositionWidth={intrinsicW}
+                compositionHeight={intrinsicH}
+                fps={fps}
+                controls
+                autoPlay
+                loop
+                style={{ width: intrinsicW * fitScale, height: intrinsicH * fitScale }}
+              />
+            ) : (
+              <ScaledScreen filePath={cur.filePath} kind={curKind} meta={cur.meta} intrinsicW={intrinsicW} intrinsicH={intrinsicH} scale={fitScale} reloadKey={reload} interactive />
+            ))}
           </div>
         </div>
         {kind === 'slides' && <button onClick={() => go(1)} disabled={idx >= frames.length - 1} className="w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-30 design-elev flex-shrink-0" style={{ background: 'var(--d-surface)', color: 'var(--d-ink-soft)' }}><ChevronRight size={18} /></button>}
@@ -493,7 +564,8 @@ function StageCanvas({ kind, viewMode }: { kind: 'slides' | 'animation' | 'artif
 
       {/* Filmstrip / scene picker */}
       <div className="flex items-center gap-3 px-6 py-3 overflow-x-auto flex-shrink-0" style={{ borderTop: '1px solid var(--d-line)', background: 'var(--d-paper)' }}>
-        {(kind === 'animation' || kind === 'artifact') && <button onClick={() => setReload(r => r + 1)} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold text-white flex-shrink-0 transition-transform active:scale-95" style={{ background: 'var(--d-clay)' }}><Play size={13} className="fill-current" /> {kind === 'animation' ? 'Replay' : 'Reset view'}</button>}
+        {((kind === 'animation' && !isRemotion) || kind === 'artifact') && <button onClick={() => setReload(r => r + 1)} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold flex-shrink-0 transition-transform active:scale-95" style={{ background: 'var(--d-clay)', color: 'var(--d-on-accent)' }}><Play size={13} className="fill-current" /> {kind === 'animation' ? 'Replay' : 'Reset view'}</button>}
+        <span className="shrink-0 font-mono text-[10px]" style={{ color: 'var(--d-ink-faint)' }}>{intrinsicW} × {intrinsicH}{cur?.meta?.fps ? ` · ${cur.meta.fps} fps` : ''}</span>
         {frames.map((f, i) => (
           <button key={f.id} onClick={() => { setIdx(i); if (kind !== 'slides') setReload(r => r + 1) }} className="relative rounded overflow-hidden flex-shrink-0 transition-transform" style={{ width: 132, height: 74, background: '#fff', border: idx === i ? '2px solid var(--d-blue)' : '1px solid var(--d-line)', transform: idx === i ? 'scale(1.05)' : 'scale(1)' }}>
             <Thumb frame={f} boxW={132} boxH={74} />
@@ -626,11 +698,12 @@ function EmailCanvas({ viewMode }: { viewMode?: 'preview' | 'code' }) {
 
 function Thumb({ frame, boxW, boxH }: { frame: DesignFrame; boxW: number; boxH: number }) {
   const kind = frame.kind ?? kindFromName(frame.name)
-  const intrinsicW = 1280, intrinsicH = 720
-  const scale = boxW / intrinsicW
+  const intrinsicW = Math.max(1, frame.meta?.width ?? 1280)
+  const intrinsicH = Math.max(1, frame.meta?.height ?? 720)
+  const scale = Math.min(boxW / intrinsicW, boxH / intrinsicH)
   return (
-    <div style={{ width: boxW, height: boxH, overflow: 'hidden' }}>
-      <ScaledScreen filePath={frame.filePath} kind={kind} meta={frame.meta} intrinsicW={intrinsicW} intrinsicH={intrinsicH} scale={scale} />
+    <div style={{ width: boxW, height: boxH, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ width: intrinsicW * scale, height: intrinsicH * scale }}><ScaledScreen filePath={frame.filePath} kind={kind} meta={frame.meta} intrinsicW={intrinsicW} intrinsicH={intrinsicH} scale={scale} /></div>
     </div>
   )
 }
