@@ -29,6 +29,8 @@ import fs from 'fs'
 import path from 'path'
 import os from 'os'
 import { exportSource, readInlined } from './asset_inline.js'
+import { bundle } from '@remotion/bundler'
+import { renderMedia, selectComposition } from '@remotion/renderer'
 
 function writeTempHtml(html: string): string {
   const tmpPath = path.join(os.tmpdir(), `cowr_exp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.html`)
@@ -38,7 +40,12 @@ function writeTempHtml(html: string): string {
 
 // CommonJS require bound to this module — used only for pptxgenjs so we load its
 // CJS entry point reliably from an ESM main process.
-const require = createRequire(import.meta.url)
+// Do not name this binding `require`. electron-vite's CommonJS transform scans
+// that identifier and used to inject its node:module shim at the last apparent
+// import in this file — which happened to be inside our Remotion entry-point
+// template string. The generated composition then contained a Node-only import
+// and webpack failed with UnhandledSchemeError.
+const nodeRequire = createRequire(import.meta.url)
 
 // Defensive print stylesheet: neutralises viewport-locked / scroll-snap decks
 // so a single multi-section HTML file still paginates when printed to PDF.
@@ -443,7 +450,7 @@ async function askSavePath(defaultName: string, label: string, exts: string[]): 
 
 /** Assemble PNG slide images into a .pptx written straight to disk. */
 async function writePptx(filePath: string, pngs: Buffer[], w: number, h: number): Promise<void> {
-  const PptxGenJS = require('pptxgenjs')
+  const PptxGenJS = nodeRequire('pptxgenjs')
   const Ctor = PptxGenJS.default ?? PptxGenJS
   const pptx = new Ctor()
   const inW = 13.333, inH = +(inW * (h / w)).toFixed(3)
@@ -655,5 +662,201 @@ export function registerExportIPC(): void {
       await writePptx(filePath, pngs, w, h)
       return { ok: true, path: filePath, count: files.length }
     } catch (e: any) { return { ok: false, error: e.message } }
+  })
+
+  // ── Animation → WebM video (frame-by-frame capture + MediaRecorder) ──────
+  ipcMain.handle('export:toLegacyVideo', async (_, p: { srcPath: string; name?: string; width?: number; height?: number; fps?: number; durationInFrames?: number }) => {
+    if (!p.srcPath || !fs.existsSync(p.srcPath)) return { ok: false, error: 'File not found' }
+    const w = p.width ?? 1280, h = p.height ?? 720
+    const fps = Math.max(1, p.fps ?? 30)
+    const totalFrames = Math.max(1, p.durationInFrames ?? fps * 5)
+    const filePath = await askSavePath(baseName(p.srcPath, p.name) + '.webm', 'WebM Video', ['webm'])
+    if (!filePath) return { ok: false }
+    // 1. Capture every frame as PNG
+    const renderWin = offscreenWindow(w, h)
+    const src = exportSource(p.srcPath)
+    const framePngs: Buffer[] = []
+    try {
+      await renderWin.loadFile(src.path)
+      renderWin.setContentSize(w, h)
+      await settle(renderWin)
+      // Inject sibling shared.css for consistent theming.
+      try {
+        const sharedPath = p.srcPath.replace(/[^/\\]+$/, 'shared.css')
+        if (fs.existsSync(sharedPath)) {
+          const shared = fs.readFileSync(sharedPath, 'utf-8')
+          await renderWin.webContents.executeJavaScript(`(function(){var s=document.createElement('style');s.textContent=${JSON.stringify(shared)};document.head.insertBefore(s,document.head.firstChild);return true;})()`)
+          await new Promise(r => setTimeout(r, 40))
+        }
+      } catch { /* no shared.css */ }
+      for (let frame = 0; frame < totalFrames; frame++) {
+        const time = frame / fps
+        const last = Math.max(1, totalFrames - 1)
+        const progress = frame / last
+        await renderWin.webContents.executeJavaScript(`(function(){
+          var root=document.documentElement;
+          root.style.setProperty('--cw-frame','${frame}');
+          root.style.setProperty('--cw-time','${time}');
+          root.style.setProperty('--cw-progress','${progress}');
+          window.dispatchEvent(new CustomEvent('cowrangler:frame',{detail:{frame:${frame},fps:${fps},time:${time},progress:${progress},durationInFrames:${totalFrames}}}));
+        })()`)
+        await new Promise(r => setTimeout(r, 60))
+        framePngs.push(await capture(renderWin, w, h))
+      }
+    } finally { src.cleanup(); renderWin.destroy() }
+
+    // 2. Encode PNGs → WebM via an offscreen canvas + MediaRecorder
+    const encoderHtml = `<!doctype html><html><head><meta charset="utf-8"></head><body>
+      <canvas id="c" width="${w}" height="${h}"></canvas>
+      <script>
+        window.__encodeVideo = async function(pngDataUrls, fps) {
+          const canvas = document.getElementById('c');
+          const ctx = canvas.getContext('2d');
+          const frameDuration = 1000 / fps;
+          const stream = canvas.captureStream(0);
+          const recorder = new MediaRecorder(stream, {
+            mimeType: 'video/webm;codecs=vp8',
+            videoBitsPerSecond: 8_000_000,
+          });
+          const chunks = [];
+          recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+          const done = new Promise(resolve => { recorder.onstop = () => resolve(); });
+          recorder.start();
+          for (let i = 0; i < pngDataUrls.length; i++) {
+            await new Promise((resolve, reject) => {
+              const img = new Image();
+              img.onload = () => { ctx.drawImage(img, 0, 0, canvas.width, canvas.height); resolve(); };
+              img.onerror = reject;
+              img.src = pngDataUrls[i];
+            });
+            stream.getVideoTracks()[0].requestFrame();
+            await new Promise(r => setTimeout(r, frameDuration));
+          }
+          recorder.stop();
+          await done;
+          const blob = new Blob(chunks, { type: 'video/webm' });
+          const buf = await blob.arrayBuffer();
+          return btoa(String.fromCharCode(...new Uint8Array(buf)));
+        };
+      </script>
+    </body></html>`
+    const encWin = offscreenWindow(w, h)
+    const tmpEncoder = writeTempHtml(encoderHtml)
+    try {
+      await encWin.loadFile(tmpEncoder)
+      await new Promise(r => setTimeout(r, 200))
+      // Convert PNG buffers to data URLs in batches to avoid IPC size limits.
+      const BATCH = 30
+      const dataUrls: string[] = []
+      for (let i = 0; i < framePngs.length; i += BATCH) {
+        const batch = framePngs.slice(i, i + BATCH).map(b => 'data:image/png;base64,' + b.toString('base64'))
+        await encWin.webContents.executeJavaScript(`window.__frameBatch = window.__frameBatch || []; window.__frameBatch.push(...${JSON.stringify(batch)}); true`)
+      }
+      const b64 = await encWin.webContents.executeJavaScript(`window.__encodeVideo(window.__frameBatch, ${fps})`)
+      const videoBuf = Buffer.from(b64, 'base64')
+      fs.writeFileSync(filePath, videoBuf)
+      return { ok: true, path: filePath }
+    } catch (e: any) {
+      return { ok: false, error: e.message }
+    } finally {
+      try { fs.rmSync(tmpEncoder, { force: true }) } catch {}
+      encWin.destroy()
+    }
+  })
+
+  // A real Remotion render. Preview and export execute the same finite React
+  // composition, so frame timing no longer depends on capture speed or a
+  // MediaRecorder wall clock.
+  ipcMain.handle('export:toVideo', async (event, p: { srcPath: string; name?: string; width?: number; height?: number; fps?: number; durationInFrames?: number; tweakVars?: Record<string, string> }) => {
+    if (!p.srcPath || !fs.existsSync(p.srcPath)) return { ok: false, error: 'File not found' }
+    if (!/\.tsx$/i.test(p.srcPath)) {
+      return { ok: false, error: 'This is a legacy browser animation. Convert it to a Remotion .tsx composition before exporting.' }
+    }
+    const width = Math.max(1, p.width ?? 1280)
+    const height = Math.max(1, p.height ?? 720)
+    const fps = Math.max(1, p.fps ?? 30)
+    const durationInFrames = Math.max(1, p.durationInFrames ?? fps * 5)
+    const filePath = await askSavePath(baseName(p.srcPath, p.name) + '.mp4', 'MP4 Video', ['mp4'])
+    if (!filePath) return { ok: false }
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cowr-remotion-'))
+    const entryPoint = path.join(tempDir, 'index.tsx')
+    const projectRoot = path.dirname(path.dirname(p.srcPath))
+    const publicDir = path.join(projectRoot, 'public')
+    let lastPhase = ''
+    let lastProgress = -1
+    let lastReportAt = 0
+    const report = (phase: 'bundling' | 'browser' | 'rendering', progress: number) => {
+      const normalized = Math.max(0, Math.min(1, progress))
+      const now = Date.now()
+      if (phase === lastPhase && normalized < 1 && normalized - lastProgress < 0.005 && now - lastReportAt < 120) return
+      lastPhase = phase
+      lastProgress = normalized
+      lastReportAt = now
+      if (!event.sender.isDestroyed()) event.sender.send('export:videoProgress', { srcPath: p.srcPath, phase, progress: normalized })
+    }
+    // Keep the import token split in this source file. electron-vite's global
+    // CommonJS pass otherwise mistakes imports inside this template for imports
+    // of the Electron main module and injects a node:module shim into the
+    // generated browser composition.
+    const importKeyword = ['im', 'port'].join('')
+    fs.writeFileSync(entryPoint, `
+${importKeyword} React from 'react';
+${importKeyword} {AbsoluteFill, Composition, registerRoot} from 'remotion';
+${importKeyword} CowranglerComposition from ${JSON.stringify(path.resolve(p.srcPath))};
+
+const PreviewMatchedComposition = () => (
+  <AbsoluteFill style={${JSON.stringify(p.tweakVars ?? {})}}>
+    <CowranglerComposition />
+  </AbsoluteFill>
+);
+
+const Root = () => (
+  <Composition
+    id="CowranglerAnimation"
+    component={PreviewMatchedComposition}
+    width={${width}}
+    height={${height}}
+    fps={${fps}}
+    durationInFrames={${durationInFrames}}
+  />
+);
+
+registerRoot(Root);
+`, 'utf-8')
+
+    try {
+      const serveUrl = await bundle({
+        entryPoint,
+        rootDir: projectRoot,
+        publicDir: fs.existsSync(publicDir) ? publicDir : null,
+        onProgress: progress => report('bundling', progress / 100),
+      })
+      const onBrowserDownload = () => ({ onProgress: progress => report('browser', progress.percent), version: null })
+      report('rendering', 0)
+      const composition = await selectComposition({
+        serveUrl,
+        id: 'CowranglerAnimation',
+        onBrowserDownload,
+      })
+      await renderMedia({
+        serveUrl,
+        composition,
+        codec: 'h264',
+        outputLocation: filePath,
+        overwrite: true,
+        pixelFormat: 'yuv420p',
+        crf: 18,
+        onBrowserDownload,
+        onProgress: progress => report('rendering', progress.progress),
+      })
+      return { ok: true, path: filePath }
+    } catch (e: any) {
+      // Never leave a corrupt partial video at a path the user selected.
+      try { fs.rmSync(filePath, { force: true }) } catch {}
+      return { ok: false, error: e?.message ?? String(e) }
+    } finally {
+      try { fs.rmSync(tempDir, { recursive: true, force: true }) } catch {}
+    }
   })
 }

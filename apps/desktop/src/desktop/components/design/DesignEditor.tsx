@@ -10,7 +10,7 @@ import { parseAttachments, isImagePath, useLocalImage, fileName as attachFileNam
 import { useDesignStore, DesignSystemRecord, DesignFrame, DesignMeta, DesignTweak, DesignDevice, DesignActivity, InspectorPick } from '../../stores/design.store'
 import { useSettingsStore } from '../../stores/settings.store'
 import { DesignCanvas, isDeviceTemplate } from './DesignCanvas'
-import { buildSrcDoc, kindFromName } from './renderScreen'
+import { buildSrcDoc, kindFromName, resolveTweakVars } from './renderScreen'
 
 import { CopyButton } from '../shared/CopyButton'
 import { ClampText } from '../ClampText'
@@ -268,7 +268,7 @@ export function DesignEditor({ onBack }: Props) {
       else setToast(null)
     } catch (e: any) { showToast({ ok: false, msg: `Export failed — ${e?.message ?? e}` }) }
   }
-  function downloadScreen(filePath: string, name: string, fmt: 'pdf' | 'png' | 'jpg' | 'copy' | 'pptx' | 'html') {
+  function downloadScreen(filePath: string, name: string, fmt: 'pdf' | 'png' | 'jpg' | 'copy' | 'pptx' | 'html' | 'video') {
     const frame = frames.find(item => item.filePath === filePath)
     const { w, h } = dimsFor(activeProject?.designType, frame)
     const base = name.replace(/\.[^.]+$/, '')
@@ -280,7 +280,8 @@ export function DesignEditor({ onBack }: Props) {
     else if (fmt === 'jpg') runExport('JPG', ipc.exporter.toImage({ srcPath: filePath, name: base, width: w, height: h, format: 'jpeg', scale: 2 }))
     else if (fmt === 'copy') runExport('Copied image', ipc.exporter.copyImage({ srcPath: filePath, width: w, height: h }).then(r => ({ ...r, path: undefined })))
     else if (fmt === 'pptx') runExport('PowerPoint', ipc.exporter.fileToPptx({ srcPath: filePath, name: base, width: w, height: h }))
-    else runExport('HTML', ipc.exporter.saveCopy({ srcPath: filePath }))
+    else if (fmt === 'video') runExport('Video', ipc.exporter.toVideo({ srcPath: filePath, name: base, width: w, height: h, fps: frame?.meta?.fps ?? 30, durationInFrames: frame?.meta?.durationInFrames ?? 150, tweakVars: resolveTweakVars(frame?.meta?.tweaks, useDesignStore.getState().tweakValues[filePath]) }))
+    else runExport(/\.(?:jsx|tsx)$/i.test(filePath) ? 'Remotion source' : 'HTML', ipc.exporter.saveCopy({ srcPath: filePath }))
   }
   function exportDeck(fmt: 'pdf' | 'pptx') {
     if (!activeProject || frames.length === 0) return
@@ -861,12 +862,17 @@ export function DesignEditor({ onBack }: Props) {
                     <>
                       <div className="fixed inset-0 z-30" onClick={() => setDlMenu(null)} />
                       <div className="absolute right-1 top-full mt-0.5 z-40 rounded-xl overflow-hidden py-1 design-elev-lg" style={{ minWidth: 150, background: 'var(--d-surface)', border: '1px solid var(--d-line)' }}>
-                        <DlItem label="PDF…" onClick={() => downloadScreen(f.filePath, f.name, 'pdf')} />
-                        <DlItem label="PNG image" onClick={() => downloadScreen(f.filePath, f.name, 'png')} />
-                        <DlItem label="JPG image" onClick={() => downloadScreen(f.filePath, f.name, 'jpg')} />
-                        <DlItem label="Copy image" onClick={() => downloadScreen(f.filePath, f.name, 'copy')} />
-                        <DlItem label="PowerPoint (.pptx)" onClick={() => downloadScreen(f.filePath, f.name, 'pptx')} />
-                        <DlItem label="HTML (copy)" onClick={() => downloadScreen(f.filePath, f.name, 'html')} />
+                        {(mode === 'animation' || mode === 'hyperframes') ? <>
+                          <DlItem label="Video (.mp4)" onClick={() => downloadScreen(f.filePath, f.name, 'video')} />
+                          <DlItem label="Remotion source" onClick={() => downloadScreen(f.filePath, f.name, 'html')} />
+                        </> : <>
+                          <DlItem label="PDF…" onClick={() => downloadScreen(f.filePath, f.name, 'pdf')} />
+                          <DlItem label="PNG image" onClick={() => downloadScreen(f.filePath, f.name, 'png')} />
+                          <DlItem label="JPG image" onClick={() => downloadScreen(f.filePath, f.name, 'jpg')} />
+                          <DlItem label="Copy image" onClick={() => downloadScreen(f.filePath, f.name, 'copy')} />
+                          <DlItem label="PowerPoint (.pptx)" onClick={() => downloadScreen(f.filePath, f.name, 'pptx')} />
+                          <DlItem label="HTML (copy)" onClick={() => downloadScreen(f.filePath, f.name, 'html')} />
+                        </>}
                       </div>
                     </>
                   )}
@@ -1295,8 +1301,8 @@ function DesignReasoningBlock({ text, isLive = false }: { text: string; isLive?:
 /** Tiny extension glyph for the file tabs. */
 function FileGlyph({ name }: { name: string }) {
   const ext = name.split('.').pop()?.toLowerCase()
-  const label = ext === 'jsx' ? 'JSX' : ext === 'svg' ? 'SVG' : ext === 'mermaid' || ext === 'mmd' ? 'MMD' : 'HTML'
-  const color = ext === 'jsx' ? '#4a6ba8' : ext === 'svg' ? '#9b59b6' : ext === 'mermaid' || ext === 'mmd' ? '#2e8b6f' : '#c24a22'
+  const label = ext === 'tsx' ? 'RM' : ext === 'jsx' ? 'JSX' : ext === 'svg' ? 'SVG' : ext === 'mermaid' || ext === 'mmd' ? 'MMD' : 'HTML'
+  const color = ext === 'tsx' ? '#d96f45' : ext === 'jsx' ? '#4a6ba8' : ext === 'svg' ? '#9b59b6' : ext === 'mermaid' || ext === 'mmd' ? '#2e8b6f' : '#c24a22'
   return <span className="text-[8px] font-bold px-1 py-0.5 rounded" style={{ background: `${color}1a`, color }}>{label}</span>
 }
 

@@ -697,6 +697,8 @@ export interface ElectronAPI {
     fileToPptx: (payload: { srcPath: string; name?: string; width?: number; height?: number }) => Promise<{ ok: boolean; path?: string; count?: number; error?: string }>
     deckToPdf: (payload: { files: string[]; name?: string; slideW?: number; slideH?: number; document?: boolean }) => Promise<{ ok: boolean; path?: string; count?: number; error?: string }>
     deckToPptx: (payload: { files: string[]; name?: string; slideW?: number; slideH?: number }) => Promise<{ ok: boolean; path?: string; count?: number; error?: string }>
+    toVideo: (payload: { srcPath: string; name?: string; width?: number; height?: number; fps?: number; durationInFrames?: number; tweakVars?: Record<string, string> }) => Promise<{ ok: boolean; path?: string; error?: string }>
+    onVideoProgress: (callback: (progress: { srcPath: string; phase: 'bundling' | 'browser' | 'rendering'; progress: number }) => void) => () => void
   }
   skills: {
     list: () => Promise<SkillDef[]>

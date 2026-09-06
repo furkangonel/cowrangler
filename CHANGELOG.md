@@ -6,6 +6,30 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.2.1] — 2026-09-07
+
+### Added — frame-perfect Remotion video workflow
+
+- Animation and Hyperframe projects now use a strict Remotion `.tsx` source
+  contract with finite frame timing instead of browser animation loops.
+- Motion Studio adds a dedicated video preview with playback, scrubbing,
+  timecode, looping, fullscreen, composition navigation and render progress.
+- Animations can be rendered and downloaded as H.264 MP4 files directly from
+  the preview or the screen download menu.
+
+### Fixed
+
+- Remotion packages remain external Node dependencies of the Electron main
+  process, preventing renderer internals from being rewritten by Rollup.
+- Vite's CommonJS transform can no longer inject a `node:module` shim into the
+  temporary browser composition, fixing MP4 exports that failed with
+  `UnhandledSchemeError`.
+- The preview CSP now allows esbuild's `blob:` worker and the compiler has a
+  timeout, so valid `.tsx` compositions no longer remain indefinitely on
+  “Compiling Remotion…”.
+- Remotion `.tsx` screens are identified correctly throughout the editor and
+  are no longer presented as legacy HTML files.
+
 ## [2.2.0] — 2026-08-28
 
 A breaking release on two fronts: the permission system is replaced wholesale,

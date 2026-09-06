@@ -203,13 +203,6 @@ function runtimeScript(filePath: string, resize: boolean): string {
       else if(d.type==='set_inspect'){ setInspect(!!d.on); }
       else if(d.type==='run_a11y'){ try{ runA11y(); }catch(err){ post({type:'a11y_report', issues:[], count:0, error:String(err&&err.message||err)}); } }
       else if(d.type==='highlight_selector'){ try{ highlightSelector(d.selector); }catch(e){} }
-      else if(d.type==='remotion_frame'){
-        var root=document.documentElement;
-        root.style.setProperty('--cw-frame', String(d.frame||0));
-        root.style.setProperty('--cw-time', String(d.time||0));
-        root.style.setProperty('--cw-progress', String(d.progress||0));
-        window.dispatchEvent(new CustomEvent('cowrangler:frame',{detail:d}));
-      }
     });
     /* Flash the inspector overlay on an element by selector (chip → canvas link). */
     var hlTimer=null;
@@ -235,8 +228,11 @@ function runtimeScript(filePath: string, resize: boolean): string {
 /** Normalize module constructs the compilers can't run, and surface the default export. */
 function transformJsx(raw: string): string {
   let code = raw
-    // Drop import lines (React/Tailwind are provided as globals).
-    .replace(/^\s*import[^\n;]*;?\s*$/gm, '')
+    // Drop single- or multi-line imports. React screens receive globals and
+    // Remotion previews receive an explicit API surface; keeping a wrapped
+    // `import { ... } from 'remotion'` here would make new Function() fail.
+    .replace(/^\s*import\s+[\s\S]*?\s+from\s+['"][^'"]+['"]\s*;?\s*(?:\r?\n|$)/gm, '')
+    .replace(/^\s*import\s+['"][^'"]+['"]\s*;?\s*(?:\r?\n|$)/gm, '')
     // Drop any manual `const {useState,...} = React` — hooks are injected as
     // params below, so a redeclaration would throw.
     .replace(/(^|\n)\s*(const|let|var)\s*\{[^}]*\}\s*=\s*React\s*;?/g, '\n')
@@ -404,7 +400,7 @@ export function resolveTweakVars(
 
 export function kindFromName(name: string): RenderKind {
   const ext = name.split('.').pop()?.toLowerCase()
-  if (ext === 'jsx') return 'jsx'
+  if (ext === 'jsx' || ext === 'tsx') return 'jsx'
   if (ext === 'svg') return 'svg'
   if (ext === 'mermaid' || ext === 'mmd') return 'mermaid'
   return 'html'
