@@ -69,9 +69,10 @@ INTERACTION MODEL (read first — overrides any general workflow guidance):
 
 THE CANVAS CONTRACT (always):
 - Write each screen/asset as a SEPARATE, self-contained file inside the \`screens/\` directory.
-- The canvas can render four kinds of file. Pick the right one for the job:
+- The canvas can render five kinds of file. Pick the right one for the job:
   • .html — self-contained page. Inline ALL CSS in <style> and ALL JS in <script>. Fonts only via <link> to Google Fonts. This is the default.
   • .jsx — a single React component for rich, stateful UI (interactive prototypes, app screens). Use \`export default function App(){…}\`. React + ReactDOM + Tailwind utility classes are injected automatically — do NOT add import lines for React/Tailwind or any build step (import lines are stripped at render). No localStorage/sessionStorage. Keep each screen to ONE component file (helpers in the same file). Shared theme variables/styles may live in a single \`screens/shared.css\` — it is auto-applied to every HTML/JSX screen, so you don't import it. Do NOT create any other separate .css/.js files.
+  • .tsx — a real Remotion composition, ONLY for Animation and Hyperframe projects. Remotion imports are allowed here. This file is bundled unchanged for MP4 export and rendered by the same Remotion component in preview.
   • .svg — a raw, standalone vector (logo, icon, illustration, simple diagram).
   • .mermaid — a Mermaid diagram definition (flowchart, sequence, ERD, journey) for structure/flow.
 - Use semantic markup, a deliberate type scale, generous spacing, and a harmonious, intentional palette — production quality, never a wireframe-grey default unless asked.
@@ -156,22 +157,24 @@ TYPOGRAPHY
 - Set meta \`device\` to match the target (mobile/tablet/desktop) so it sits in the right mockup. Name files by screen: home.html, search.html, detail.html.
 - Focus on layout, hierarchy, and flow — not color or polish. Keep tweaks minimal (e.g. greyscale intensity, density).`,
 
-  animation: `THIS PROJECT IS AN ANIMATION SET.
-- One self-contained .html animation per file, named by motion: loader.html, logo-reveal.html, page-transition.html. meta \`device\` = null.
-- Each must auto-play and, where it loops, loop cleanly. It must fully restart when the iframe reloads (no reliance on user interaction to start).
-- Use a 1280×720 stage. Every sidecar declares width 1280, height 720, fps 30, durationInFrames, and engine "remotion" for frame-driven React work or "html" for small CSS/Web Animations.
-- Use frame-derived timing (frame / fps) for deterministic exports. Respect prefers-reduced-motion in interactive preview while keeping export timing deterministic.
-- For engine "remotion", listen for \`window.addEventListener('cowrangler:frame', event => renderFrame(event.detail))\`. The detail contains frame, fps, time, progress, and durationInFrames. Never start a second independent requestAnimationFrame clock.`,
+  animation: `THIS PROJECT IS A REMOTION ANIMATION SET. THIS CONTRACT IS STRICT AND OVERRIDES THE GENERAL HTML/JSX DEFAULTS.
+- Every animation is a real Remotion React composition in its own \`.tsx\` file, named by motion: \`loader.tsx\`, \`logo-reveal.tsx\`, \`page-transition.tsx\`. Export exactly one default React component from each file.
+- HTML ANIMATION IS FORBIDDEN. Never create an \`.html\` animation, CSS keyframes, CSS transitions, Web Animations, GSAP, \`requestAnimationFrame\`, \`setInterval\`, \`setTimeout\`, an autonomous clock, or an infinite browser loop. MP4 export rejects legacy HTML animation files.
+- Import Remotion primitives directly from \`remotion\`. Drive EVERY changing value from \`useCurrentFrame()\` and \`useVideoConfig()\`. Use \`interpolate()\`, \`spring()\`, \`interpolateColors()\`, \`<Sequence>\`, and \`<Series>\` where appropriate. The component must render the correct still for any frame in any order; it must not depend on frames having rendered previously.
+- Use \`<AbsoluteFill>\` as the root. Keep all CSS inside the component (style objects or a rendered \`<style>\` tag). Do not import a stylesheet. Do not import React. Do not call \`registerRoot()\` and do not declare \`<Composition>\`; Cowrangler supplies both for preview and export.
+- Use only \`remotion\` imports and self-contained React markup. For media, prefer absolute HTTPS/data URLs or \`staticFile()\` assets already placed in the project public directory. Do not add npm dependencies.
+- Every sidecar MUST declare exactly: \`device: null\`, \`width: 1280\`, \`height: 720\`, \`engine: "remotion"\`, \`fps: 30\`, and an intentional \`durationInFrames\` (normally 90–360). Duration is finite. Cowrangler's player may loop the finite composition for preview; the composition itself never loops its clock.
+- Motion must have a designed beginning, middle, and final frame. Keep the final composition readable for at least 12 frames unless the user explicitly asks for a seamless loop.
+- Before finishing, mentally verify frames 0, midpoint, and durationInFrames - 1: no NaN styles, no missing content, no overflow outside 1280×720, and no time-based browser APIs.`,
 
   'live-artifact': `THIS PROJECT IS A LIVE ARTIFACT — a data-backed dashboard, live report, or synced view.
 - A .jsx component is ideal (state, charts, filters). A single index.html with inline JS also works. Set meta \`device\` to "desktop" unless it's clearly a mobile widget.
 - Structure the UI around visualizing data with realistic placeholder data. Emphasize clear information architecture: tables, charts, metric cards.`,
 
-  hyperframes: `THIS PROJECT IS A HYPERFRAME — a cinematic, video-like motion sequence (think an animated explainer shot: a plane flying a route, a chart building, a product reveal).
-- Output a single index.html (1280×720 stage) with inline CSS and JS. meta \`device\` = null.
-- It must read like a short film: a clear beginning → motion → a held, polished FINAL frame. The whole sequence runs ~4–8s, plays automatically when the iframe loads (the canvas "Play" button restarts it by reloading), and then HOLDS the final composition (do not loop unless asked).
-- Use GSAP via CDN for a real timeline: \`<script src="https://unpkg.com/gsap@3/dist/gsap.min.js"></script>\` then \`const tl = gsap.timeline();\` and chain steps. Animate along paths where it fits (motionPath/SVG \`<path>\`, stroke-dashoffset draw-on). Keep easing tasteful (power2/expo).
-- Go for spectacle with craft: layered depth, soft shadows, gradient lighting, a moving subject, labels that pop in on cue. Real content, no placeholders. Make it the kind of thing someone screen-records and shares.`,
+  hyperframes: `THIS PROJECT IS A REMOTION HYPERFRAME — a cinematic, video-like motion sequence (an animated explainer shot, route story, chart build, or product reveal).
+- Follow the Animation project's strict Remotion \`.tsx\` contract: one \`index.tsx\`, one default component, \`<AbsoluteFill>\` root, \`engine: "remotion"\`, 1280×720, 30fps, finite duration, and all motion derived only from \`useCurrentFrame()\`.
+- HTML, CSS keyframes, GSAP, Web Animations, timers, and \`requestAnimationFrame\` are forbidden. Do not call \`registerRoot()\` or declare \`<Composition>\`.
+- Build a clear beginning → cinematic motion → polished final frame held for at least 12 frames. Use layered depth, controlled easing, masks, path-like motion, shadows, light, and purposeful labels. Real content, no placeholders.`,
 
   'ui-mockups': `THIS PROJECT IS A HIGH-FIDELITY UI MOCKUP SET.
 - Use .jsx for interactive app views and .html for content-led pages. Set meta device per target: desktop for web products, mobile for phone experiences, tablet only when requested.
@@ -338,10 +341,10 @@ export function registerDesignIPC(): void {
   })
 
   // ── Scan for renderable screen files (html / jsx / svg / mermaid) ────────────
-  const RENDERABLE = /\.(html?|jsx|svg|mermaid|mmd)$/i
+  const RENDERABLE = /\.(html?|jsx|tsx|svg|mermaid|mmd)$/i
   function kindOf(name: string): 'html' | 'jsx' | 'svg' | 'mermaid' {
     const ext = name.split('.').pop()?.toLowerCase()
-    if (ext === 'jsx') return 'jsx'
+    if (ext === 'jsx' || ext === 'tsx') return 'jsx'
     if (ext === 'svg') return 'svg'
     if (ext === 'mermaid' || ext === 'mmd') return 'mermaid'
     return 'html'

@@ -1,12 +1,12 @@
 import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react'
-import { X, Maximize2, ExternalLink, GripVertical, ChevronLeft, ChevronRight, RotateCw, Play, Plus, Minus, Frame, Smartphone, Tablet, Monitor, Code2, Component, Image as ImageIcon, GitBranch } from 'lucide-react'
+import { X, Maximize2, ExternalLink, GripVertical, ChevronLeft, ChevronRight, RotateCw, RotateCcw, Play, Pause, Plus, Minus, Frame, Smartphone, Tablet, Monitor, Code2, Component, Image as ImageIcon, GitBranch, Download, Film, Repeat2, LoaderCircle, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { useDesignStore, DesignFrame, DesignTemplateType, DesignDevice, DesignMeta } from '../../stores/design.store'
 import { ipc } from '../../lib/ipc'
 import { buildSrcDoc, resolveTweakVars, kindFromName, RenderKind } from './renderScreen'
 import { compileJsx } from './esbuildCompiler'
 import { DeviceMockup, deviceSpec } from './DeviceMockup'
-import { Player } from '@remotion/player'
-import { AbsoluteFill, useCurrentFrame, useVideoConfig } from 'remotion'
+import { Player, type PlayerRef } from '@remotion/player'
+import * as Remotion from 'remotion'
 
 interface Props {
   projectId: string
@@ -29,9 +29,9 @@ export function DesignCanvas({ projectId, mode, viewport, viewMode = 'preview' }
     case 'research': return <DocumentCanvas viewMode={viewMode} />
     case 'flier': return <DocumentCanvas viewMode={viewMode} />
     case 'html-email': return <EmailCanvas viewMode={viewMode} />
-    case 'animation': return <StageCanvas kind="animation" viewMode={viewMode} />
+    case 'animation': return <MotionCanvas viewMode={viewMode} />
     case '3d-object': return <StageCanvas kind="artifact" viewMode={viewMode} />
-    case 'hyperframes': return <StageCanvas kind="animation" viewMode={viewMode} />
+    case 'hyperframes': return <MotionCanvas viewMode={viewMode} />
     default: return <FreeformCanvas projectId={projectId} mode={mode} viewport={viewport} viewMode={viewMode} />
   }
 }
@@ -90,13 +90,7 @@ function useLiveVars(filePath: string, meta?: DesignMeta | null): Record<string,
  * `scale`, and keeps live tweaks flowing in via postMessage (no reload). Reports
  * the content's natural size so callers can hug content.
  */
-interface ScreenTimeline {
-  frame: number
-  fps: number
-  durationInFrames: number
-}
-
-function ScaledScreen({ filePath, kind, meta, intrinsicW, intrinsicH, scale, reloadKey, interactive = false, onNatural, timeline }: {
+function ScaledScreen({ filePath, kind, meta, intrinsicW, intrinsicH, scale, reloadKey, interactive = false, onNatural }: {
   filePath: string
   kind: RenderKind
   meta?: DesignMeta | null
@@ -106,7 +100,6 @@ function ScaledScreen({ filePath, kind, meta, intrinsicW, intrinsicH, scale, rel
   reloadKey?: number
   interactive?: boolean
   onNatural?: (w: number, h: number) => void
-  timeline?: ScreenTimeline
 }) {
   const raw = useScreenContent(filePath, true)
   const sharedCss = useSharedCss(filePath, kind)
@@ -147,20 +140,6 @@ function ScaledScreen({ filePath, kind, meta, intrinsicW, intrinsicH, scale, rel
     if (!loaded) return
     iframeRef.current?.contentWindow?.postMessage({ type: 'apply_tweaks', vars: liveVars }, '*')
   }, [loaded, liveVars, reloadKey])
-
-  // Remotion owns the clock; generated HTML consumes the exact same frame.
-  useEffect(() => {
-    if (!loaded || !timeline) return
-    const last = Math.max(1, timeline.durationInFrames - 1)
-    iframeRef.current?.contentWindow?.postMessage({
-      type: 'remotion_frame',
-      frame: timeline.frame,
-      fps: timeline.fps,
-      time: timeline.frame / timeline.fps,
-      progress: timeline.frame / last,
-      durationInFrames: timeline.durationInFrames,
-    }, '*')
-  }, [loaded, timeline?.frame, timeline?.fps, timeline?.durationInFrames, reloadKey])
 
   // Arm/disarm the in-iframe element inspector to match global inspect mode.
   useEffect(() => {
@@ -222,33 +201,70 @@ function ScaledScreen({ filePath, kind, meta, intrinsicW, intrinsicH, scale, rel
   )
 }
 
-interface RemotionScreenProps {
-  filePath: string
-  kind: RenderKind
-  meta?: DesignMeta | null
-  width: number
-  height: number
-  reloadKey: number
-}
+const REMOTION_PREVIEW_BINDINGS = [
+  'AbsoluteFill', 'Audio', 'Easing', 'Freeze', 'Img', 'Loop', 'OffthreadVideo',
+  'Sequence', 'Series', 'Video', 'cancelRender', 'continueRender', 'delayRender',
+  'getInputProps', 'interpolate', 'interpolateColors', 'random', 'spring',
+  'staticFile', 'useCurrentFrame', 'useDelayRender', 'useRemotionEnvironment',
+  'useVideoConfig',
+] as const
 
-function RemotionScreen({ filePath, kind, meta, width, height, reloadKey }: RemotionScreenProps) {
-  const frame = useCurrentFrame()
-  const { fps, durationInFrames } = useVideoConfig()
-  return (
-    <AbsoluteFill style={{ background: '#fff', overflow: 'hidden' }}>
-      <ScaledScreen
-        filePath={filePath}
-        kind={kind}
-        meta={meta}
-        intrinsicW={width}
-        intrinsicH={height}
-        scale={1}
-        reloadKey={reloadKey}
-        interactive
-        timeline={{ frame, fps, durationInFrames }}
-      />
-    </AbsoluteFill>
-  )
+const REACT_PREVIEW_BINDINGS = [
+  'useState', 'useEffect', 'useRef', 'useMemo', 'useCallback', 'useReducer',
+  'useContext', 'createContext', 'useLayoutEffect', 'Fragment',
+] as const
+
+/** Compile the exact .tsx composition that the main process later bundles for
+ * MP4. The generated module is evaluated with an explicit Remotion/React API
+ * surface instead of inventing a second browser-animation contract. */
+function useCompiledRemotion(filePath: string): {
+  component: React.ComponentType<Record<string, unknown>> | null
+  error: string | null
+  loading: boolean
+} {
+  const raw = useScreenContent(filePath)
+  const [state, setState] = useState<{
+    source: string | null
+    component: React.ComponentType<Record<string, unknown>> | null
+    error: string | null
+  }>({ source: null, component: null, error: null })
+
+  useEffect(() => {
+    if (raw == null) return
+    let alive = true
+    compileJsx(raw).then(result => {
+      if (!alive) return
+      if (!result.code) {
+        setState({ source: raw, component: null, error: result.error ?? 'Remotion preview compiler could not start.' })
+        return
+      }
+      try {
+        const names = ['React', ...REACT_PREVIEW_BINDINGS, ...REMOTION_PREVIEW_BINDINGS]
+        const values = [
+          React,
+          ...REACT_PREVIEW_BINDINGS.map(name => React[name]),
+          ...REMOTION_PREVIEW_BINDINGS.map(name => Remotion[name]),
+        ]
+        const factory = new Function(...names, `'use strict'; let __default;\n${result.code}\nreturn __default;`)
+        const component = factory(...values)
+        if (typeof component !== 'function' && typeof component !== 'object') {
+          throw new Error('No default component export found.')
+        }
+        setState({ source: raw, component, error: null })
+      } catch (error) {
+        setState({ source: raw, component: null, error: error instanceof Error ? error.message : String(error) })
+      }
+    }).catch(error => {
+      if (alive) setState({ source: raw, component: null, error: error instanceof Error ? error.message : String(error) })
+    })
+    return () => { alive = false }
+  }, [raw])
+
+  return {
+    component: state.source === raw ? state.component : null,
+    error: state.source === raw ? state.error : null,
+    loading: raw == null || state.source !== raw,
+  }
 }
 
 /** Fit-to-container scale for responsive stages. */
@@ -508,7 +524,63 @@ function FreeformCard({ frame, mode, viewport, scale, onMove, onMoveEnd, onEnlar
 
 /* ── Stage canvas (slides / animation / hyperframes) ───────────────────────── */
 
-function StageCanvas({ kind, viewMode }: { kind: 'slides' | 'animation' | 'artifact'; viewMode?: 'preview' | 'code' }) {
+function frameTime(frame: number, fps: number): string {
+  const seconds = Math.max(0, frame) / Math.max(1, fps)
+  const whole = Math.floor(seconds)
+  return `${String(Math.floor(whole / 60)).padStart(2, '0')}:${String(whole % 60).padStart(2, '0')}:${String(Math.floor((seconds - whole) * fps)).padStart(2, '0')}`
+}
+
+function MotionCanvas({ viewMode }: { viewMode?: 'preview' | 'code' }) {
+  const frames = useDesignStore(s => s.frames)
+  const [idx, setIdx] = useState(0)
+  const current = frames[Math.min(idx, Math.max(0, frames.length - 1))]
+  useEffect(() => { if (frames.length > 0 && idx >= frames.length) setIdx(frames.length - 1) }, [frames.length, idx])
+
+  if (frames.length === 0) return (
+    <div className="flex-1 relative overflow-hidden" style={{ background: '#111316' }}>
+      <div className="absolute inset-0 opacity-40" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px)', backgroundSize: '32px 32px' }} />
+      <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-8"><div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-5" style={{ background: '#1d2126', border: '1px solid #30353b', color: '#e1845e' }}><Film size={28} strokeWidth={1.5} /></div><p className="text-sm font-semibold text-white">Your Remotion stage is ready</p><p className="text-xs mt-2 max-w-sm" style={{ color: '#8f969f' }}>Describe the shot. Cowrangler will build a frame-perfect composition you can scrub, preview, and export as MP4.</p></div>
+    </div>
+  )
+  if (viewMode === 'code' && current) return <div className="flex-1"><CodeEditor filePath={current.filePath} /></div>
+
+  return (
+    <div className="flex-1 min-h-0 flex flex-col overflow-hidden" style={{ background: '#111316', color: '#f3f4f5' }}>
+      <div className="h-12 px-5 flex items-center gap-3 shrink-0" style={{ borderBottom: '1px solid #292d32', background: '#15181c' }}><span className="w-2 h-2 rounded-full" style={{ background: '#e1845e', boxShadow: '0 0 0 4px rgba(225,132,94,.1)' }} /><span className="text-[10px] font-bold tracking-[0.18em] uppercase" style={{ color: '#e7a083' }}>Motion studio</span><span className="h-4 w-px" style={{ background: '#34383e' }} /><span className="text-xs font-medium truncate" style={{ color: '#c8ccd1' }}>{current.meta?.title || current.name}</span><div className="ml-auto flex items-center gap-2 text-[10px] font-mono" style={{ color: '#7e858e' }}><span>{current.meta?.width ?? 1280} × {current.meta?.height ?? 720}</span><span style={{ color: '#41464d' }}>/</span><span>{current.meta?.fps ?? 30} FPS</span><span className="px-2 py-1 rounded-md font-sans font-semibold" style={{ background: '#20242a', color: '#aeb4bc', border: '1px solid #30353b' }}>Remotion</span></div></div>
+      <MotionPlayerPanel frame={current} />
+      <div className="h-[92px] shrink-0 flex items-stretch overflow-x-auto" style={{ background: '#15181c', borderTop: '1px solid #292d32' }}><div className="w-32 shrink-0 px-4 py-3" style={{ borderRight: '1px solid #292d32' }}><p className="text-[9px] font-bold tracking-[0.16em] uppercase" style={{ color: '#656c75' }}>Compositions</p><p className="text-xs mt-2 tabular-nums" style={{ color: '#b8bdc4' }}>{frames.length} shot{frames.length === 1 ? '' : 's'}</p></div><div className="flex items-center gap-2 px-3">{frames.map((item, index) => { const selected = index === idx; const itemFps = Math.max(1, item.meta?.fps ?? 30); const duration = Math.max(1, item.meta?.durationInFrames ?? itemFps * 5); return <button key={item.id} onClick={() => setIdx(index)} className="h-14 w-44 rounded-lg px-3 text-left shrink-0 transition-colors relative overflow-hidden" style={{ background: selected ? '#282229' : '#1b1f24', border: selected ? '1px solid #c97553' : '1px solid #2c3137', color: selected ? '#fff' : '#a6acb4' }}><span className="block text-[9px] font-mono mb-1" style={{ color: selected ? '#e79b7d' : '#656c75' }}>C{String(index + 1).padStart(2, '0')} · {(duration / itemFps).toFixed(1)}s</span><span className="block text-xs font-medium truncate">{item.meta?.title || item.name}</span><span className="absolute left-0 bottom-0 h-0.5" style={{ width: selected ? '100%' : '0%', background: '#e1845e', transition: 'width .2s ease' }} /></button> })}</div></div>
+    </div>
+  )
+}
+
+function MotionPlayerPanel({ frame }: { frame: DesignFrame }) {
+  const width = Math.max(1, frame.meta?.width ?? 1280), height = Math.max(1, frame.meta?.height ?? 720), fps = Math.max(1, frame.meta?.fps ?? 30), durationInFrames = Math.max(1, frame.meta?.durationInFrames ?? fps * 5)
+  const kind = frame.kind ?? kindFromName(frame.name)
+  const isRealRemotion = /\.tsx$/i.test(frame.filePath) && kind === 'jsx' && frame.meta?.engine === 'remotion'
+  const { component, error, loading } = useCompiledRemotion(isRealRemotion ? frame.filePath : '')
+  const liveVars = useLiveVars(frame.filePath, frame.meta)
+  const stageRef = useRef<HTMLDivElement>(null), fitScale = useFitScale(stageRef, width, height, 0.9)
+  const [player, setPlayer] = useState<PlayerRef | null>(null), [playing, setPlaying] = useState(true), [loop, setLoop] = useState(true), [currentFrame, setCurrentFrame] = useState(0)
+  const [exportState, setExportState] = useState<{ status: 'idle' | 'busy' | 'done' | 'error'; path?: string; message?: string; progress?: number }>({ status: 'idle' })
+  const Composition = useMemo(() => { if (!component) return null; const vars = liveVars as React.CSSProperties; return function CowranglerPreviewComposition() { return <Remotion.AbsoluteFill style={{ ...vars, overflow: 'hidden' }}>{React.createElement(component)}</Remotion.AbsoluteFill> } }, [component, liveVars])
+  useEffect(() => { setCurrentFrame(0); setExportState({ status: 'idle' }) }, [frame.filePath])
+  useEffect(() => ipc.exporter.onVideoProgress(progress => {
+    if (progress.srcPath !== frame.filePath) return
+    const phase = progress.phase === 'bundling' ? 'Bundling composition' : progress.phase === 'browser' ? 'Preparing render engine' : 'Rendering frames'
+    setExportState(previous => previous.status === 'busy' ? { ...previous, message: phase, progress: progress.progress } : previous)
+  }), [frame.filePath])
+  useEffect(() => { if (!player) return; const onFrame = (event: any) => setCurrentFrame(event.detail.frame), onPlay = () => setPlaying(true), onPause = () => setPlaying(false); player.addEventListener('frameupdate', onFrame); player.addEventListener('play', onPlay); player.addEventListener('pause', onPause); player.addEventListener('ended', onPause); return () => { player.removeEventListener('frameupdate', onFrame); player.removeEventListener('play', onPlay); player.removeEventListener('pause', onPause); player.removeEventListener('ended', onPause) } }, [player])
+  const exportVideo = async () => { if (!isRealRemotion || exportState.status === 'busy') return; setExportState({ status: 'busy', message: 'Bundling composition and rendering MP4…' }); try { const result = await ipc.exporter.toVideo({ srcPath: frame.filePath, name: frame.name.replace(/\.[^.]+$/, ''), width, height, fps, durationInFrames, tweakVars: liveVars }); if (result.ok && result.path) setExportState({ status: 'done', path: result.path, message: 'MP4 ready' }); else if (result.error) setExportState({ status: 'error', message: result.error }); else setExportState({ status: 'idle' }) } catch (exportError) { setExportState({ status: 'error', message: exportError instanceof Error ? exportError.message : String(exportError) }) } }
+
+  return <div className="flex-1 min-h-0 flex flex-col">
+    <div ref={stageRef} className="flex-1 min-h-0 flex items-center justify-center relative overflow-hidden px-8 py-5" style={{ background: 'radial-gradient(circle at 50% 42%, #272b31 0, #171a1e 42%, #101215 78%)' }}><div className="absolute inset-y-0 left-1/2 w-px opacity-30" style={{ background: '#343941' }} /><div className="absolute inset-x-0 top-1/2 h-px opacity-30" style={{ background: '#343941' }} /><div className="relative overflow-hidden" style={{ width: width * fitScale, height: height * fitScale, background: '#08090a', boxShadow: '0 30px 80px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,.12)', borderRadius: 4 }}>
+      {!isRealRemotion ? <div className="w-full h-full relative"><ScaledScreen filePath={frame.filePath} kind={kind} meta={frame.meta} intrinsicW={width} intrinsicH={height} scale={fitScale} interactive /><div className="absolute inset-x-4 bottom-4 p-3 rounded-lg flex items-start gap-2 text-xs" style={{ background: 'rgba(22,18,17,.92)', color: '#f0c0ad', border: '1px solid rgba(225,132,94,.45)', backdropFilter: 'blur(12px)' }}><AlertTriangle size={15} className="shrink-0 mt-0.5" /><span>Legacy HTML preview. Ask Cowrangler to convert this shot to a Remotion .tsx composition for frame-perfect MP4 export.</span></div></div> : loading ? <div className="w-full h-full flex items-center justify-center gap-2 text-xs" style={{ color: '#8e959e' }}><LoaderCircle size={16} className="animate-spin" /> Compiling Remotion…</div> : error || !Composition ? <div className="w-full h-full flex flex-col items-center justify-center px-12 text-center"><AlertTriangle size={22} style={{ color: '#e1845e' }} /><p className="text-sm font-semibold mt-3">Composition could not compile</p><p className="text-xs mt-2 font-mono leading-relaxed" style={{ color: '#9aa1aa' }}>{error ?? 'No default component export found.'}</p></div> : <Player ref={setPlayer} component={Composition} durationInFrames={durationInFrames} compositionWidth={width} compositionHeight={height} fps={fps} controls={false} autoPlay loop={loop} acknowledgeRemotionLicense style={{ width: width * fitScale, height: height * fitScale }} errorFallback={({ error: playerError }) => <div style={{ color: '#f0c0ad', background: '#171311', width: '100%', height: '100%', display: 'grid', placeItems: 'center', padding: 40, boxSizing: 'border-box', font: '13px ui-monospace' }}>{playerError.message}</div>} />}
+      <span className="absolute top-3 left-3 px-2 py-1 rounded text-[9px] font-mono tracking-wider" style={{ background: 'rgba(8,9,10,.7)', color: '#c7cbd0', border: '1px solid rgba(255,255,255,.12)', backdropFilter: 'blur(8px)' }}>PROGRAM</span></div></div>
+    <div className="shrink-0 px-5 py-3" style={{ background: '#181b1f', borderTop: '1px solid #2a2e34' }}><div className="flex items-center gap-3"><button onClick={() => { player?.seekTo(0); player?.play() }} disabled={!player} className="w-8 h-8 rounded-lg flex items-center justify-center disabled:opacity-30" style={{ color: '#aeb4bc', background: '#22262b' }} title="Restart"><RotateCcw size={14} /></button><button onClick={() => player?.toggle()} disabled={!player} className="w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-30 transition-transform active:scale-95" style={{ color: '#171311', background: '#e1845e' }} title={playing ? 'Pause' : 'Play'}>{playing ? <Pause size={15} fill="currentColor" /> : <Play size={15} fill="currentColor" className="ml-0.5" />}</button><span className="w-[74px] text-[10px] font-mono tabular-nums" style={{ color: '#d0d4d9' }}>{frameTime(currentFrame, fps)}</span><input aria-label="Timeline" type="range" min={0} max={Math.max(0, durationInFrames - 1)} value={Math.min(currentFrame, durationInFrames - 1)} onChange={event => player?.seekTo(Number(event.target.value))} className="flex-1 h-1 cursor-pointer" style={{ accentColor: '#e1845e' }} /><span className="w-[74px] text-right text-[10px] font-mono tabular-nums" style={{ color: '#747b84' }}>{frameTime(durationInFrames, fps)}</span><button onClick={() => setLoop(value => !value)} className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ color: loop ? '#e79b7d' : '#747b84', background: loop ? '#2d2525' : 'transparent' }} title="Loop preview"><Repeat2 size={14} /></button><button onClick={() => player?.requestFullscreen()} disabled={!player} className="w-8 h-8 rounded-lg flex items-center justify-center disabled:opacity-30" style={{ color: '#8c939c' }} title="Fullscreen"><Maximize2 size={14} /></button><span className="h-6 w-px" style={{ background: '#34383e' }} /><button onClick={exportVideo} disabled={!isRealRemotion || exportState.status === 'busy'} className="h-9 px-4 rounded-lg flex items-center gap-2 text-xs font-semibold disabled:opacity-40 transition-transform active:scale-[.98]" style={{ background: '#eef0f2', color: '#17191c' }}>{exportState.status === 'busy' ? <LoaderCircle size={14} className="animate-spin" /> : exportState.status === 'done' ? <CheckCircle2 size={14} style={{ color: '#408267' }} /> : <Download size={14} />}{exportState.status === 'busy' ? `${Math.round((exportState.progress ?? 0) * 100)}%` : exportState.status === 'done' ? 'Exported' : 'Export MP4'}</button></div>{exportState.status === 'busy' && <div className="mt-2 ml-auto max-w-sm"><div className="flex justify-between text-[10px] mb-1" style={{ color: '#858c95' }}><span>{exportState.message}</span><span>{Math.round((exportState.progress ?? 0) * 100)}%</span></div><div className="h-1 rounded-full overflow-hidden" style={{ background: '#2a2e34' }}><div className="h-full rounded-full transition-[width] duration-200" style={{ width: `${(exportState.progress ?? 0) * 100}%`, background: '#e1845e' }} /></div></div>}{(exportState.status === 'done' || exportState.status === 'error') && <div className="mt-2 flex items-center justify-end gap-2 text-[10px]" style={{ color: exportState.status === 'error' ? '#ef9a7b' : '#86bfa4' }}><span className="max-w-[520px] truncate">{exportState.message}</span>{exportState.path && <button className="underline underline-offset-2" onClick={() => ipc.fs.openInFinder(exportState.path!)}>Show in Finder</button>}</div>}</div>
+  </div>
+}
+
+function StageCanvas({ kind, viewMode }: { kind: 'slides' | 'artifact'; viewMode?: 'preview' | 'code' }) {
   const frames = useDesignStore(s => s.frames)
   const refreshTick = useDesignStore(s => s.refreshTick)
   const [idx, setIdx] = useState(0)
@@ -524,12 +596,9 @@ function StageCanvas({ kind, viewMode }: { kind: 'slides' | 'animation' | 'artif
   useEffect(() => { setReload(r => r + 1) }, [refreshTick])
 
   const curKind = cur ? (cur.kind ?? kindFromName(cur.name)) : 'html'
-  const isRemotion = kind === 'animation' && cur?.meta?.engine === 'remotion'
-  const fps = Math.max(1, cur?.meta?.fps ?? 30)
-  const durationInFrames = Math.max(1, cur?.meta?.durationInFrames ?? fps * 5)
   const go = (d: number) => { const n = idx + d; if (n >= 0 && n < frames.length) setIdx(n) }
 
-  if (frames.length === 0) return <div className="flex-1 relative design-canvas-dots"><EmptyCanvas hint={kind === 'slides' ? 'Slides appear here as the agent creates them.' : kind === 'animation' ? 'Press play to watch motion render.' : 'Interactive object appears here when ready.'} /></div>
+  if (frames.length === 0) return <div className="flex-1 relative design-canvas-dots"><EmptyCanvas hint={kind === 'slides' ? 'Slides appear here as the agent creates them.' : 'Interactive object appears here when ready.'} /></div>
 
   if (viewMode === 'code' && cur) {
     return <div className="flex-1"><CodeEditor filePath={cur.filePath} /></div>
@@ -541,22 +610,7 @@ function StageCanvas({ kind, viewMode }: { kind: 'slides' | 'animation' | 'artif
         {kind === 'slides' && <button onClick={() => go(-1)} disabled={idx === 0} className="w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-30 design-elev flex-shrink-0" style={{ background: 'var(--d-surface)', color: 'var(--d-ink-soft)' }}><ChevronLeft size={18} /></button>}
         <div ref={containerRef} className="flex-1 h-full flex items-center justify-center min-w-0">
           <div className="rounded-2xl overflow-hidden design-elev-lg" style={{ width: intrinsicW * fitScale, height: intrinsicH * fitScale, background: '#fff', border: '1px solid var(--d-line)' }}>
-            {cur && (isRemotion ? (
-              <Player
-                component={RemotionScreen}
-                inputProps={{ filePath: cur.filePath, kind: curKind, meta: cur.meta, width: intrinsicW, height: intrinsicH, reloadKey: reload }}
-                durationInFrames={durationInFrames}
-                compositionWidth={intrinsicW}
-                compositionHeight={intrinsicH}
-                fps={fps}
-                controls
-                autoPlay
-                loop
-                style={{ width: intrinsicW * fitScale, height: intrinsicH * fitScale }}
-              />
-            ) : (
-              <ScaledScreen filePath={cur.filePath} kind={curKind} meta={cur.meta} intrinsicW={intrinsicW} intrinsicH={intrinsicH} scale={fitScale} reloadKey={reload} interactive />
-            ))}
+            {cur && <ScaledScreen filePath={cur.filePath} kind={curKind} meta={cur.meta} intrinsicW={intrinsicW} intrinsicH={intrinsicH} scale={fitScale} reloadKey={reload} interactive />}
           </div>
         </div>
         {kind === 'slides' && <button onClick={() => go(1)} disabled={idx >= frames.length - 1} className="w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-30 design-elev flex-shrink-0" style={{ background: 'var(--d-surface)', color: 'var(--d-ink-soft)' }}><ChevronRight size={18} /></button>}
@@ -564,7 +618,7 @@ function StageCanvas({ kind, viewMode }: { kind: 'slides' | 'animation' | 'artif
 
       {/* Filmstrip / scene picker */}
       <div className="flex items-center gap-3 px-6 py-3 overflow-x-auto flex-shrink-0" style={{ borderTop: '1px solid var(--d-line)', background: 'var(--d-paper)' }}>
-        {((kind === 'animation' && !isRemotion) || kind === 'artifact') && <button onClick={() => setReload(r => r + 1)} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold flex-shrink-0 transition-transform active:scale-95" style={{ background: 'var(--d-clay)', color: 'var(--d-on-accent)' }}><Play size={13} className="fill-current" /> {kind === 'animation' ? 'Replay' : 'Reset view'}</button>}
+        {kind === 'artifact' && <button onClick={() => setReload(r => r + 1)} className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-semibold flex-shrink-0 transition-transform active:scale-95" style={{ background: 'var(--d-clay)', color: 'var(--d-on-accent)' }}><Play size={13} className="fill-current" /> Reset view</button>}
         <span className="shrink-0 font-mono text-[10px]" style={{ color: 'var(--d-ink-faint)' }}>{intrinsicW} × {intrinsicH}{cur?.meta?.fps ? ` · ${cur.meta.fps} fps` : ''}</span>
         {frames.map((f, i) => (
           <button key={f.id} onClick={() => { setIdx(i); if (kind !== 'slides') setReload(r => r + 1) }} className="relative rounded overflow-hidden flex-shrink-0 transition-transform" style={{ width: 132, height: 74, background: '#fff', border: idx === i ? '2px solid var(--d-blue)' : '1px solid var(--d-line)', transform: idx === i ? 'scale(1.05)' : 'scale(1)' }}>

@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript&logoColor=white" alt="TypeScript">
   <img src="https://img.shields.io/badge/Electron-2C2E3B?style=flat&logo=electron&logoColor=white" alt="Electron">
   <img src="https://img.shields.io/badge/React-20232A?style=flat&logo=react&logoColor=61DAFB" alt="React">
-  <img src="https://img.shields.io/badge/Version-2.2.0-EC5A29?style=flat" alt="Version">
+  <img src="https://img.shields.io/badge/Version-2.2.1-EC5A29?style=flat" alt="Version">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/furkangonel/cowrangler?style=flat" alt="License"></a>
 </p>
 

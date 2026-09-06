@@ -251,6 +251,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     fileToPptx: (payload: { srcPath: string; name?: string; width?: number; height?: number }) => ipcRenderer.invoke('export:fileToPptx', payload),
     deckToPdf: (payload: { files: string[]; name?: string; slideW?: number; slideH?: number }) => ipcRenderer.invoke('export:deckToPdf', payload),
     deckToPptx: (payload: { files: string[]; name?: string; slideW?: number; slideH?: number }) => ipcRenderer.invoke('export:deckToPptx', payload),
+    toVideo: (payload: { srcPath: string; name?: string; width?: number; height?: number; fps?: number; durationInFrames?: number; tweakVars?: Record<string, string> }) => ipcRenderer.invoke('export:toVideo', payload),
+    onVideoProgress: (callback: (progress: { srcPath: string; phase: 'bundling' | 'browser' | 'rendering'; progress: number }) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, progress: { srcPath: string; phase: 'bundling' | 'browser' | 'rendering'; progress: number }) => callback(progress)
+      ipcRenderer.on('export:videoProgress', listener)
+      return () => ipcRenderer.removeListener('export:videoProgress', listener)
+    },
   },
 
   // ── Skills ─────────────────────────────────────────────────────────────────

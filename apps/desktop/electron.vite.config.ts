@@ -4,13 +4,24 @@ import path from 'path'
 import fs from 'fs'
 
 const rootPkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf-8'))
-const rootDeps = Object.keys(rootPkg.dependencies || {})
+const desktopPkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'))
 const workspaceDeps = [
   '@cowrangler/core',
   '@cowrangler/adapter-design',
   '@cowrangler/adapter-code'
 ]
-const externalDeps = rootDeps.filter(dep => !workspaceDeps.includes(dep))
+// electron-vite only externalizes the dependencies it can see from the config
+// package by default. This config lives in apps/desktop while the repo package
+// lives two levels above it, so dependencies declared only by the desktop app
+// (notably @remotion/bundler and @remotion/renderer) used to be rolled into the
+// Electron main bundle. Remotion then tried to webpack that transformed bundle
+// and failed on Rollup's generated `node:module` shim with UnhandledSchemeError.
+// Keep all third-party runtime packages as real Node dependencies; only bundle
+// our workspace packages so their TypeScript sources remain available to Vite.
+const externalDeps = Array.from(new Set([
+  ...Object.keys(rootPkg.dependencies || {}),
+  ...Object.keys(desktopPkg.dependencies || {}),
+])).filter(dep => !workspaceDeps.includes(dep))
 
 export default defineConfig({
   main: {

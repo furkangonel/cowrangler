@@ -31,7 +31,15 @@ async function getEsbuild(): Promise<EsbuildModule | null> {
       const esbuild = (await import('esbuild-wasm')) as EsbuildModule
       // Vite resolves the ?url import to a served asset path for the wasm binary.
       const wasmURL = (await import('esbuild-wasm/esbuild.wasm?url')).default as string
-      await esbuild.initialize({ wasmURL, worker: true })
+      // esbuild uses a blob: Web Worker. The renderer CSP explicitly allows it,
+      // but keep a timeout so a browser/CSP regression can never leave Motion
+      // Studio stuck on "Compiling Remotion…" forever again.
+      await Promise.race([
+        esbuild.initialize({ wasmURL, worker: true }),
+        new Promise<never>((_resolve, reject) => {
+          window.setTimeout(() => reject(new Error('Remotion preview compiler timed out.')), 12_000)
+        }),
+      ])
       esbuildMod = esbuild
       return esbuild
     } catch (e) {

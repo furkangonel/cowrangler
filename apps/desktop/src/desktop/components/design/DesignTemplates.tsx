@@ -59,8 +59,8 @@ export const ALL_TEMPLATES: TemplateMeta[] = [
   },
   {
     type: 'animation', label: 'Animation', shortLabel: 'Animation',
-    blurb: 'Motion studies and logo reveals', renderMode: 'stage', renderLabel: 'Replayable motion stage',
-    format: 'HTML · timeline', accent: '#aa654d', starterPrompt: 'Create a refined motion study with purposeful timing and a clean loop.',
+    blurb: 'Render-ready motion and logo reveals', renderMode: 'stage', renderLabel: 'Remotion timeline studio',
+    format: 'Remotion · MP4 · 1280 × 720', accent: '#aa654d', starterPrompt: 'Create a refined Remotion composition with purposeful timing and a polished final frame.',
     thumb: glyph(<MonitorPlay size={36} strokeWidth={1.35} />, '#aa654d'),
   },
   {
