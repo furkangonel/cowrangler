@@ -19,7 +19,7 @@ fi
 
 # 2. Native modülü Electron ABI'sine göre derle
 echo "🔨 Native modüller (better-sqlite3) Electron için derleniyor..."
-npm run desktop:rebuild || npx @electron/rebuild -f -w better-sqlite3
+npm run desktop:rebuild
 
 # 3. Renderer + main + preload bundle
 echo "🏗  Uygulama derleniyor (electron-vite build)..."

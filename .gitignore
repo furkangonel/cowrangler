@@ -13,6 +13,8 @@ node_modules/
 dist/
 build/
 *.tsbuildinfo
+/marketing/youtube-series/.generated/
+/marketing/youtube-series/output/
 
 # 3. Secrets & API keys — never commit
 .env
@@ -109,3 +111,5 @@ release/
 /__t*.mjs
 /__t*.cjs
 tsconfig.*.tmp.json
+
+/marketing
