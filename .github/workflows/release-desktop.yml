@@ -18,7 +18,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        # electron-builder'ın macOS 26 geçici-keychain regresyonu çözülene kadar
+        # imzalı release job'unu kararlı macOS 15 görüntüsünde tut.
+        os: [macos-15, ubuntu-latest, windows-latest]
 
     steps:
       - name: Checkout
@@ -34,9 +36,6 @@ jobs:
         # markdown-pdf is an optionalDependency; if its phantomjs-prebuilt binary
         # fails to download on macOS/Windows, npm logs a warning and continues.
         run: npm install --legacy-peer-deps --no-audit --no-fund
-
-      - name: Rebuild native modules for Electron
-        run: npx @electron/rebuild -f -w better-sqlite3
 
       - name: Build app bundles
         run: npm run desktop:build
@@ -55,16 +54,67 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          IS_TAG_RELEASE: ${{ github.ref_type == 'tag' }}
         run: |
-          # macOS'ta imzalama sertifikası (CSC_LINK) tanımlı DEĞİLSE, imzasız
-          # build'e düş ve notarize'ı kapat — böylece secret'lar girilmeden de
-          # mac job'u patlamaz. Secret'lar girilince otomatik imzalı + notarize.
-          if [ "$RUNNER_OS" = "macOS" ] && [ -z "$CSC_LINK" ]; then
-            echo "::warning::No Developer ID cert (CSC_LINK boş) — macOS build imzasız üretilecek, auto-update mac'te çalışmaz."
-            export CSC_IDENTITY_AUTO_DISCOVERY=false
-            npx electron-builder --publish always -c.mac.notarize=false
-          else
+          set -euo pipefail
+
+          if [ "$RUNNER_OS" != "macOS" ]; then
             npx electron-builder --publish always
+            exit 0
+          fi
+
+          build_unsigned_macos() {
+            if [ "${IS_TAG_RELEASE:-false}" = "true" ]; then
+              echo "::error::Tag release için geçerli Developer ID sertifikası zorunludur; imzasız artefakt yayınlanmayacak."
+              exit 1
+            fi
+            echo "::warning::macOS paketi imzasız üretilecek; Gatekeeper uyarısı ve macOS auto-update kısıtı beklenir."
+            unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            npx electron-builder --publish always -c.mac.identity=null -c.mac.notarize=false
+          }
+
+          # electron-builder'ın geçici keychain oluşturmasına geçmeden önce
+          # base64 P12 ve parolasını doğrula. Böylece yanlış secret, anlaşılması
+          # zor bir `SecKeychainUnlock` hatasına dönüşmez.
+          if [ -z "${CSC_LINK:-}" ] || [ -z "${CSC_KEY_PASSWORD:-}" ]; then
+            echo "::warning::CSC_LINK veya CSC_KEY_PASSWORD eksik."
+            build_unsigned_macos
+            exit 0
+          fi
+
+          signing_certificate_valid=true
+          if [[ "$CSC_LINK" != http://* && "$CSC_LINK" != https://* && "$CSC_LINK" != file://* ]]; then
+            certificate_path="$RUNNER_TEMP/cowrangler-signing-certificate.p12"
+            CERTIFICATE_PATH="$certificate_path" node -e '
+              const fs = require("node:fs");
+              const raw = process.env.CSC_LINK.trim();
+              const encoded = raw.startsWith("data:") ? raw.slice(raw.indexOf(",") + 1) : raw;
+              fs.writeFileSync(process.env.CERTIFICATE_PATH, Buffer.from(encoded, "base64"));
+            '
+
+            if [ ! -s "$certificate_path" ]; then
+              signing_certificate_valid=false
+            elif ! openssl pkcs12 -in "$certificate_path" -passin env:CSC_KEY_PASSWORD -noout >/dev/null 2>&1 \
+              && ! openssl pkcs12 -legacy -in "$certificate_path" -passin env:CSC_KEY_PASSWORD -noout >/dev/null 2>&1; then
+              signing_certificate_valid=false
+            fi
+            rm -f "$certificate_path"
+          fi
+
+          if [ "$signing_certificate_valid" != "true" ]; then
+            echo "::error::CSC_LINK geçerli bir P12 değil veya CSC_KEY_PASSWORD P12 parolasıyla eşleşmiyor."
+            build_unsigned_macos
+            exit 0
+          fi
+
+          if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ]; then
+            echo "Developer ID imzalama ve Apple notarization etkin."
+            npx electron-builder --publish always -c.forceCodeSigning=true
+          else
+            echo "::warning::Apple notarization secret'ları eksik; paket imzalanacak fakat notarize edilmeyecek."
+            unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+            npx electron-builder --publish always -c.forceCodeSigning=true -c.mac.notarize=false
           fi
 
       - name: Upload artifacts (build kaydı)
