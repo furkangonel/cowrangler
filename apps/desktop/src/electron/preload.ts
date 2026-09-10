@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent, webUtils } from 'electron'
+import type { UpdateStatus } from '../shared/update.js'
 
 // Type-safe IPC yüzeyi — window.electronAPI olarak erişilir
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -309,9 +310,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     check: () => ipcRenderer.invoke('updates:check'),
     download: () => ipcRenderer.invoke('updates:download'),
     install: () => ipcRenderer.invoke('updates:install'),
+    getStatus: () => ipcRenderer.invoke('updates:getStatus'),
     current: () => ipcRenderer.invoke('updates:current'),
-    onStatus: (cb: (status: any) => void) => {
-      const listener = (_: IpcRendererEvent, status: any) => cb(status)
+    onStatus: (cb: (status: UpdateStatus) => void) => {
+      const listener = (_: IpcRendererEvent, status: UpdateStatus) => cb(status)
       ipcRenderer.on('updates:status', listener)
       return () => ipcRenderer.removeListener('updates:status', listener)
     },

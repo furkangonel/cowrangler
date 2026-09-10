@@ -19,6 +19,15 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Packaged desktop builds now include the external Remotion runtime modules;
+  release packaging fails early if those modules are absent from `app.asar`.
+- Update checks no longer wait for MCP startup, survive renderer event races,
+  and repeat every six hours for long-running sessions.
+- Updates remain explicitly user-controlled, with a new Settings screen for
+  checking, downloading, and restarting to install.
+- Desktop release jobs now assemble and validate every platform artifact before
+  publishing one non-draft GitHub release, so updater manifests cannot point at
+  a partial or invisible release.
 - Remotion packages remain external Node dependencies of the Electron main
   process, preventing renderer internals from being rewritten by Rollup.
 - Vite's CommonJS transform can no longer inject a `node:module` shim into the

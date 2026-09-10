@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -32,6 +32,10 @@ jobs:
           node-version: '22.x'
           cache: 'npm'
 
+      - name: Verify tag matches package versions
+        if: github.ref_type == 'tag'
+        run: node scripts/validate-release-version.cjs
+
       - name: Install dependencies
         # markdown-pdf is an optionalDependency; if its phantomjs-prebuilt binary
         # fails to download on macOS/Windows, npm logs a warning and continues.
@@ -40,10 +44,9 @@ jobs:
       - name: Build app bundles
         run: npm run desktop:build
 
-      - name: Package & publish (electron-builder)
+      - name: Package (electron-builder)
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # ── macOS code signing + notarization ──────────────────────────────
           # Yalnızca macOS runner'ında ve secret'lar tanımlıysa devreye girer.
           # CSC_LINK: base64'lenmiş Developer ID Application .p12 sertifikası
@@ -59,7 +62,7 @@ jobs:
           set -euo pipefail
 
           if [ "$RUNNER_OS" != "macOS" ]; then
-            npx electron-builder --publish always
+            npx electron-builder --publish never
             exit 0
           fi
 
@@ -71,7 +74,7 @@ jobs:
             echo "::warning::macOS paketi imzasız üretilecek; Gatekeeper uyarısı ve macOS auto-update kısıtı beklenir."
             unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
             export CSC_IDENTITY_AUTO_DISCOVERY=false
-            npx electron-builder --publish always -c.mac.identity=null -c.mac.notarize=false
+            npx electron-builder --publish never -c.mac.identity=null -c.mac.notarize=false
           }
 
           # electron-builder'ın geçici keychain oluşturmasına geçmeden önce
@@ -110,11 +113,11 @@ jobs:
 
           if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ]; then
             echo "Developer ID imzalama ve Apple notarization etkin."
-            npx electron-builder --publish always -c.forceCodeSigning=true
+            npx electron-builder --publish never -c.forceCodeSigning=true
           else
             echo "::warning::Apple notarization secret'ları eksik; paket imzalanacak fakat notarize edilmeyecek."
             unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
-            npx electron-builder --publish always -c.forceCodeSigning=true -c.mac.notarize=false
+            npx electron-builder --publish never -c.forceCodeSigning=true -c.mac.notarize=false
           fi
 
       - name: Upload artifacts (build kaydı)
@@ -124,8 +127,63 @@ jobs:
           name: co-wrangler-${{ matrix.os }}
           path: |
             release/*.dmg
+            release/*.dmg.blockmap
             release/*.zip
+            release/*.zip.blockmap
             release/*.AppImage
+            release/*.AppImage.blockmap
+            release/*.deb
+            release/*.rpm
             release/*.exe
+            release/*.exe.blockmap
+            release/*.msi
+            release/latest*.yml
           retention-days: 7
           if-no-files-found: ignore
+
+  publish:
+    name: Publish release
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: co-wrangler-*
+          path: release
+          merge-multiple: true
+
+      - name: Validate updater assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f release/latest-mac.yml
+          test -f release/latest.yml
+          test -f release/latest-linux.yml
+          compgen -G 'release/*-mac.zip' >/dev/null
+          compgen -G 'release/*.dmg' >/dev/null
+          compgen -G 'release/*.exe' >/dev/null
+          compgen -G 'release/*.AppImage' >/dev/null
+
+      - name: Publish GitHub release atomically
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$RELEASE_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release/* --clobber --repo "$RELEASE_REPOSITORY"
+            gh release edit "$RELEASE_TAG" --draft=false --latest --repo "$RELEASE_REPOSITORY"
+          else
+            gh release create "$RELEASE_TAG" release/* \
+              --verify-tag \
+              --title "$RELEASE_TAG" \
+              --generate-notes \
+              --latest \
+              --repo "$RELEASE_REPOSITORY"
+          fi

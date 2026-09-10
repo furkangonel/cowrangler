@@ -3,6 +3,9 @@
  * Renderer'ın tüm IPC çağrıları bu dosya üzerinden geçer.
  */
 
+import type { UpdateActionResult, UpdateStatus } from '../../shared/update'
+export type { UpdateActionResult, UpdateStatus } from '../../shared/update'
+
 export interface PluginDef {
   id: string
   name: string
@@ -62,14 +65,6 @@ export interface AgentProgressEvent {
   sessionId?: string | null
   tasks: TaskProgress[]
 }
-
-export type UpdateStatus =
-  | { state: 'checking' }
-  | { state: 'available'; version: string; notes?: string }
-  | { state: 'not-available'; version: string }
-  | { state: 'progress'; percent: number; transferred: number; total: number; bytesPerSecond: number }
-  | { state: 'downloaded'; version: string }
-  | { state: 'error'; message: string }
 
 export interface ToolCallEvent {
   projectId?: string
@@ -754,9 +749,10 @@ export interface ElectronAPI {
     openExternal: (url: string) => Promise<{ ok: boolean }>
   }
   updates: {
-    check: () => Promise<{ ok: boolean; version?: string; reason?: string; error?: string }>
-    download: () => Promise<{ ok: boolean; error?: string }>
-    install: () => Promise<{ ok: boolean }>
+    check: () => Promise<UpdateActionResult>
+    download: () => Promise<UpdateActionResult>
+    install: () => Promise<UpdateActionResult>
+    getStatus: () => Promise<UpdateStatus>
     current: () => Promise<{ version: string }>
     onStatus: (cb: (status: UpdateStatus) => void) => () => void
   }
