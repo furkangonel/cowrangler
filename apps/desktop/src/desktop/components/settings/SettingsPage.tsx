@@ -1,11 +1,12 @@
 import React from 'react'
-import { X, Cpu, Palette, ShieldCheck, Box, GitBranch, SlidersHorizontal } from 'lucide-react'
+import { X, Cpu, Palette, ShieldCheck, Box, GitBranch, SlidersHorizontal, RefreshCw } from 'lucide-react'
 import { ModelsTab } from './ModelsTab'
 import { AppearanceTab } from './AppearanceTab'
 import { PermissionsTab } from './PermissionsTab'
 import { SandboxTab } from './SandboxTab'
 import { GitTab } from './GitTab'
 import { AdvancedTab } from './AdvancedTab'
+import { UpdatesTab } from './UpdatesTab'
 import { useUIStore } from '../../stores/ui.store'
 import { FEATURES } from '../../lib/features'
 
@@ -19,6 +20,7 @@ const ALL_TABS = [
   { id: 'sandbox', label: 'Sandbox', icon: Box },
   { id: 'git', label: 'Git', icon: GitBranch },
   { id: 'appearance', label: 'Appearance', icon: Palette },
+  { id: 'updates', label: 'Updates', icon: RefreshCw },
   { id: 'advanced', label: 'Storage & advanced', icon: SlidersHorizontal },
 ] as const
 
@@ -88,6 +90,7 @@ export function SettingsPage() {
               {mainTab === 'sandbox' && <SandboxTab />}
               {mainTab === 'git' && <GitTab />}
               {mainTab === 'appearance' && <AppearanceTab />}
+              {mainTab === 'updates' && <UpdatesTab />}
               {mainTab === 'advanced' && <AdvancedTab />}
             </div>
           </div>

@@ -16,7 +16,7 @@ import { registerSkillsIPC } from './ipc/skills.ipc.js'
 import { registerMCPIPC } from './ipc/mcp.ipc.js'
 import { registerMemoryIPC } from './ipc/memory.ipc.js'
 import { registerFSIPC } from './ipc/fs.ipc.js'
-import { registerUpdateIPC, checkForUpdatesOnStartup } from './ipc/update.ipc.js'
+import { registerUpdateIPC, startUpdateChecks, stopUpdateChecks } from './ipc/update.ipc.js'
 import { registerDesignIPC } from './ipc/design.ipc.js'
 import { registerExportIPC } from './ipc/export.ipc.js'
 import { registerTerminalIPC, getTerminalManager } from './ipc/terminal.ipc.js'
@@ -177,6 +177,10 @@ function createWindow(): void {
 app.whenReady().then(async () => {
   createWindow()
 
+  // Start independently from MCP initialization. A slow or unavailable MCP
+  // server must never delay the release check.
+  startUpdateChecks()
+
   // Keep generated caches, old exports and copied attachments bounded. This
   // never traverses or mutates a user's source folder.
   setImmediate(() => {
@@ -196,11 +200,6 @@ app.whenReady().then(async () => {
   } catch (err: any) {
     console.error(`[mcp] init failed: ${err?.message ?? err}`)
   }
-
-  // ── Otomatik güncelleme kontrolü (yalnızca paketlenmiş build) ───────────────
-  // Yeni sürüm varsa renderer'a 'updates:status' eventi gider; kullanıcı UI'daki
-  // banner üzerinden indirip kurar.
-  checkForUpdatesOnStartup()
 })
 
 app.on('window-all-closed', () => {
@@ -213,6 +212,7 @@ app.on('activate', () => {
 })
 
 app.on('before-quit', () => {
+  stopUpdateChecks()
   agentManager.destroyAll()
   getTerminalManager().killAll()
 })

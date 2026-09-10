@@ -1,24 +1,20 @@
 import React, { useEffect, useState } from 'react'
 import { Download, RefreshCw, X, CheckCircle2, AlertTriangle, Loader2, ChevronDown, ChevronRight } from 'lucide-react'
 import { ipc } from '../lib/ipc'
-import type { UpdateStatus } from '../lib/ipc'
+import { useUpdateStatus } from '../lib/useUpdateStatus'
 
 export function UpdateBanner({ collapsed = false }: { collapsed?: boolean }) {
-  const [status, setStatus] = useState<UpdateStatus | null>(null)
+  const status = useUpdateStatus()
   const [dismissed, setDismissed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [notesOpen, setNotesOpen] = useState(false)
 
   useEffect(() => {
-    const off = ipc.updates.onStatus((s) => {
-      if (s.state === 'available' || s.state === 'downloaded') setDismissed(false)
-      setStatus(s)
-    })
-    return off
-  }, [])
+    if (status?.state === 'available' || status?.state === 'downloaded') setDismissed(false)
+  }, [status])
 
   if (dismissed || !status) return null
-  if (status.state === 'checking' || status.state === 'not-available') return null
+  if (status.state === 'idle' || status.state === 'checking' || status.state === 'not-available') return null
 
   async function download() {
     setBusy(true)
@@ -27,6 +23,11 @@ export function UpdateBanner({ collapsed = false }: { collapsed?: boolean }) {
   async function install() {
     setBusy(true)
     try { await ipc.updates.install() } finally { setBusy(false) }
+  }
+  async function retry() {
+    setDismissed(false)
+    setBusy(true)
+    try { await ipc.updates.check() } finally { setBusy(false) }
   }
 
   // Collapsed Mode (Icon only)
@@ -157,6 +158,13 @@ export function UpdateBanner({ collapsed = false }: { collapsed?: boolean }) {
       <p className="text-2xs text-text-muted leading-tight break-words">
         {status.message}
       </p>
+      <button
+        onClick={retry}
+        disabled={busy}
+        className="w-full flex items-center justify-center gap-1.5 py-1.5 bg-bg-hover text-text-primary rounded-md text-xs font-medium hover:bg-bg-primary transition-colors disabled:opacity-60"
+      >
+        <RefreshCw size={12} className={busy ? 'animate-spin' : ''} /> Check again
+      </button>
     </div>
   )
 }
