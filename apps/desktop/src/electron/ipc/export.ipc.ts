@@ -29,8 +29,14 @@ import fs from 'fs'
 import path from 'path'
 import os from 'os'
 import { exportSource, readInlined } from './asset_inline.js'
-import { bundle } from '@remotion/bundler'
-import { renderMedia, selectComposition } from '@remotion/renderer'
+
+async function loadRemotionRuntime() {
+  const [{ bundle }, { renderMedia, selectComposition }] = await Promise.all([
+    import('@remotion/bundler'),
+    import('@remotion/renderer'),
+  ])
+  return { bundle, renderMedia, selectComposition }
+}
 
 function writeTempHtml(html: string): string {
   const tmpPath = path.join(os.tmpdir(), `cowr_exp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.html`)
@@ -826,6 +832,10 @@ registerRoot(Root);
 `, 'utf-8')
 
     try {
+      // Remotion is a large, export-only runtime. Loading it lazily keeps a
+      // damaged optional export dependency from crashing the whole app during
+      // main-process startup.
+      const { bundle, renderMedia, selectComposition } = await loadRemotionRuntime()
       const serveUrl = await bundle({
         entryPoint,
         rootDir: projectRoot,

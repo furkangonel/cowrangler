@@ -6,6 +6,19 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [2.2.2] — 2026-09-11
+
+### Fixed
+
+- Remotion's export-only runtime now loads on demand, so a missing video export
+  dependency can no longer crash the entire Electron main process at startup.
+- Packaged-app validation now normalizes Windows archive paths, allowing the
+  cross-platform release workflow to complete while still rejecting genuinely
+  incomplete installers.
+- The release version was advanced because the published 2.2.1 macOS assets
+  predated the packaged-runtime fix and cannot be safely replaced in place for
+  users or auto-update caches.
+
 ## [2.2.1] — 2026-09-07
 
 ### Added — frame-perfect Remotion video workflow
