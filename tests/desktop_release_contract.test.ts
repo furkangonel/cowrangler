@@ -1,10 +1,12 @@
 import fs from 'node:fs'
+import { createRequire } from 'node:module'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const root = path.resolve(__dirname, '..')
 const read = (relative: string) => fs.readFileSync(path.join(root, relative), 'utf8')
 const json = (relative: string) => JSON.parse(read(relative))
+const require = createRequire(import.meta.url)
 
 describe('desktop package contract', () => {
   const rootPackage = json('package.json')
@@ -22,6 +24,19 @@ describe('desktop package contract', () => {
   it('runs packaged-app validation before creating installers', () => {
     expect(rootPackage.build.afterPack).toBe('scripts/validate-packaged-app.cjs')
     expect(read('scripts/validate-packaged-app.cjs')).toContain('/node_modules/@remotion/bundler/package.json')
+  })
+
+  it('normalizes Windows asar paths before validating package contents', () => {
+    const validator = require('../scripts/validate-packaged-app.cjs')
+    expect(validator.normalizeArchiveEntry('\\node_modules\\@remotion\\bundler\\package.json'))
+      .toBe('/node_modules/@remotion/bundler/package.json')
+  })
+
+  it('loads Remotion only when a video export is requested', () => {
+    const exportIpc = read('apps/desktop/src/electron/ipc/export.ipc.ts')
+    expect(exportIpc).not.toMatch(/^import .* from ['"]@remotion\/(bundler|renderer)['"]/m)
+    expect(exportIpc).toContain("import('@remotion/bundler')")
+    expect(exportIpc).toContain("import('@remotion/renderer')")
   })
 })
 

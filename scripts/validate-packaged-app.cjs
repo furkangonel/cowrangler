@@ -2,6 +2,13 @@ const fs = require('node:fs')
 const path = require('node:path')
 const asar = require('@electron/asar')
 
+// @electron/asar returns archive entries with the host OS path separator.
+// Keep the contract POSIX-shaped so the same validation works on Windows,
+// macOS and Linux runners.
+function normalizeArchiveEntry(entry) {
+  return entry.replace(/\\/g, '/')
+}
+
 // electron-builder afterPack hook. Fail the build before a DMG/installer can be
 // published when a dependency intentionally externalized from the Electron main
 // bundle was not copied into app.asar.
@@ -16,7 +23,7 @@ module.exports = async function validatePackagedApp(context) {
     throw new Error(`[package validation] app.asar not found: ${archivePath}`)
   }
 
-  const entries = new Set(asar.listPackage(archivePath))
+  const entries = new Set(asar.listPackage(archivePath).map(normalizeArchiveEntry))
   const requiredEntries = [
     '/apps/desktop/out/main/index.js',
     '/package.json',
@@ -34,3 +41,5 @@ module.exports = async function validatePackagedApp(context) {
 
   console.log(`[package validation] app.asar contains all ${requiredEntries.length} required runtime files`)
 }
+
+module.exports.normalizeArchiveEntry = normalizeArchiveEntry
